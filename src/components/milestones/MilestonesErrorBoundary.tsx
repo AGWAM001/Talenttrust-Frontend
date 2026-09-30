@@ -27,7 +27,7 @@ export interface MilestonesErrorBoundaryProps {
 
 interface State {
   hasError: boolean;
-  retryKey: number;
+  retryKey?: number;
   error?: Error | null; // Add this line
 }
 
