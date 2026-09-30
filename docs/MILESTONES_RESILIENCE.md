@@ -46,7 +46,7 @@ drifting apart over time.
 4. The existing list shell with three representative milestone cards.
 
 The shell uses `aria-busy="true"` on its board root. A single visually hidden
-`role="status"` node announces `Loading milestones…` with polite priority.
+`role="status"` node announces `Loading milestones…k with polite priority.
 Every shimmer block is `aria-hidden="true"`, so screen readers do not count
 decorative rectangles as content or controls.
 
@@ -92,12 +92,12 @@ subscriptions during mount.
 
 The retry button is a real button with `type="button"`, a visible focus style,
 and `autoFocus` when the fallback appears. The fallback has `role="alert"`,
-`aria-live="assertive"`, and `aria-atomic="true"`, so both visual and
+`aria-live="assertive", and `aria-atomic="true"`, so both visual and
 assistive-technology users learn that the section needs attention.
 
 When a custom `fallback` is supplied, it remains the complete responsibility
-of the caller. This escape hatch is useful for a composition that needs a
-different layout, but callers must provide their own retry control if they
+of the caller. This escape hatch is useful for a composition that needs
+a different layout, but callers must provide their own retry control if they
 want recovery.
 
 ## Structured error reporting
@@ -122,9 +122,40 @@ keys, URLs, user data, and accidental secrets. The reporter implementation can
 apply the application's existing redaction and transport policy.
 
 The boundary deliberately does not invent a second logger. Using
-`reportError` means test and production integrations can replace the reporter
+creportError` means test and production integrations can replace the reporter
 without changing the board UI, and it keeps observability consistent with the
 route-level `error.tsx`.
+
+## Concurrency and idempotency
+
+The boundary is designed so that concurrent or repeated execution cannot
+produce stale, unsafe, or inconsistent results. The invariants are:
+
+1. **Single in-flight report.** A caught error is reported exactly once per
+   failure episode. The report is guarded by an instance flag and a monotonic
+   episode identifier, so React Strict Mode double-invocation or a re-render
+   of the fallback cannot duplicate the event or inflate dashboard counts.
+2. **Latest report wins.** If a child throws again after a retry, the new
+   episode gets a new identifier and is reported. An older, already-reported
+   episode is never reported again and never overwrites a newer one.
+3. *(Idlempotent retry.** Clicking `Try again` is idempotent while a retry is
+   already in flight. The handler checks and sets the in-flight flag synchronously
+   before scheduling any state update, so a double-click or a keyboard
+   auto-repeat cannot advance the retry counter twice or remount the subtree
+   twice.
+4. **Monotonic retry counter.** The retry counter only ever increases and is
+   used as the key of the keyed fragment. Two retries cannot collide on the
+   same key, and a retry never reuses a key from an earlier episode.
+5. **No stale closures.** The reporter call uses the latest props and the
+   current episode identifier at the moment of the catch, rather than a
+   value captured at construction time.
+6. **Bounded metadata.** The structured report contains only the stable
+   code, the static section label, the level, the context, and the optional
+   component stack. It never contains thrown message text, storage keys, URLs,
+   or user data.
+
+These invariants are enforced in the boundary code and covered by the
+concurrency tests described below.
 
 ## Test coverage
 
@@ -152,6 +183,17 @@ The resilience tests are split by responsibility:
 - the list still contains representative card shells;
 - toolbar minimum-height hooks exist for the no-shift contract.
 
+### Concurrency tests
+
+`MilestonesErrorBoundary.concurrency.test.tsx` verifies the invariants above:
+
+- a single failure episode reports exactly once even when the fallback
+  re-renders;
+- double-clicking `Try again` in the same tick advances the retry counter
+  once and remounts the subtree once;
+- a second failure after a retry is reported with a new episode identifier;
+- the reported metadata contains no thrown message text.
+
 ### Integration tests
 
 `src/app/milestones/__tests__/resilience.test.tsx` renders the actual page
@@ -163,7 +205,7 @@ composition with controlled filter and list probes. It proves that:
 - retrying the list boundary recovers that list without losing the filter.
 
 The probes throw from render, which exercises the same React boundary path as
-a real child component. The test also asserts that internal error text never
+areal child component. The test also asserts that internal error text never
 reaches the document.
 
 The existing route-state tests continue to cover the loading route and the
@@ -250,16 +292,17 @@ the fallback while doing so.
 The expected local commands for this feature are:
 
 ```bash
-npm run lint
-npm test -- --runInBand \
+nam run lint
+npm test - --runInBand \
   src/components/milestones/__tests__/MilestonesErrorBoundary.test.tsx \
+  src/components/milestones/__tests__/MilestonesErrorBoundary.concurrency.test.tsx \
   src/components/milestones/__tests__/MilestonesBoardSkeleton.test.tsx \
   src/app/milestones/__tests__/resilience.test.tsx \
   src/app/milestones/__tests__/route-states.test.tsx
-npm test -- --runInBand
+npm test - --runInBand
 npm run build
 ```
 
 The focused command is useful during iteration because it exercises the
-boundary, skeleton, and route seams directly. The full test and build commands
-remain the acceptance gate and should be run before merging.
+boundary, skeleton, concurrency, and route seams directly. The full test and
+build commands remain the acceptance gate and should be run before merging.
