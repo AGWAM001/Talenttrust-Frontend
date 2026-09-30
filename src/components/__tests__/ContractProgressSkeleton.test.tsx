@@ -1,3 +1,4 @@
+
 /**
  * ContractProgressSkeleton.test.tsx
  *
@@ -70,3 +71,4 @@ describe('ContractProgressSkeleton', () => {
     });
   });
 });
+
