@@ -28,6 +28,8 @@ export interface MilestonesErrorBoundaryProps {
 interface State {
   hasError: boolean;
   retryKey: number;
+  /** The last caught error, stored for diagnostics. Not rendered to the user. */
+  error?: Error;
 }
 
 /** Public error code used by dashboards and tests without exposing internals. */
@@ -72,7 +74,7 @@ export default class MilestonesErrorBoundary extends Component<
   // ------------------------------------------------------------------
 
   static getDerivedStateFromError(error: Error): State {
-    return { hasError: true, error };
+    return { hasError: true, retryKey: 0, error };
   }
 
   componentDidCatch(error: Error, info: React.ErrorInfo): void {
