@@ -705,11 +705,19 @@ export function listWalletItems(): WalletItem[] {
 /**
  * Appends a wallet item to the persisted list.
  *
+ * The write is additive — existing contracts and other records are preserved.
+ * Callers are responsible for ensuring `id` uniqueness; this helper never
+ * mutates the object it receives.
+ *
  * @param item - The `WalletItem` record to persist.
+ * @returns `true` when the write succeeded; `false` when `localStorage` is
+ *   unavailable (SSR) or the write threw (e.g. quota exceeded). Callers that
+ *   seed multiple items use this flag to keep the UI consistent with what was
+ *   actually persisted and to surface partial-failure diagnostics.
  */
-export function saveWalletItem(item: WalletItem): void {
+export function saveWalletItem(item: WalletItem): boolean {
   const store = readStore();
-  writeStore({ ...store, walletItems: [...store.walletItems, item] });
+  return writeStore({ ...store, walletItems: [...store.walletItems, item] });
 }
 
 /**
