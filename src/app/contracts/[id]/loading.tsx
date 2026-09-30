@@ -20,6 +20,7 @@
  *   globals.css project-wide rule and `motion-reduce:animate-none`.
  */
 
+import type { ReactElement } from 'react';
 import { ContractSummarySkeleton } from '@/components/ContractSummarySkeleton';
 import { ContractProgressSkeleton } from '@/components/ContractProgressSkeleton';
 import { MilestonesListSkeleton } from '@/components/MilestonesListSkeleton';
@@ -29,7 +30,7 @@ import { MilestonesListSkeleton } from '@/components/MilestonesListSkeleton';
 // ---------------------------------------------------------------------------
 
 /** Mirrors the header card with breadcrumb and back-link button. */
-const HeaderCardSkeleton = () => (
+const HeaderCardSkeleton = (): ReactElement => (
   <div
     aria-hidden="true"
     className="flex items-center justify-between gap-4 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"
@@ -43,7 +44,7 @@ const HeaderCardSkeleton = () => (
 );
 
 /** Mirrors the ActionPanel right-column card with 3 action buttons. */
-const ActionPanelSkeleton = () => (
+const ActionPanelSkeleton = (): ReactElement => (
   <div
     aria-hidden="true"
     className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm space-y-4"
@@ -64,7 +65,7 @@ const ActionPanelSkeleton = () => (
 // Route loading export
 // ---------------------------------------------------------------------------
 
-export default function ContractDetailLoading() {
+export default function ContractDetailLoading(): ReactElement {
   return (
     <main
       className="min-h-screen bg-slate-50 px-4 py-8 sm:px-6 lg:px-8"

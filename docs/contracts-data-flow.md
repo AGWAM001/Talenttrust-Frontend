@@ -54,11 +54,13 @@ flowchart TB
     B5 -.-> D1
     B12 -.-> D1
     B8 -.-> C1
+    B11 -.-> B14["State guard: assertContractTransition()"]
+    B14 -.-> B15["reject illegal transition + no write"]
 ```
 
 ## Flow Notes
 
-### Contracts List (`/contracts`)
+### Contracts List (/contracts)
 
 - **Fetch**: `listContracts()` (from `src/lib/repository.ts`) reads `talenttrust_app_data` from `localStorage`. SSR-safe — returns an empty array when `window` is undefined or the store is corrupt.
 - **Render**: Shows `EmptyState` when the list is empty, otherwise renders a card list with contract name, status, and creation date.
@@ -66,13 +68,24 @@ flowchart TB
 
 A secondary inline form (`CreateContractForm`, in `src/components/contracts/`) follows the same validation and persistence pattern but renders in-page instead of in a modal.
 
-### Contract Detail (`/contracts/[id]`)
+### Contract Detail (/contracts/[id])
 
 - **Route validation**: `isValidContractId(id)` (from `src/lib/validateContractId.ts`) guards the route — rejects empty, oversized, or special-character IDs by calling Next.js `notFound()`.
 - **Fetch**: Two sources — `resolveContractData(id)` (async, from `src/lib/contractResolver.ts`, a typed mock that returns `ContractData`) and `listMilestonesByContract(id)` (sync, from the repository).
 - **Transform**: `mergeContractMilestones()` de-duplicates by milestone `id`, with persisted records taking precedence over resolver records. `buildPersistedContract()` narrows `ContractData` into the repository `Contract` shape for status writes.
 - **Render**: Left column — `ContractSummary` (metadata, parties), `ContractProgress` (escrow bar + fund cards), `MilestonesList` (scrollable roster). Right column — `ActionPanel` (context-aware buttons). Each component is wrapped in `SafeBoundary` for render-error isolation. Skeleton placeholders display during loading.
 - **State updates**: `persistContractStatus()` writes status transitions (Complete/Dispute) to the repository via `upsertContract()`, updates local state optimistically, and surfaces a toast. `ContractStatusAnnouncer` (with `aria-live`) announces transitions to screen readers.
+
+### State Invariants
+
+The contract detail route owns a small, explicit state machine. The invariants below are enforced in code and covered by focused tests.
+
+- **Allowed transitions**: `Pending -> Active`, `Active -> Complete`, `Active -> Disputed. Any other transition (e.g. `Complete -> Disputed`, `Disputed -> Complete`, `Complete -> Complete`) must be rejected.
+- *(Terminal states**: `Complete` and `Disputed` are terminal. Once entered, no further transition is permitted.
+- **Atomicity**: A rejected transition must not write to the repository and must not mutate local state. The guard check runs before any persistence or optimistic update.
+- **Concurrency**: Repeated or concurrent invocations of the same transition are idempotent — the second invocation is a no-op rather than a duplicate write or an error.
+- **Data integrity**: The persisted contract record must retain its `id`, `milestoneCount`, and ownership fields across every transition. Only the `status` field is allowed to change.
+- **Authorization**: Only the contract's authorized parties may initiate Release or Dispute. Unauthorized attempts fail closed with a user-visible error and are logged without exposing sensitive fields.
 
 ### Shared Derived State
 
