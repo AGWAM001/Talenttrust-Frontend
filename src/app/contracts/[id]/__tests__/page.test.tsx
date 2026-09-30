@@ -4,6 +4,7 @@ import * as contractResolver from '@/lib/contractResolver';
 import { upsertContract, listMilestonesByContract, updateMilestone } from '@/lib/repository';
 import { useWallet } from '@/contexts/WalletContext';
 import { ToastProvider } from '@/components/toast/toast-provider';
+import { getCachedContractData } from '@/lib/contractCache';
 import userEvent from '@testing-library/user-event';
 
 /**
@@ -96,6 +97,17 @@ const contractData: contractResolver.ContractData = {
 
 const BASE_CONTRACT = contractData;
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+
+  return { promise, resolve, reject };
+}
+
 async function renderPage(id = '123') {
   let result: ReturnType<typeof render>;
   await act(async () => {
@@ -165,6 +177,73 @@ describe('ContractDetailPage', () => {
     expect(within(getContractSummarySection()).getByLabelText('Status: Active')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /submit milestone for approval/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /copy contract id to clipboard/i })).toBeInTheDocument();
+  });
+
+  it('ignores a previous path resolution that succeeds after navigation', async () => {
+    const previousRequest = deferred<contractResolver.ContractData>();
+    const currentRequest = deferred<contractResolver.ContractData>();
+    mockedResolveContractData.mockImplementation((id) =>
+      id === 'race-old' ? previousRequest.promise : currentRequest.promise,
+    );
+
+    const view = await renderPage('race-old');
+    await act(async () => {
+      view.rerender(
+        <ToastProvider>
+          <ContractDetailPage params={Promise.resolve({ id: 'race-current' })} />
+        </ToastProvider>,
+      );
+    });
+
+    await act(async () => {
+      currentRequest.resolve({
+        ...contractData,
+        id: 'race-current',
+        name: 'Current path contract',
+      });
+    });
+    expect(await screen.findByText('Current path contract')).toBeInTheDocument();
+
+    await act(async () => {
+      previousRequest.resolve({
+        ...contractData,
+        id: 'race-old',
+        name: 'Stale path contract',
+      });
+    });
+
+    expect(screen.getByText('Current path contract')).toBeInTheDocument();
+    expect(screen.queryByText('Stale path contract')).not.toBeInTheDocument();
+    expect(getCachedContractData('race-old').success).toBe(false);
+  });
+
+  it('does not surface a previous path rejection after a newer load succeeds', async () => {
+    const previousRequest = deferred<contractResolver.ContractData>();
+    const currentRequest = deferred<contractResolver.ContractData>();
+    mockedResolveContractData.mockImplementation((id) =>
+      id === 'failure-old' ? previousRequest.promise : currentRequest.promise,
+    );
+
+    const view = await renderPage('failure-old');
+    await act(async () => {
+      view.rerender(
+        <ToastProvider>
+          <ContractDetailPage params={Promise.resolve({ id: 'failure-current' })} />
+        </ToastProvider>,
+      );
+    });
+
+    await act(async () => {
+      currentRequest.resolve({ ...contractData, id: 'failure-current' });
+    });
+    expect(await screen.findByText(contractData.name)).toBeInTheDocument();
+
+    await act(async () => {
+      previousRequest.reject(new Error('Previous path request failed'));
+    });
+
+    expect(screen.queryByText('Previous path request failed')).not.toBeInTheDocument();
+    expect(screen.getByText(contractData.name)).toBeInTheDocument();
   });
 
   it('copies the contract id to the clipboard and shows a success toast', async () => {

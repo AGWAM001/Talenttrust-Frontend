@@ -66,7 +66,6 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
   const [isUsingCachedData, setIsUsingCachedData] = useState(false);
   const [cachedAt, setCachedAt] = useState<string | undefined>(undefined);
   const [isDataStale, setIsDataStale] = useState(false);
-  const isMountedRef = useRef(true);
   const milestonesRef = useRef(milestones);
   milestonesRef.current = milestones;
   const { showError, showSuccess } = useToast();
@@ -190,7 +189,7 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
   );
 
   useEffect(() => {
-    isMountedRef.current = true;
+    let isCurrentRequest = true;
 
     const loadContract = async () => {
       try {
@@ -201,7 +200,7 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
         if (!isOnline) {
           const cachedResult = getCachedContractData(id);
           if (cachedResult.success && cachedResult.data) {
-            if (isMountedRef.current) {
+            if (isCurrentRequest) {
               setContractData(cachedResult.data);
               setMilestones(mergeContractMilestones(cachedResult.data.milestones, id));
               setIsUsingCachedData(true);
@@ -212,7 +211,7 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
             return;
           }
           // No cache available when offline - show error
-          if (isMountedRef.current) {
+          if (isCurrentRequest) {
             setErrorMessage(
               'You are offline and this contract has not been loaded before. Please connect to the internet and try again.',
             );
@@ -224,7 +223,7 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
         // Online - load fresh data
         const data = await resolveContractData(id);
 
-        if (isMountedRef.current) {
+        if (isCurrentRequest) {
           setContractData(data);
           setMilestones(mergeContractMilestones(data.milestones, id));
           setIsUsingCachedData(false);
@@ -235,10 +234,12 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
           cacheContractData(id, data);
         }
       } catch (error) {
+        if (!isCurrentRequest) return;
+
         // On error, try to fall back to cache
         const cachedResult = getCachedContractData(id);
         if (cachedResult.success && cachedResult.data) {
-          if (isMountedRef.current) {
+          if (isCurrentRequest) {
             setContractData(cachedResult.data);
             setMilestones(mergeContractMilestones(cachedResult.data.milestones, id));
             setIsUsingCachedData(true);
@@ -248,7 +249,7 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
               'Unable to load fresh data. Showing cached version which may be outdated.',
             );
           }
-        } else if (isMountedRef.current) {
+        } else if (isCurrentRequest) {
           setErrorMessage(
             error instanceof Error
               ? error.message
@@ -256,7 +257,7 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
           );
         }
       } finally {
-        if (isMountedRef.current) {
+        if (isCurrentRequest) {
           setIsLoading(false);
         }
       }
@@ -265,7 +266,8 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
     loadContract();
 
     return () => {
-      isMountedRef.current = false;
+      // A completion may update UI/cache only while its path and online state are active.
+      isCurrentRequest = false;
     };
   }, [id, isOnline]);
 
@@ -449,7 +451,7 @@ const ContractDetailPage = ({ params }: ContractDetailPageProps) => {
     notFound();
   }
 
-  return <ContractDetailPageContent id={id} />;
+  return <ContractDetailPageContent key={id} id={id} />;
 };
 
 export default ContractDetailPage;
