@@ -55,6 +55,7 @@ describe('ContractsList', () => {
 
       const { container } = render(<ContractsList contracts={contracts} />);
 
+      // Default density is 'comfortable' → space-y-4
       const ul = container.querySelector('ul');
       expect(ul).toHaveClass('space-y-4');
     });

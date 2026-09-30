@@ -1,7 +1,8 @@
 import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import WalletPage, { SAMPLE_WALLET_ITEMS } from '../page';
-import { listWalletItems, saveWalletItem, deleteWalletItems } from '@/lib/repository';
+import WalletPage from '../page';
+import { SAMPLE_WALLET_ITEMS } from '../constants';
+import { listWalletItems, saveWalletItem, updateWalletItem, deleteWalletItems } from '@/lib/repository';
 import { ToastProvider } from '@/components/toast/toast-provider';
 import { PreferencesProvider } from '@/lib/preferences';
 
@@ -9,11 +10,13 @@ import { PreferencesProvider } from '@/lib/preferences';
 jest.mock('@/lib/repository', () => ({
   listWalletItems: jest.fn(),
   saveWalletItem: jest.fn(),
+  updateWalletItem: jest.fn(),
   deleteWalletItems: jest.fn(),
 }));
 
 const mockListWalletItems = jest.mocked(listWalletItems);
 const mockSaveWalletItem = jest.mocked(saveWalletItem);
+const mockUpdateWalletItem = jest.mocked(updateWalletItem);
 const mockDeleteWalletItems = jest.mocked(deleteWalletItems);
 
 const renderWithProviders = (ui: React.ReactElement) => {
@@ -194,5 +197,74 @@ describe('WalletPage Integration & Bulk Selection', () => {
     fireEvent.click(confirmBtn);
 
     expect(mockDeleteWalletItems).toHaveBeenCalledWith(['w-1']);
+  });
+
+  describe('inline editing', () => {
+    it('enters edit mode when edit button is clicked', () => {
+      mockListWalletItems.mockReturnValue(SAMPLE_WALLET_ITEMS);
+      renderWithProviders(<WalletPage />);
+
+      fireEvent.click(screen.getByTestId('edit-item-btn-w-1'));
+
+      expect(screen.getByTestId('edit-name-input-w-1')).toBeInTheDocument();
+      expect(screen.getByTestId('save-edit-btn-w-1')).toBeInTheDocument();
+      expect(screen.getByTestId('cancel-edit-btn-w-1')).toBeInTheDocument();
+      expect(screen.queryByTestId('edit-name-input-w-2')).not.toBeInTheDocument();
+    });
+
+    it('exits edit mode and shows success toast when save succeeds', async () => {
+      mockListWalletItems.mockReturnValue(SAMPLE_WALLET_ITEMS);
+      mockUpdateWalletItem.mockReturnValue(true);
+      renderWithProviders(<WalletPage />);
+
+      fireEvent.click(screen.getByTestId('edit-item-btn-w-1'));
+      fireEvent.change(screen.getByTestId('edit-name-input-w-1'), { target: { value: 'Updated Name' } });
+      fireEvent.click(screen.getByTestId('save-edit-btn-w-1'));
+
+      expect(mockUpdateWalletItem).toHaveBeenCalledWith('w-1', expect.objectContaining({ name: 'Updated Name' }));
+      await waitFor(() => {
+        expect(screen.getByText('Item updated')).toBeInTheDocument();
+      });
+      expect(screen.queryByTestId('edit-name-input-w-1')).not.toBeInTheDocument();
+    });
+
+    it('shows error toast when save fails', async () => {
+      mockListWalletItems.mockReturnValue(SAMPLE_WALLET_ITEMS);
+      mockUpdateWalletItem.mockReturnValue(false);
+      renderWithProviders(<WalletPage />);
+
+      fireEvent.click(screen.getByTestId('edit-item-btn-w-1'));
+      fireEvent.change(screen.getByTestId('edit-name-input-w-1'), { target: { value: 'Updated Name' } });
+      fireEvent.click(screen.getByTestId('save-edit-btn-w-1'));
+
+      await waitFor(() => {
+        expect(screen.getByText('Update failed')).toBeInTheDocument();
+      });
+    });
+
+    it('exits edit mode without saving when cancel is clicked', () => {
+      mockListWalletItems.mockReturnValue(SAMPLE_WALLET_ITEMS);
+      renderWithProviders(<WalletPage />);
+
+      fireEvent.click(screen.getByTestId('edit-item-btn-w-1'));
+      expect(screen.getByTestId('edit-name-input-w-1')).toBeInTheDocument();
+
+      fireEvent.click(screen.getByTestId('cancel-edit-btn-w-1'));
+      expect(mockUpdateWalletItem).not.toHaveBeenCalled();
+      expect(screen.queryByTestId('edit-name-input-w-1')).not.toBeInTheDocument();
+    });
+
+    it('blocks save when validation fails', () => {
+      mockListWalletItems.mockReturnValue(SAMPLE_WALLET_ITEMS);
+      mockUpdateWalletItem.mockReturnValue(true);
+      renderWithProviders(<WalletPage />);
+
+      fireEvent.click(screen.getByTestId('edit-item-btn-w-1'));
+      fireEvent.change(screen.getByTestId('edit-name-input-w-1'), { target: { value: '' } });
+      fireEvent.click(screen.getByTestId('save-edit-btn-w-1'));
+
+      expect(mockUpdateWalletItem).not.toHaveBeenCalled();
+      expect(screen.getByTestId('edit-error-w-1')).toHaveTextContent('Name is required.');
+    });
   });
 });

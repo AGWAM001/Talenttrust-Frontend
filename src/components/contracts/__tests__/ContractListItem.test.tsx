@@ -10,12 +10,22 @@ function makeContract(overrides: Partial<Contract> = {}): Contract {
     currency: 'USD',
     status: 'Active',
     createdAt: '2025-01-01',
+    updatedAt: '2025-01-01T00:00:00.000Z',
     milestoneCount: 3,
     ...overrides,
   };
 }
 
 describe('ContractListItem', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2025-01-01T12:00:00.000Z'));
+  });
+
+  afterEach(() => {
+    jest.runOnlyPendingTimers();
+    jest.useRealTimers();
+  });
   describe('rendering', () => {
     it('renders contract name and metadata', () => {
       const contract = makeContract({
@@ -39,6 +49,7 @@ describe('ContractListItem', () => {
       expect(li).toHaveClass('border');
       expect(li).toHaveClass('border-slate-200');
       expect(li).toHaveClass('bg-white');
+      // Default density is 'comfortable' → p-4
       expect(li).toHaveClass('p-4');
       expect(li).toHaveClass('shadow-sm');
     });
@@ -216,6 +227,49 @@ describe('ContractListItem', () => {
 
         expect(getByText(new RegExp(date))).toBeInTheDocument();
       }
+    });
+
+    it('shows relative last-updated timestamp when updatedAt is provided', () => {
+      const contract = makeContract({
+        updatedAt: '2025-01-01T11:55:00.000Z',
+      });
+
+      const { getByText } = render(<ContractListItem contract={contract} index={0} />);
+
+      expect(getByText(/Updated/)).toBeInTheDocument();
+    });
+
+    it('does not show last-updated when updatedAt is absent', () => {
+      const contract = makeContract({ updatedAt: undefined });
+
+      const { queryByText } = render(<ContractListItem contract={contract} index={0} />);
+
+      expect(queryByText(/Updated/)).not.toBeInTheDocument();
+    });
+
+    it('re-renders when updatedAt changes', () => {
+      const contract1 = makeContract({
+        contractName: 'Same Name',
+        status: 'Active',
+        createdAt: '2025-01-01',
+        updatedAt: '2025-01-01T10:00:00.000Z',
+      });
+      const contract2 = makeContract({
+        contractName: 'Same Name',
+        status: 'Active',
+        createdAt: '2025-01-01',
+        updatedAt: '2025-01-01T11:00:00.000Z',
+      });
+
+      const { rerender, getByText } = render(
+        <ContractListItem contract={contract1} index={0} />
+      );
+
+      expect(getByText('Active · Created 2025-01-01')).toBeInTheDocument();
+
+      rerender(<ContractListItem contract={contract2} index={0} />);
+
+      expect(getByText('Active · Created 2025-01-01')).toBeInTheDocument();
     });
   });
 });

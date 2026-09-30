@@ -25,7 +25,7 @@
  *   given prefix; iterates a frozen key snapshot to avoid index-shift bugs.
  */
 
-import type { Contract, WalletItem } from '@/types/domain';
+import type { Contract, WalletItem, ReputationEvent } from '@/types/domain';
 import type { Milestone } from '@/components/MilestonesList';
 import { reportError } from './errorReporter';
 
@@ -40,9 +40,10 @@ interface AppData {
   contracts: Contract[];
   milestones: Milestone[];
   walletItems: WalletItem[];
+  reputationEvents: ReputationEvent[];
 }
 
-const EMPTY_DATA: AppData = { contracts: [], milestones: [], walletItems: [] };
+const EMPTY_DATA: AppData = { contracts: [], milestones: [], walletItems: [], reputationEvents: [] };
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -84,6 +85,7 @@ function readStore(): AppData {
       contracts: Array.isArray(parsed.contracts) ? parsed.contracts : [],
       milestones: Array.isArray(parsed.milestones) ? parsed.milestones : [],
       walletItems: Array.isArray(parsed.walletItems) ? parsed.walletItems : [],
+      reputationEvents: Array.isArray(parsed.reputationEvents) ? parsed.reputationEvents : [],
     };
   } catch (err) {
     reportError(err, '[repository] Failed to read from localStorage. Falling back to empty state.');
@@ -393,6 +395,101 @@ export function saveMilestone(milestone: Milestone): boolean {
 }
 
 /**
+ * Returns the current persistence-layer version for the milestone matching
+ * `id`, or `0` if the milestone has never been persisted or does not carry
+ * a version field.
+ *
+ * Callers use this to build a `Milestone` object with the correct base
+ * version before calling {@link upsertMilestone}, ensuring the stale-overwrite
+ * guard compares against the right baseline.
+ *
+ * @param id - The unique identifier of the milestone to look up.
+ * @returns The stored version number (`0` if not found).
+ */
+export function getMilestoneVersion(id: string): number {
+  const store = readStore();
+  const existing = store.milestones.find((m) => m.id === id);
+  return existing?.version ?? 0;
+}
+
+/**
+ * Result returned by {@link upsertMilestone}.
+ */
+export type MilestoneUpsertResult = {
+  /** Whether the write succeeded. */
+  success: boolean;
+  /** When `true`, the write was rejected because a newer version of the same
+   *  milestone was already persisted. Callers should roll back any optimistic
+   *  UI update and surface a clear message. */
+  stale: boolean;
+};
+
+/**
+ * Replaces an existing milestone that shares the same `id`, or appends the
+ * milestone when no persisted match exists yet.
+ *
+ * The helper returns a result object so calling UI code can distinguish between
+ * a plain persistence failure and a stale-overwrite rejection, allowing it to
+ * surface a more specific message and roll back optimistic updates.
+ *
+ * **Stale-overwrite guard**
+ *
+ * Every milestone carries an internal `version` field that starts at `1` for
+ * new milestones and increments on each successful upsert. Before writing, the
+ * function compares the incoming milestone's version against the currently stored
+ * version. If the stored version is higher, the write is rejected with
+ * `{ success: false, stale: true }` — this prevents one tab from silently
+ * overwriting a change made in another tab.
+ *
+ * @param milestone - The full `Milestone` object to insert or replace.
+ * @returns A `MilestoneUpsertResult` with `success` indicating whether the write
+ *   completed, and `stale` indicating a stale-overwrite rejection.
+ *
+ * @example
+ * ```ts
+ * const { success, stale } = upsertMilestone({
+ *   id: 'ms-1',
+ *   title: 'Project Kickoff',
+ *   status: 'Completed',
+ *   payout: 2500,
+ *   currency: 'USD',
+ * });
+ * if (!success && stale) {
+ *   // Optimistic update was rolled back — another tab modified this milestone.
+ * }
+ * ```
+ */
+export function upsertMilestone(milestone: Milestone): MilestoneUpsertResult {
+  const store = readStore();
+  const existingIndex = store.milestones.findIndex(
+    (existingMilestone) => existingMilestone.id === milestone.id,
+  );
+
+  if (existingIndex !== -1) {
+    const existing = store.milestones[existingIndex];
+    const existingVersion = existing.version ?? 0;
+    const incomingVersion = milestone.version ?? 0;
+
+    if (incomingVersion < existingVersion) {
+      return { success: false, stale: true };
+    }
+  }
+
+  const nextVersion = (milestone.version ?? 0) + 1;
+  const updatedMilestone: Milestone = { ...milestone, version: nextVersion };
+
+  const milestones =
+    existingIndex === -1
+      ? [...store.milestones, updatedMilestone]
+      : store.milestones.map((existingMilestone, index) =>
+          index === existingIndex ? updatedMilestone : existingMilestone,
+        );
+
+  const ok = writeStore({ ...store, milestones });
+  return { success: ok, stale: false };
+}
+
+/**
  * Updates an existing milestone identified by `id` with the provided `patch`.
  *
  * The operation is pure – it does not mutate the original milestone objects
@@ -519,6 +616,80 @@ export function exportMilestones(milestones: Milestone[]): string {
 }
 
 // ---------------------------------------------------------------------------
+// Public API — Reputation Events
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns all persisted reputation events.
+ */
+export function listReputationEvents(): ReputationEvent[] {
+  return readStore().reputationEvents;
+}
+
+/**
+ * Returns the current persistence-layer version for the reputation event matching
+ * `id`, or `0` if it has never been persisted.
+ */
+export function getReputationEventVersion(id: string): number {
+  const store = readStore();
+  const existing = store.reputationEvents.find((e) => e.id === id);
+  return existing?.version ?? 0;
+}
+
+/**
+ * Replaces an existing reputation event that shares the same `id`, or appends it.
+ * Rejects with `stale: true` if an older version is written over a newer one.
+ */
+export function upsertReputationEvent(event: ReputationEvent): UpsertResult {
+  const store = readStore();
+  const existingIndex = store.reputationEvents.findIndex(
+    (existingEvent) => existingEvent.id === event.id,
+  );
+
+  if (existingIndex !== -1) {
+    const existing = store.reputationEvents[existingIndex];
+    const existingVersion = existing.version ?? 0;
+    const incomingVersion = event.version ?? 0;
+
+    if (incomingVersion < existingVersion) {
+      return { success: false, stale: true };
+    }
+  }
+
+  const nextVersion = (event.version ?? 0) + 1;
+  const updatedEvent: ReputationEvent = { ...event, version: nextVersion };
+
+  const reputationEvents =
+    existingIndex === -1
+      ? [...store.reputationEvents, updatedEvent]
+      : store.reputationEvents.map((existingEvent, index) =>
+          index === existingIndex ? updatedEvent : existingEvent,
+        );
+
+  const ok = writeStore({ ...store, reputationEvents });
+  return { success: ok, stale: false };
+}
+
+/**
+ * Deletes multiple reputation events identified by an array of ids.
+ */
+export function deleteReputationEvents(ids: string[]): number {
+  if (!Array.isArray(ids) || ids.length === 0) return 0;
+
+  const store = readStore();
+  const idSet = new Set(ids);
+  const before = store.reputationEvents.length;
+  const remaining = store.reputationEvents.filter((e) => !idSet.has(e.id));
+  const removed = before - remaining.length;
+
+  if (removed > 0) {
+    writeStore({ ...store, reputationEvents: remaining });
+  }
+
+  return removed;
+}
+
+// ---------------------------------------------------------------------------
 // Public API — Wallet Items
 // ---------------------------------------------------------------------------
 
@@ -539,6 +710,30 @@ export function listWalletItems(): WalletItem[] {
 export function saveWalletItem(item: WalletItem): void {
   const store = readStore();
   writeStore({ ...store, walletItems: [...store.walletItems, item] });
+}
+
+/**
+ * Updates a wallet item identified by `id` with the provided `patch`.
+ *
+ * @param id - The unique identifier of the wallet item to update.
+ * @param patch - A partial `WalletItem` object with the fields to merge.
+ * @returns `true` when the update is persisted successfully; `false` if the
+ *   id was not found or the write failed.
+ */
+export function updateWalletItem(id: string, patch: Partial<WalletItem>): boolean {
+  const store = readStore();
+  const index = store.walletItems.findIndex((item) => item.id === id);
+
+  if (index === -1) {
+    console.warn(`[repository] updateWalletItem: No wallet item found with id '${id}'.`);
+    return false;
+  }
+
+  const updatedWalletItems = store.walletItems.map((item, i) =>
+    i === index ? { ...item, ...patch } : item,
+  );
+
+  return writeStore({ ...store, walletItems: updatedWalletItems });
 }
 
 /**

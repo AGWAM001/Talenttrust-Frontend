@@ -15,6 +15,7 @@
 
 import React from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import '@testing-library/jest-dom';
 import { WalletAddressInput } from '../WalletAddressInput';
 import { assertNoA11yViolations } from '@/test-utils/a11y';
@@ -551,7 +552,171 @@ describe('WalletAddressInput – edge cases', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 9. Accessibility — jest-axe audits
+// 9. Keyboard operation — Enter key triggers blur / normalization
+// ---------------------------------------------------------------------------
+
+describe('WalletAddressInput – keyboard operation', () => {
+  it('blur event normalizes address (Tab key to move focus away)', async () => {
+    const onChange = jest.fn();
+    const user = userEvent.setup();
+    render(
+      <div>
+        <WalletAddressInput
+          id="wallet-address"
+          label="Wallet address"
+          value={VALID_ADDRESS_LOWERCASE}
+          onChange={onChange}
+          required
+        />
+        <button data-testid="next-focusable">Next</button>
+      </div>
+    );
+
+    const input = screen.getByLabelText(/wallet address/i);
+    input.focus();
+
+    // Tab to move focus away → triggers blur → normalizes
+    await user.tab();
+
+    expect(onChange).toHaveBeenCalledWith(VALID_ADDRESS);
+  });
+
+  it('Tab away from empty required field triggers validation', async () => {
+    const user = userEvent.setup();
+    render(
+      <div>
+        <WalletAddressInput
+          id="wallet-address"
+          label="Wallet address"
+          value=""
+          onChange={jest.fn()}
+          required
+        />
+        <button data-testid="next-focusable">Next</button>
+      </div>
+    );
+
+    const input = screen.getByLabelText(/wallet address/i);
+    input.focus();
+
+    await user.tab();
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Wallet address is required');
+  });
+
+  it('Tab away from invalid input triggers format validation', async () => {
+    const user = userEvent.setup();
+    render(
+      <div>
+        <WalletAddressInput
+          id="wallet-address"
+          label="Wallet address"
+          value={INVALID_TOO_SHORT}
+          onChange={jest.fn()}
+          required
+        />
+        <button data-testid="next-focusable">Next</button>
+      </div>
+    );
+
+    const input = screen.getByLabelText(/wallet address/i);
+    input.focus();
+
+    await user.tab();
+
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Wallet address must be a valid Stellar G... address'
+    );
+  });
+
+  it('Tab away from valid input shows no error', async () => {
+    const user = userEvent.setup();
+    render(
+      <div>
+        <WalletAddressInput
+          id="wallet-address"
+          label="Wallet address"
+          value={VALID_ADDRESS}
+          onChange={jest.fn()}
+          required
+        />
+        <button data-testid="next-focusable">Next</button>
+      </div>
+    );
+
+    const input = screen.getByLabelText(/wallet address/i);
+    input.focus();
+
+    await user.tab();
+
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('blur respects parent error when present', async () => {
+    const user = userEvent.setup();
+    render(
+      <div>
+        <WalletAddressInput
+          id="wallet-address"
+          label="Wallet address"
+          value={VALID_ADDRESS}
+          onChange={jest.fn()}
+          error="Submit error: fix this address"
+          required
+        />
+        <button data-testid="next-focusable">Next</button>
+      </div>
+    );
+
+    const input = screen.getByLabelText(/wallet address/i);
+    input.focus();
+
+    await user.tab();
+
+    // Parent error persists even after valid blur
+    expect(screen.getByRole('alert')).toHaveTextContent('Submit error: fix this address');
+  });
+
+  it('input is reachable by Tab', async () => {
+    const user = userEvent.setup();
+    render(
+      <div>
+        <button data-testid="before">Before</button>
+        <WalletAddressInput
+          id="wallet-address"
+          label="Wallet address"
+          value=""
+          onChange={jest.fn()}
+          required
+        />
+      </div>
+    );
+
+    await user.tab();
+    expect(screen.getByTestId('before')).toHaveFocus();
+
+    await user.tab();
+    expect(screen.getByLabelText(/wallet address/i)).toHaveFocus();
+  });
+
+  it('input carries visible focus-ring classes', () => {
+    render(
+      <WalletAddressInput
+        id="wallet-address"
+        label="Wallet address"
+        value=""
+        onChange={jest.fn()}
+      />
+    );
+
+    const input = screen.getByLabelText(/wallet address/i);
+    expect(input.className).toMatch(/focus:outline-none/);
+    expect(input.className).toMatch(/focus:ring-2/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 10. Accessibility — jest-axe audits
 // ---------------------------------------------------------------------------
 
 describe('WalletAddressInput – jest-axe audits', () => {

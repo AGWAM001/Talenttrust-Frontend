@@ -691,6 +691,10 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 
       const focusable = Array.from(
         viewport.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTORS),
+      ).filter(
+        (el) =>
+          el.getAttribute('role') !== 'status' &&
+          el.getAttribute('role') !== 'alert',
       );
       if (focusable.length === 0) return;
 

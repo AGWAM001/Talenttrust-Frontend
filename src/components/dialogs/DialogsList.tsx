@@ -15,17 +15,129 @@
  *
  * Both controls are keyboard-operable and labelled for assistive technology.
  * An empty-view export guard disables the buttons when there is nothing to export.
+ *
+ * Each list item exposes an icon-only "Copy ID" button with a descriptive
+ * aria-label so keyboard and assistive-technology users can copy the dialog ID
+ * without having to select the code element manually. The button uses the
+ * Clipboard API with a documented execCommand fallback and surfaces feedback
+ * through the global toast system.
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useCallback, useState, useMemo } from 'react';
 import {
   type DialogRecord,
   type DialogStatus,
   downloadDialogsCsv,
   downloadDialogsJson,
 } from '@/lib/exportDialogs';
+import { useCopyToClipboard } from '@/hooks/useCopyToClipboard';
+import { useToast } from '@/components/toast/toast-provider';
 
 export type { DialogRecord, DialogStatus };
+
+// ---------------------------------------------------------------------------
+// execCommandFallback — documented clipboard fallback for environments where
+// navigator.clipboard is unavailable (e.g. non-HTTPS contexts, older browsers).
+// ---------------------------------------------------------------------------
+
+/**
+ * Falls back to the deprecated `document.execCommand('copy')` API when the
+ * Clipboard API is not available. Creates a temporary off-screen textarea,
+ * selects its value, and invokes execCommand. The textarea is always removed
+ * from the DOM regardless of success or failure.
+ *
+ * @param text - The string to copy to the clipboard.
+ * @returns `true` if the execCommand succeeded; `false` otherwise.
+ */
+export function execCommandFallback(text: string): boolean {
+  if (typeof document === 'undefined') return false;
+
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.style.position = 'fixed';
+  textarea.style.top = '-9999px';
+  textarea.style.left = '-9999px';
+  textarea.setAttribute('aria-hidden', 'true');
+  document.body.appendChild(textarea);
+  textarea.focus();
+  textarea.select();
+
+  let success = false;
+  try {
+    success = document.execCommand('copy');
+  } catch {
+    // execCommand not supported — success remains false
+  } finally {
+    document.body.removeChild(textarea);
+  }
+  return success;
+}
+
+// ---------------------------------------------------------------------------
+// CopyIdButton — icon-only button with aria-label for each dialog ID
+// ---------------------------------------------------------------------------
+
+interface CopyIdButtonProps {
+  dialogId: string;
+}
+
+function CopyIdButton({ dialogId }: CopyIdButtonProps) {
+  const { showSuccess, showError } = useToast();
+
+  const { copied, copy } = useCopyToClipboard({
+    onSuccess: () => {
+      showSuccess({ title: `Copied "${dialogId}" to clipboard.` });
+    },
+    onError: () => {
+      // Documented fallback: try execCommand when Clipboard API is unavailable
+      const success = execCommandFallback(dialogId);
+      if (success) {
+        showSuccess({ title: `Copied "${dialogId}" to clipboard.` });
+      } else {
+        showError({ title: `Failed to copy "${dialogId}". Please copy it manually.` });
+      }
+    },
+  });
+
+  const handleClick = useCallback(() => {
+    copy(dialogId);
+  }, [copy, dialogId]);
+
+  return (
+    <button
+      type="button"
+      aria-label={`Copy dialog ID ${dialogId} to clipboard`}
+      aria-pressed={copied}
+      data-testid={`copy-dialog-id-btn-${dialogId}`}
+      title="Copy ID to clipboard"
+      onClick={handleClick}
+      className={[
+        'inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-mono border',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 focus-visible:ring-blue-500',
+        copied
+          ? 'bg-green-50 border-green-400 text-green-700'
+          : 'bg-white border-gray-300 text-gray-500 hover:bg-gray-50',
+      ].join(' ')}
+    >
+      {copied ? (
+        <>
+          <svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" fill="none">
+            <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          Copied
+        </>
+      ) : (
+        <>
+          <svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" fill="none">
+            <rect x="1" y="3" width="7" height="8" rx="1" stroke="currentColor" strokeWidth="1.2" />
+            <path d="M4 1h6a1 1 0 0 1 1 1v8" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+          </svg>
+          Copy ID
+        </>
+      )}
+    </button>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Props
@@ -111,6 +223,7 @@ export const DialogsList = ({
             key={status}
             type="button"
             aria-pressed={filter === status}
+            aria-label={`Filter dialogs by ${status} status`}
             onClick={() => setFilter(status)}
             className={[
               'px-3 py-1 rounded text-sm border',
@@ -200,12 +313,15 @@ export const DialogsList = ({
                 >
                   {d.status}
                 </span>
-                <code
-                  data-testid={`dialog-id-${d.id}`}
-                  className="text-xs text-gray-400 font-mono"
-                >
-                  {d.id}
-                </code>
+                <div className="flex items-center gap-1.5">
+                  <code
+                    data-testid={`dialog-id-${d.id}`}
+                    className="text-xs text-gray-400 font-mono"
+                  >
+                    {d.id}
+                  </code>
+                  <CopyIdButton dialogId={d.id} />
+                </div>
               </div>
             </li>
           ))}

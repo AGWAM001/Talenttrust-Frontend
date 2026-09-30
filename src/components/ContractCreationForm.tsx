@@ -6,6 +6,13 @@ import { ErrorSummary } from './ErrorSummary';
 import { useDialogFocusTrap } from '@/hooks/useDialogFocusTrap';
 import { isValidStellarAddress } from '@/lib/stellarAddress';
 import { sanitizeUserText } from '@/lib/sanitizeUserText';
+import {
+  combineValidators,
+  validateRequired,
+  validateMaxLength,
+  validatePositiveNumber,
+  validateStellarAddress,
+} from '@/lib/fieldValidators';
 import type { Contract } from '@/types/domain';
 
 export const MAX_CONTRACT_NAME_LENGTH = 200;
@@ -59,6 +66,32 @@ export const ContractCreationForm: React.FC<ContractCreationFormProps> = ({
     { label: '', address: '' },
   ]);
   const [errors, setErrors] = useState<Array<{ fieldId: string; message: string }>>([]);
+  const [hasSubmitted, setHasSubmitted] = useState(false);
+
+  // Inline validators for real-time validation
+  const validateContractNameField = combineValidators([
+    validateRequired('Contract name'),
+    validateMaxLength('Contract name', MAX_CONTRACT_NAME_LENGTH),
+  ]);
+
+  const validateTotalValueField = combineValidators([
+    validateRequired('Total value'),
+    validatePositiveNumber('Total value'),
+  ]);
+
+  const validateCurrencyField = combineValidators([
+    validateRequired('Currency'),
+  ]);
+
+  const validatePartyLabel = (index: number) => combineValidators([
+    validateRequired(`Party ${index + 1} label`),
+    validateMaxLength(`Party ${index + 1} label`, MAX_PARTY_LABEL_LENGTH),
+  ]);
+
+  const validatePartyAddress = (index: number) => combineValidators([
+    validateRequired(`Party ${index + 1} address`),
+    validateStellarAddress(`Party ${index + 1} address`),
+  ]);
 
   /**
    * Validates the form data and returns an array of error objects.
@@ -159,6 +192,7 @@ export const ContractCreationForm: React.FC<ContractCreationFormProps> = ({
   const handleSubmit = useCallback(
     (e: FormEvent<HTMLFormElement>) => {
       e.preventDefault();
+      setHasSubmitted(true);
 
       const validationErrors = validateForm();
       setErrors(validationErrors);
@@ -187,6 +221,7 @@ export const ContractCreationForm: React.FC<ContractCreationFormProps> = ({
           month: 'short',
           day: 'numeric',
         }),
+        updatedAt: new Date().toISOString(),
         milestoneCount: 0,
       };
 
@@ -194,6 +229,13 @@ export const ContractCreationForm: React.FC<ContractCreationFormProps> = ({
     },
     [contractName, totalValue, currency, parties, validateForm, onSubmit]
   );
+
+  // Check if the form has validation errors to disable submit button
+  const hasErrors = () => {
+    if (!hasSubmitted) return false;
+    const validationErrors = validateForm();
+    return validationErrors.length > 0;
+  };
 
   /**
    * Updates a specific party's field value.
@@ -244,6 +286,7 @@ export const ContractCreationForm: React.FC<ContractCreationFormProps> = ({
             label="Contract Name"
             id="contractName"
             error={getFieldError('contractName')}
+            validate={validateContractNameField}
             required
           >
             <input
@@ -261,6 +304,7 @@ export const ContractCreationForm: React.FC<ContractCreationFormProps> = ({
               label="Total Value"
               id="totalValue"
               error={getFieldError('totalValue')}
+              validate={validateTotalValueField}
               required
             >
               <input
@@ -276,6 +320,7 @@ export const ContractCreationForm: React.FC<ContractCreationFormProps> = ({
               label="Currency"
               id="currency"
               error={getFieldError('currency')}
+              validate={validateCurrencyField}
               required
             >
               <select
@@ -309,7 +354,7 @@ export const ContractCreationForm: React.FC<ContractCreationFormProps> = ({
                       <button
                         type="button"
                         onClick={() => removeParty(index)}
-                        className="text-red-600 hover:text-red-800 text-sm font-medium"
+                        className="text-red-600 hover:text-red-800 text-sm font-medium focus-visible:outline focus-visible:outline-4 focus-visible:outline-offset-2 focus-visible:outline-red-500 rounded"
                         aria-label={`Remove party ${index + 1}`}
                       >
                         Remove
@@ -321,6 +366,7 @@ export const ContractCreationForm: React.FC<ContractCreationFormProps> = ({
                     label="Label"
                     id={`party-label-${index}`}
                     error={getFieldError(`party-label-${index}`)}
+                    validate={validatePartyLabel(index)}
                     required
                   >
                     <input
@@ -337,6 +383,7 @@ export const ContractCreationForm: React.FC<ContractCreationFormProps> = ({
                     id={`party-address-${index}`}
                     error={getFieldError(`party-address-${index}`)}
                     helperText="56-character address starting with G"
+                    validate={validatePartyAddress(index)}
                     required
                   >
                     <input
@@ -354,7 +401,7 @@ export const ContractCreationForm: React.FC<ContractCreationFormProps> = ({
             <button
               type="button"
               onClick={addParty}
-              className="mt-3 text-blue-600 hover:text-blue-800 text-sm font-medium"
+              className="mt-3 text-blue-600 hover:text-blue-800 text-sm font-medium focus-visible:outline focus-visible:outline-4 focus-visible:outline-offset-2 focus-visible:outline-blue-500 rounded"
             >
               + Add Another Party
             </button>
@@ -364,13 +411,14 @@ export const ContractCreationForm: React.FC<ContractCreationFormProps> = ({
             <button
               type="button"
               onClick={onCancel}
-              className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 font-medium"
+              className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 font-medium focus-visible:outline focus-visible:outline-4 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
             >
               Cancel
             </button>
             <button
               type="submit"
-              className="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 font-medium"
+              disabled={hasSubmitted && hasErrors()}
+              className="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 font-medium focus-visible:outline focus-visible:outline-4 focus-visible:outline-offset-2 focus-visible:outline-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Create Contract
             </button>

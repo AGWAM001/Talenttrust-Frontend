@@ -3,8 +3,7 @@
   "compilerOptions": {
     "composite": true,
     "noEmit": false,
-    "outDir": ".next/types/test",
-    "types": ["jest", "@testing-library/jest-dom"]
+    "outDir": ".next/types/test"
   },
   "include": [
     "src/**/*",

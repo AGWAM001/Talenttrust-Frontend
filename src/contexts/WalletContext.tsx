@@ -63,7 +63,8 @@ export type WalletContextType = {
    * Terminates the active wallet session.
    *
    * Clears `address` in state, removes the persisted key from `localStorage`,
-   * and cancels any running inactivity-timeout timer.
+   * and cancels any running inactivity-timeout timer so no phantom disconnect
+   * fires after a manual sign-out.
    */
   disconnect: () => void;
 };
@@ -73,6 +74,46 @@ const WalletContext = createContext<WalletContextType | undefined>(undefined);
 export const FREIGHTER_NOT_INSTALLED = 'Freighter wallet is not installed. Please install the Freighter browser extension.';
 export const USER_REJECTED = 'User rejected the connection request.';
 export const MOCKED_STELLAR_ADDRESS = 'GAAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQDZ7H';
+
+/** localStorage key used to persist the connected wallet address across page reloads. */
+const STORAGE_KEY = 'wallet_connected_address';
+
+/**
+ * DOM events that count as "user activity" and reset the idle timer.
+ *
+ * - `pointermove` / `mousedown` / `touchstart` — pointer & touch gestures.
+ * - `keydown` — any keyboard interaction.
+ * - `visibilitychange` — tab becomes visible again (user returns to the page).
+ *
+ * All listeners are registered as passive to guarantee they never block
+ * scrolling or other default browser actions.
+ */
+const IDLE_EVENTS: ReadonlyArray<string> = [
+  'pointermove',
+  'keydown',
+  'visibilitychange',
+  'mousedown',
+  'touchstart',
+];
+
+/**
+ * Safe wrapper around `useToast` that returns no-op stubs when called outside
+ * a `ToastProvider` subtree (e.g. in unit tests that mount `WalletProvider`
+ * in isolation).
+ *
+ * Defined at module scope so it is a stable, unconditionally-called hook and
+ * never violates the React rules-of-hooks.
+ */
+function useSafeToast() {
+  try {
+    return useToast();
+  } catch {
+    return {
+      showSuccess: (_input: unknown) => '',
+      showError: (_input: unknown) => '',
+    };
+  }
+}
 
 /**
  * Provides global wallet connection state to the React tree.
@@ -101,16 +142,21 @@ export const MOCKED_STELLAR_ADDRESS = 'GAAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBA
  * | `disconnect`   | `() => void`          | Clears session state and storage.                |
  *
  * ## Idle auto-disconnect
- * When `idleTimeout` is a positive number, the provider listens for pointer,
- * keyboard, visibility, and touch events. If no activity is detected within
- * `idleTimeout` milliseconds, `disconnect()` is called automatically and a
- * toast notification is shown. Pass `0` (the default) to disable this feature.
+ * When `idleTimeout` is a positive number the provider registers passive
+ * listeners for {@link IDLE_EVENTS} on `window`. If no event fires within
+ * `idleTimeout` milliseconds the session is terminated automatically and a
+ * "Session expired" toast is shown. Pass `0` (the default) to disable this
+ * feature entirely.
+ *
+ * The timeout value can also be set via the `idleDisconnectMs` user
+ * preference (see `src/lib/preferences.tsx`); a direct `idleTimeout` prop
+ * takes precedence over the preference value.
  *
  * @param children    - React subtree that requires wallet context.
  * @param idleTimeout - Inactivity duration in milliseconds before
- *                      auto-disconnect. Defaults to `0` (disabled).
+ *                      auto-disconnect. `0` disables the feature (default).
+ *                      Injectable for deterministic tests via fake timers.
  */
-
 export function WalletProvider({
   children,
   idleTimeout: propIdleTimeout,
@@ -119,66 +165,109 @@ export function WalletProvider({
   idleTimeout?: number;
 }) {
   const { preferences } = usePreferences();
+  /**
+   * Prop takes precedence over the stored preference so tests can inject an
+   * exact value without touching `localStorage`.
+   */
   const idleTimeout = propIdleTimeout !== undefined ? propIdleTimeout : preferences.idleDisconnectMs;
 
   const [address, setAddress] = useState<string | null>(null);
   const [isConnecting, setIsConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [announcement, setAnnouncement] = useState('');
-  const announcementTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Safely obtain toast functions; fallback to no-ops if provider is absent
-  // (e.g. during unit tests that render WalletProvider without ToastProvider).
-  const useSafeToast = () => {
-    try {
-      return useToast();
-    } catch {
-      return { showSuccess: () => {}, showError: () => {} };
-    }
-  };
+  const [announcement, setAnnouncement] = useState<string>('');
+
   const { showSuccess, showError } = useSafeToast();
 
+  /**
+   * Ref that holds the active idle `setTimeout` handle.
+   * Using a ref (rather than state) avoids re-renders when the timer is reset
+   * and ensures `clearTimeout` always receives the most current handle even
+   * inside stale closures.
+   */
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  /**
+   * Ref to track whether a connection attempt is currently in progress.
+   * Prevents concurrent connect() calls that could race and create
+   * inconsistent state.
+   */
   const isConnectingRef = useRef(false);
-  const STORAGE_KEY = 'wallet_connected_address';
 
+  /**
+   * Ref for the debounce timer used to delay announcements to the
+   * screen-reader live region. Prevents announcement spam when rapid
+   * connect/disconnect cycles occur.
+   */
+  const announceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  /**
+   * Announces a wallet operation result to screen readers via a debounced
+   * polite live region. Clears any pending announcement and schedules the
+   * new message after a 150ms delay.
+   */
   const announceResult = useCallback((message: string) => {
-    if (announcementTimerRef.current) {
-      clearTimeout(announcementTimerRef.current);
+    if (announceTimerRef.current !== null) {
+      clearTimeout(announceTimerRef.current);
+      announceTimerRef.current = null;
     }
-
-    setAnnouncement('');
-    announcementTimerRef.current = setTimeout(() => {
+    announceTimerRef.current = setTimeout(() => {
       setAnnouncement(message);
-      announcementTimerRef.current = null;
+      announceTimerRef.current = null;
     }, 150);
   }, []);
 
+  /**
+   * Terminates the active wallet session.
+   *
+   * 1. Nullifies the timer ref **before** clearing the timeout so a
+   *    concurrent `resetTimer` call racing on the same tick cannot
+   *    reschedule a phantom disconnect.
+   * 2. Clears `address` in state and removes the persisted key from storage.
+   */
   const disconnect = useCallback(() => {
+    // Null the ref first so any in-flight resetTimer sees no active timer.
+    const handle = timerRef.current;
+    timerRef.current = null;
+    if (handle !== null) {
+      clearTimeout(handle);
+    }
     setAddress(null);
     removeItem(STORAGE_KEY);
-    if (timerRef.current) {
+  }, []);
+
+  /**
+   * Cancels the current idle countdown and starts a fresh one.
+   *
+   * Called both when the effect first attaches (starting the initial timer)
+   * and on every {@link IDLE_EVENTS} event (resetting it). Does nothing when
+   * `idleTimeout` is `0` or there is no connected address.
+   */
+  const resetTimer = useCallback(() => {
+    if (timerRef.current !== null) {
       clearTimeout(timerRef.current);
       timerRef.current = null;
     }
-  }, []);
-
-  /** Reset the inactivity timer */
-  const resetTimer = useCallback(() => {
-    if (timerRef.current) {
-      clearTimeout(timerRef.current);
+    if (!address || idleTimeout <= 0) {
+      return;
     }
-    if (address && idleTimeout > 0) {
-      timerRef.current = setTimeout(() => {
-        disconnect();
-        showSuccess({
-          title: 'Session expired',
-          description: 'You have been disconnected due to inactivity.',
-        });
-      }, idleTimeout);
-    }
+    timerRef.current = setTimeout(() => {
+      timerRef.current = null;
+      disconnect();
+      showSuccess({
+        title: 'Session expired',
+        description: 'You have been disconnected due to inactivity.',
+      });
+    }, idleTimeout);
   }, [address, idleTimeout, disconnect, showSuccess]);
 
-  // Rehydrate address from storage on mount (client only)
+  /**
+   * Rehydrate the wallet address from `localStorage` on the first client
+   * render.
+   *
+   * The SSR guard (`typeof window === 'undefined'`) prevents this from
+   * running on the server where `window` does not exist, satisfying Next.js
+   * App Router's server-component constraints.
+   */
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const stored = getItem(STORAGE_KEY);
@@ -187,26 +276,41 @@ export function WalletProvider({
     }
   }, []);
 
-  useEffect(() => {
-    return () => {
-      if (announcementTimerRef.current) {
-        clearTimeout(announcementTimerRef.current);
-      }
-    };
-  }, []);
-
-  // Idle auto‑disconnect handling
+  /**
+   * Idle auto-disconnect effect.
+   *
+   * Lifecycle:
+   * 1. Skipped entirely on the server (`typeof window === 'undefined'`),
+   *    when no wallet is connected, or when the feature is disabled
+   *    (`idleTimeout === 0`).
+   * 2. Registers passive listeners for all {@link IDLE_EVENTS} on `window`.
+   * 3. Starts the initial countdown via {@link resetTimer}.
+   * 4. Cleanup function (runs on unmount or when deps change):
+   *    - Removes every listener added in step 2 — no leaks.
+   *    - Clears the pending timeout so no phantom disconnect fires after
+   *      the component unmounts or the address is cleared.
+   */
   useEffect(() => {
     if (typeof window === 'undefined' || !address || idleTimeout <= 0) {
       return;
     }
-    const events = ['pointermove', 'keydown', 'visibilitychange', 'mousedown', 'touchstart'];
+
     const handleActivity = () => resetTimer();
-    events.forEach(e => window.addEventListener(e, handleActivity, { passive: true }));
+
+    IDLE_EVENTS.forEach(evt =>
+      window.addEventListener(evt, handleActivity, { passive: true }),
+    );
+
     resetTimer();
+
     return () => {
-      events.forEach(e => window.removeEventListener(e, handleActivity));
-      if (timerRef.current) clearTimeout(timerRef.current);
+      IDLE_EVENTS.forEach(evt =>
+        window.removeEventListener(evt, handleActivity),
+      );
+      if (timerRef.current !== null) {
+        clearTimeout(timerRef.current);
+        timerRef.current = null;
+      }
     };
   }, [address, idleTimeout, resetTimer]);
 
@@ -270,7 +374,7 @@ export function WalletProvider({
       isConnectingRef.current = false;
       setIsConnecting(false);
     }
-  }, [showError]);
+  }, [showError, announceResult]);
 
   return (
     <WalletContext.Provider value={{ address, isConnecting, error, connect, disconnect }}>

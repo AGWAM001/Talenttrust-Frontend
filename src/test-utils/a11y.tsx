@@ -1,7 +1,6 @@
 import { render, RenderOptions } from '@testing-library/react';
 import { axe } from 'jest-axe';
 import React from 'react';
-import { expect } from '@jest/globals';
 
 export { axe };
 

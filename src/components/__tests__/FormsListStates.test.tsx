@@ -15,6 +15,7 @@
 import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import '@testing-library/jest-dom';
+import { axe } from 'jest-axe';
 import { FormsList, Form } from '../FormsList';
 
 // ---------------------------------------------------------------------------
@@ -37,6 +38,26 @@ const sampleForms: Form[] = [
   { id: 'frm-002', title: 'Beta Form', status: 'Draft' },
   { id: 'frm-003', title: 'Gamma Form', status: 'Published' },
 ];
+
+describe('FormsList — accessibility (jest-axe)', () => {
+  it('passes axe in the loaded state', async () => {
+    const { container } = render(<FormsList forms={sampleForms} />);
+
+    expect(await axe(container)).toHaveNoViolations();
+  });
+
+  it('passes axe in the empty state', async () => {
+    const { container } = render(<FormsList forms={[]} />);
+
+    expect(await axe(container)).toHaveNoViolations();
+  });
+
+  it('passes axe in the error state', async () => {
+    const { container } = render(<FormsList forms={[]} error="Failed to load forms." />);
+
+    expect(await axe(container)).toHaveNoViolations();
+  });
+});
 
 // ---------------------------------------------------------------------------
 // Loading state

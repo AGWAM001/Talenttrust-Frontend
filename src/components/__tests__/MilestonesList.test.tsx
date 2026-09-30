@@ -2,7 +2,6 @@ import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { axe } from 'jest-axe';
-import userEvent from '@testing-library/user-event';
 import MilestonesList from '../MilestonesList';
 import type { Milestone } from '../MilestonesList';
 import { parseLocalDate, isDueSoon } from '../../lib/dueSoon';
@@ -221,10 +220,13 @@ describe('MilestonesList', () => {
     });
   });
 
-  it('makes the scroll region keyboard-focusable with focus-ring styles when populated', () => {
+  it('keeps the scroll region out of the tab order but programmatically focusable when populated', () => {
     const { container } = r(<MilestonesList milestones={SAMPLE} />);
     const region = scrollRegion(container);
-    expect(region).toHaveAttribute('tabIndex', '0');
+    // With roving tabindex on the rows, the region must not be a second tab
+    // stop — the list's single tab stop is the active row. It stays
+    // focusable programmatically (e.g. the due-soon banner dismiss flow).
+    expect(region).toHaveAttribute('tabIndex', '-1');
     expect(region).toHaveClass(
       'focus-visible:outline-none',
       'focus-visible:ring-2',
@@ -541,6 +543,21 @@ describe('MilestonesList', () => {
         '.max-h-\\[calc\\(100vh-260px\\)\\]',
       );
       expect(document.activeElement).toBe(region);
+    });
+
+    it('dismisses the reminder with the keyboard and keeps focus in the list', async () => {
+      const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime });
+      const milestones: Milestone[] = [
+        { id: '1', title: 'Due Soon', status: 'Pending', payout: 500, currency: 'USD', dueDate: 'May 15, 2026' },
+      ];
+      const { container } = render(<MilestonesList milestones={milestones} />);
+      const dismissButton = screen.getByRole('button', { name: 'Dismiss reminder' });
+
+      dismissButton.focus();
+      await user.keyboard('{Enter}');
+
+      expect(screen.queryByRole('button', { name: 'Dismiss reminder' })).not.toBeInTheDocument();
+      expect(document.activeElement).toBe(scrollRegion(container));
     });
   });
 

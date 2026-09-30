@@ -20,7 +20,12 @@ export function useOptimisticContractStatus(
   setContractData: React.Dispatch<React.SetStateAction<ContractData | null>>,
   buildPersistedContract: BuildPersistedContract,
 ): (nextStatus: ContractData['status']) => PersistResult {
-  const rollbackRef = useRef<ContractData | null>(null);
+  /**
+   * Tracks the last successfully-persisted contract data so that
+   * a subsequent concurrent failure rolls back to the latest known
+   * good state rather than the initial one.
+   */
+  const lastPersistedRef = useRef<ContractData | null>(null);
 
   const persistStatus = useCallback(
     (nextStatus: ContractData['status']): PersistResult => {
@@ -32,8 +37,6 @@ export function useOptimisticContractStatus(
         };
       }
 
-      rollbackRef.current = contractData;
-
       setContractData({ ...contractData, status: nextStatus });
 
       const version = getContractVersion(contractData.name);
@@ -41,10 +44,8 @@ export function useOptimisticContractStatus(
       const result = upsertContract(persisted);
 
       if (!result.success) {
-        if (rollbackRef.current) {
-          setContractData(rollbackRef.current);
-        }
-        rollbackRef.current = null;
+        // Roll back to the last known good state, or the original if none.
+        setContractData(lastPersistedRef.current ?? contractData);
         return result.stale
           ? {
               ok: false,
@@ -60,7 +61,8 @@ export function useOptimisticContractStatus(
             };
       }
 
-      rollbackRef.current = null;
+      // Remember this state so a later concurrent failure can roll back to it.
+      lastPersistedRef.current = { ...contractData, status: nextStatus };
       return { ok: true };
     },
     [contractData, setContractData, buildPersistedContract],

@@ -141,6 +141,12 @@ Accessibility markers worth knowing:
 - The profile card is a `<section>` with `aria-labelledby="profile-heading"`;
   the heading itself is `sr-only`.
 - The level legend is a `<ul aria-labelledby="reputation-legend-title">`.
+- The history list is an `<ol aria-labelledby="reputation-history-heading">`
+  so assistive tech announces the list's purpose. Each `<li>` carries
+  `aria-labelledby` referencing three ids — `reputation-event-type-{id}`,
+  `reputation-event-summary-{id}`, and `reputation-event-date-{id}` — so
+  every entry's type, summary, and date are programmatically associated
+  into a single accessible name.
 
 ---
 
@@ -233,25 +239,33 @@ export function Page({ data }: { data: Reputation | null }) {
 
 ## Accessibility
 
-- Section markup uses `<section aria-labelledby="profile-heading">`, with
-  the heading hidden visually via `sr-only` so the visual hierarchy stays
-  page-driven (`<h1>` from the page wrapper) while assistive technologies
-  hear a full heading tree.
-- The score is exposed as `role="meter"` with proper `aria-valuemin`,
-  `aria-valuemax`, `aria-valuenow`, `aria-labelledby`, and
-  `aria-describedby` attributes.
-- The legend is a `<ul aria-labelledby="reputation-legend-title">` so
-  screen reader users can navigate it as a named list landmark. The active
-  band gets a higher-contrast background; meaning is **not** conveyed by
-  color alone — the band label is textually announced.
-- History events render in an `<ol>` (chronologically meaningful) with
-  `<time dateTime="…">` for machine-readable date parsing.
-- The "Partial reputation data" banner uses contrast-sufficient amber
-  tokens and is rendered as plain text — no role conflict with the meter.
-- `assertNoA11yViolations` is applied across all rendering states in
-  `ReputationProfile.test.tsx`.
+The list below documents only behaviors that are implemented in the current code.
 
----
+### Roles and landmarks
+
+- The profile region uses a named `<section>` with `aria-labelledby="profile-heading"` in [src/components/ReputationProfile.tsx](../../src/components/ReputationProfile.tsx).
+- The reputation score is exposed with `role="meter"` and related ARIA values in [src/components/ReputationProfile.tsx](../../src/components/ReputationProfile.tsx).
+- The reputation legend is labelled with `aria-labelledby="reputation-legend-title"` in [src/components/ReputationProfile.tsx](../../src/components/ReputationProfile.tsx).
+- The history list is an `<ol>` with `aria-labelledby="reputation-history-heading"` so it has an accessible name in [src/components/ReputationProfile.tsx](../../src/components/ReputationProfile.tsx).
+- Each history `<li>` uses `aria-labelledby` to associate its type, summary, and date into one accessible name in [src/components/ReputationProfile.tsx](../../src/components/ReputationProfile.tsx).
+- The page wrapper renders a focusable `<main>` element in [src/app/reputation/ReputationPageClient.tsx](../../src/app/reputation/ReputationPageClient.tsx).
+
+### Keyboard interactions
+
+- The component relies on native keyboard support for its interactive controls (`<button>`, `<select>`, and checkbox `<input>` elements) in [src/components/ReputationProfile.tsx](../../src/components/ReputationProfile.tsx).
+- No custom `onKeyDown` or `onKeyUp` handlers are implemented in [src/components/ReputationProfile.tsx](../../src/components/ReputationProfile.tsx).
+
+### Focus behavior
+
+- The page client moves focus to the main landmark on mount in [src/app/reputation/ReputationPageClient.tsx](../../src/app/reputation/ReputationPageClient.tsx).
+- The main landmark is made focusable with `tabIndex={-1}` in [src/app/reputation/ReputationPageClient.tsx](../../src/app/reputation/ReputationPageClient.tsx).
+- The component adds focus styling classes to select and checkbox controls in [src/components/ReputationProfile.tsx](../../src/components/ReputationProfile.tsx).
+
+### Notes for contributors
+
+- Preserve the current semantic HTML and native controls when editing [src/components/ReputationProfile.tsx](../../src/components/ReputationProfile.tsx).
+- Keep the existing ARIA relationships in place when changing the markup in [src/components/ReputationProfile.tsx](../../src/components/ReputationProfile.tsx).
+- If focus behavior changes, verify the main landmark in [src/app/reputation/ReputationPageClient.tsx](../../src/app/reputation/ReputationPageClient.tsx) still receives focus as intended.
 
 ## Related Documentation
 

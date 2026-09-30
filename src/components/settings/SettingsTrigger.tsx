@@ -2,7 +2,6 @@
 
 import React, { useState, useRef, useMemo } from 'react';
 import { SettingsPanel } from './SettingsPanel';
-import SettingsErrorBoundary from './SettingsErrorBoundary';
 import { useRegisterCommandAction } from '@/components/CommandPalette';
 
 export function SettingsTrigger() {

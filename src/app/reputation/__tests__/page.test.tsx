@@ -1,6 +1,7 @@
 import React, { Component, type ReactNode, type ErrorInfo } from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
-import { ReputationPageContent } from '../page';
+import { ReputationPageContent } from '../ReputationPageContent';
+import ReputationLoading from '../loading';
 
 // Toggle to make the mock throw (used by error-state tests).
 // Prefix with `mock` so Jest's babel transform allows it in the mock factory.
@@ -28,6 +29,18 @@ jest.mock('../../../components/ReputationProfile', () => {
             ))}
           </ul>
         )}
+      </div>
+    );
+  };
+});
+
+// Mock ReputationSummaryCard component
+jest.mock('../../../components/ReputationSummaryCard', () => {
+  return function MockReputationSummaryCard(props: any) {
+    return (
+      <div data-testid="reputation-summary-card">
+        <div data-testid="summary-card-name">{props.name}</div>
+        <div data-testid="summary-card-score">{props.score ?? 'N/A'}</div>
       </div>
     );
   };
@@ -393,6 +406,105 @@ describe('ReputationPageContent', () => {
       expect(screen.getByTestId('reputation-profile')).toBeInTheDocument();
       consoleSpy.mockRestore();
     });
+
+    it('transitions from empty to error when content throws', () => {
+      let consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+      const { rerender } = render(<ReputationPageContent reputationData={null} />);
+      expect(screen.getByText('No reputation yet')).toBeInTheDocument();
+      expect(screen.queryByText('This section failed to load.')).not.toBeInTheDocument();
+
+      mockShouldThrowInProfile = true;
+      const data = { score: 85, level: 'Trusted', history: [{ id: '1', type: 'Review', summary: 'Great work', date: '2026-04-24' }] };
+      rerender(<ReputationPageContent reputationData={data} userName="Fail" />);
+
+      expect(screen.getByText('This section failed to load.')).toBeInTheDocument();
+      expect(screen.queryByText('No reputation yet')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('reputation-profile')).not.toBeInTheDocument();
+      consoleSpy.mockRestore();
+    });
+
+    it('transitions from error to empty when retried with no data', () => {
+      let consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      mockShouldThrowInProfile = true;
+      const data = { score: 85, level: 'Trusted', history: [{ id: '1', type: 'Review', summary: 'Great work', date: '2026-04-24' }] };
+
+      const { rerender } = render(<ReputationPageContent reputationData={data} userName="ToEmpty" />);
+      expect(screen.getByText('This section failed to load.')).toBeInTheDocument();
+
+      mockShouldThrowInProfile = false;
+      rerender(<ReputationPageContent reputationData={null} />);
+
+      // Error boundary still has error, requires explicit Retry click to reset
+      expect(screen.getByText('This section failed to load.')).toBeInTheDocument();
+
+      fireEvent.click(screen.getByText('Retry'));
+
+      expect(screen.queryByText('This section failed to load.')).not.toBeInTheDocument();
+      expect(screen.getByText('No reputation yet')).toBeInTheDocument();
+      expect(screen.queryByTestId('reputation-profile')).not.toBeInTheDocument();
+      consoleSpy.mockRestore();
+    });
+  });
+
+  describe('Loading state transitions', () => {
+    it('transitions from loading to success when data arrives', () => {
+      const { unmount } = render(<ReputationLoading />);
+      expect(screen.getByRole('status')).toHaveTextContent('Loading reputation…');
+      expect(screen.getByRole('main')).toHaveAttribute('aria-busy', 'true');
+
+      unmount();
+
+      const data = {
+        score: 85,
+        level: 'Trusted',
+        history: [{ id: '1', type: 'Review', summary: 'Great work', date: '2026-04-24' }],
+      };
+      render(<ReputationPageContent reputationData={data} userName="Loaded" />);
+
+      expect(screen.getByTestId('reputation-profile')).toBeInTheDocument();
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
+      expect(screen.queryByText('No reputation yet')).not.toBeInTheDocument();
+      expect(screen.queryByText('This section failed to load.')).not.toBeInTheDocument();
+    });
+
+    it('transitions from loading to empty when no reputation data arrives', () => {
+      const { unmount } = render(<ReputationLoading />);
+      expect(screen.getByRole('status')).toHaveTextContent('Loading reputation…');
+
+      unmount();
+
+      render(<ReputationPageContent reputationData={null} />);
+
+      expect(screen.getByText('No reputation yet')).toBeInTheDocument();
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('reputation-profile')).not.toBeInTheDocument();
+      expect(screen.queryByText('This section failed to load.')).not.toBeInTheDocument();
+    });
+
+    it('transitions from loading to error when content fails', () => {
+      let consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+      const { unmount } = render(<ReputationLoading />);
+      expect(screen.getByRole('status')).toHaveTextContent('Loading reputation…');
+
+      unmount();
+
+      mockShouldThrowInProfile = true;
+      const data = {
+        score: 85,
+        level: 'Trusted',
+        history: [{ id: '1', type: 'Review', summary: 'Great work', date: '2026-04-24' }],
+      };
+      render(<ReputationPageContent reputationData={data} userName="FailLoad" />);
+
+      expect(screen.getByText('This section failed to load.')).toBeInTheDocument();
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('reputation-profile')).not.toBeInTheDocument();
+      expect(screen.queryByText('No reputation yet')).not.toBeInTheDocument();
+
+      consoleSpy.mockRestore();
+    });
   });
 
   describe('Error boundary behavior', () => {
@@ -535,3 +647,4 @@ describe('ReputationPageContent', () => {
   });
 
 });
+

@@ -17,7 +17,7 @@ import ReputationPageClient from '../ReputationPageClient';
 import type { Reputation } from '@/types/domain';
 
 // Mock the ReputationPageContent to avoid complex rendering
-jest.mock('../page', () => ({
+jest.mock('../ReputationPageContent', () => ({
   ReputationPageContent: ({ reputationData, userName }: any) => (
     <div data-testid="reputation-page-content">
       <div data-testid="user-name">{userName}</div>

@@ -2,6 +2,7 @@
 
 import React, { useCallback } from 'react';
 import StatusBadge, { StatusType } from '@/components/StatusBadge';
+import { LastUpdated } from '@/components/LastUpdated';
 import type { ContractParty } from '@/types/domain';
 
 interface ContractRowItemProps {
@@ -11,6 +12,7 @@ interface ContractRowItemProps {
   currency: string;
   status: StatusType;
   createdAt: string;
+  updatedAt?: string;
   milestoneCount: number;
   isSelected: boolean;
   onSelect: (selected: boolean) => void;
@@ -31,6 +33,7 @@ export const ContractRowItem: React.FC<ContractRowItemProps> = ({
   currency,
   status,
   createdAt,
+  updatedAt,
   milestoneCount,
   isSelected,
   onSelect,
@@ -48,7 +51,8 @@ export const ContractRowItem: React.FC<ContractRowItemProps> = ({
   );
 
   /**
-   * Handles key down for keyboard accessibility
+   * Handles key down for checkbox toggling via Ctrl+Space.
+   * Native checkbox already handles plain Space natively.
    */
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -88,10 +92,11 @@ export const ContractRowItem: React.FC<ContractRowItemProps> = ({
 
       {/* Contract content */}
       <div
-        className="flex-1 cursor-pointer"
+        className="flex-1 cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500 focus-visible:outline-offset-2 rounded"
         onClick={handleRowClick}
         onKeyDown={(e) => {
-          if (e.key === 'Enter') {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
             handleRowClick();
           }
         }}
@@ -115,6 +120,7 @@ export const ContractRowItem: React.FC<ContractRowItemProps> = ({
           <div className="ml-4 flex flex-col items-end gap-2">
             <StatusBadge status={status} />
             <span className="text-xs text-slate-400">{createdAt}</span>
+            {updatedAt && <LastUpdated updatedAt={updatedAt} />}
           </div>
         </div>
       </div>

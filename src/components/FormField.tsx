@@ -19,6 +19,18 @@ interface FormFieldProps {
   children: React.ReactElement;
   /** If true, renders a visual '*' indicator within the label, hidden from screen readers via aria-hidden="true". */
   required?: boolean;
+  /**
+   * Optional validation function called on blur and input change.
+   * Returns an error message string if invalid, or null if valid.
+   * This enables real-time client-side validation with inline error display.
+   */
+  validate?: (value: string) => string | null;
+  /**
+   * When true, validation runs on every input change (keystroke).
+   * When false (default), validation only runs on blur.
+   * Use onChange validation sparingly to avoid disrupting typing flow.
+   */
+  validateOnChange?: boolean;
 }
 
 /**
@@ -53,15 +65,27 @@ export const FormField: React.FC<FormFieldProps> = ({
   helperText,
   children,
   required,
+  validate,
+  validateOnChange = false,
 }) => {
   const { preferences } = usePreferences();
   const spacing = SPACING[preferences.formDensity];
   const errorId = `${id}-error`;
   const helperId = `${id}-helper`;
+  const [internalError, setInternalError] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (error !== undefined) {
+      setInternalError(null);
+    }
+  }, [error]);
+  
+  // Prefer parent-provided error over internal validation error
+  const effectiveError = error || internalError || undefined;
   
   // Combine IDs for aria-describedby
   const describedBy = [
-    error ? errorId : null,
+    effectiveError ? errorId : null,
     helperText ? helperId : null,
   ]
     .filter(Boolean)
@@ -75,15 +99,46 @@ export const FormField: React.FC<FormFieldProps> = ({
     (children.props as any)['aria-required'] === true
   );
 
-  // Inject accessibility props into the child element
+  // Handle blur validation
+  const handleBlur = React.useCallback((e: React.FocusEvent<HTMLElement>) => {
+    if (validate) {
+      const value = (e.target as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement).value;
+      const validationError = validate(value);
+      setInternalError(validationError);
+    }
+    // Call original onBlur if it exists
+    if ((children.props as any).onBlur) {
+      (children.props as any).onBlur(e);
+    }
+  }, [validate, children.props]);
+
+  // Handle change validation (if enabled)
+  const handleChange = React.useCallback((e: React.ChangeEvent<HTMLElement>) => {
+    if (validate && validateOnChange) {
+      const value = (e.target as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement).value;
+      const validationError = validate(value);
+      setInternalError(validationError);
+    } else if (internalError) {
+      // Clear error on change so user gets immediate feedback when fixing
+      setInternalError(null);
+    }
+    // Call original onChange if it exists
+    if ((children.props as any).onChange) {
+      (children.props as any).onChange(e);
+    }
+  }, [validate, validateOnChange, internalError, children.props]);
+
+  // Inject accessibility props and validation handlers into the child element
   const child = React.cloneElement(children, {
     id,
     'aria-describedby': describedBy || undefined,
-    'aria-invalid': error ? 'true' : 'false',
+    'aria-invalid': effectiveError ? 'true' : 'false',
     'aria-required': isRequired ? 'true' : undefined,
     className: `${(children.props as any).className || ''} ${
-      error ? 'border-red-500 focus:ring-red-500 focus:border-red-500' : ''
+      effectiveError ? 'border-red-500 focus:ring-red-500 focus:border-red-500' : ''
     }`.trim(),
+    onBlur: handleBlur,
+    onChange: handleChange,
   } as React.HTMLAttributes<HTMLElement>);
 
   return (
@@ -105,9 +160,9 @@ export const FormField: React.FC<FormFieldProps> = ({
           {helperText}
         </p>
       )}
-      {error && (
+      {effectiveError && (
         <p id={errorId} className={`${spacing.message} text-sm text-red-600 font-medium`} role="alert">
-          {error}
+          {effectiveError}
         </p>
       )}
     </div>

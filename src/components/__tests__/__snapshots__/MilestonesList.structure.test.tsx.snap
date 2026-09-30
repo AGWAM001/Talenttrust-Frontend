@@ -108,62 +108,122 @@ exports[`MilestonesList structural/snapshot tests edge cases matches the structu
     data-testid="milestones-announcement"
     role="status"
   />
+  <span
+    aria-atomic="true"
+    aria-label="Milestone selection announcements"
+    aria-live="polite"
+    class="sr-only"
+    role="status"
+  />
+  <div
+    aria-label="Milestone selection controls"
+    class="flex items-center mt-4"
+    role="group"
+  >
+    <label
+      class="flex items-center gap-2 text-sm text-slate-600"
+    >
+      <input
+        aria-checked="false"
+        aria-label="Select all milestones"
+        class="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+        type="checkbox"
+      />
+      <span>
+        Select all
+      </span>
+    </label>
+  </div>
   <div
     aria-labelledby="milestones-title milestones-count"
     class="max-h-[calc(100vh-260px)] overflow-y-auto pr-2 rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-2 mt-6 space-y-4"
     role="region"
-    tabindex="0"
+    tabindex="-1"
   >
     <article
-      class="rounded-3xl border border-slate-200 bg-slate-50 p-4 shadow-sm"
+      aria-label="Local milestone"
+      class="rounded-3xl border p-4 shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 border-slate-200 bg-slate-50"
+      data-milestone-row=""
+      data-row-index="0"
+      data-selected="false"
       id="milestone-m1"
+      tabindex="0"
     >
       <div
-        class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
+        class="flex items-start gap-3"
       >
         <div
-          class="min-w-0 flex-1"
+          class="pt-1"
         >
-          <p
-            class="text-sm font-medium text-slate-600"
-          >
-            Local milestone
-          </p>
-          <p
-            class="mt-1 text-sm text-slate-500"
-          >
-            Due 
-            2025-01-01
-          </p>
+          <input
+            aria-label="Select Local milestone"
+            class="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+            tabindex="0"
+            type="checkbox"
+          />
         </div>
         <div
-          class="flex items-center gap-3"
+          class="flex flex-1 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
         >
-          <span
-            aria-label="Status: Pending"
-            class="inline-flex items-center gap-1 rounded-full px-3 py-1 text-sm font-semibold bg-[var(--status-warning-bg)] text-[var(--status-warning-foreground)] "
-            role="status"
+          <div
+            class="min-w-0 flex-1"
+          >
+            <p
+              class="text-sm font-medium text-slate-600"
+            >
+              Local milestone
+            </p>
+            <div
+              class="mt-1 flex flex-wrap items-center gap-3 text-sm text-slate-500"
+            >
+              <span>
+                Due 
+                2025-01-01
+              </span>
+              <span
+                aria-hidden="true"
+                class="text-slate-300"
+              >
+                •
+              </span>
+              <span
+                aria-label="No date available"
+                class="text-sm text-slate-500"
+              >
+                —
+              </span>
+            </div>
+          </div>
+          <div
+            class="flex items-center gap-3"
           >
             <span
-              aria-hidden="true"
+              aria-label="Status: Pending"
+              class="inline-flex items-center gap-1 rounded-full px-3 py-1 text-sm font-semibold bg-[var(--status-warning-bg)] text-[var(--status-warning-foreground)] "
+              role="status"
             >
-              ⏳
+              <span
+                aria-hidden="true"
+              >
+                ⏳
+              </span>
+              Pending
             </span>
-            Pending
-          </span>
-          <button
-            aria-label="Edit milestone Local milestone"
-            class="inline-flex items-center gap-1 rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2"
-            data-testid="edit-milestone-m1"
-            type="button"
-          >
-            <span
-              aria-hidden="true"
+            <button
+              aria-label="Edit milestone Local milestone"
+              class="inline-flex items-center gap-1 rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2"
+              data-testid="edit-milestone-m1"
+              tabindex="0"
+              type="button"
             >
-              ✎
-            </span>
-            Edit
-          </button>
+              <span
+                aria-hidden="true"
+              >
+                ✎
+              </span>
+              Edit
+            </button>
+          </div>
         </div>
       </div>
       <div
@@ -181,55 +241,89 @@ exports[`MilestonesList structural/snapshot tests edge cases matches the structu
       </div>
     </article>
     <article
-      class="rounded-3xl border border-slate-200 bg-slate-50 p-4 shadow-sm"
+      aria-label="Foreign milestone"
+      class="rounded-3xl border p-4 shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 border-slate-200 bg-slate-50"
+      data-milestone-row=""
+      data-row-index="1"
+      data-selected="false"
       id="milestone-m2"
+      tabindex="-1"
     >
       <div
-        class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
+        class="flex items-start gap-3"
       >
         <div
-          class="min-w-0 flex-1"
+          class="pt-1"
         >
-          <p
-            class="text-sm font-medium text-slate-600"
-          >
-            Foreign milestone
-          </p>
-          <p
-            class="mt-1 text-sm text-slate-500"
-          >
-            Due 
-            2025-01-02
-          </p>
+          <input
+            aria-label="Select Foreign milestone"
+            class="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+            tabindex="-1"
+            type="checkbox"
+          />
         </div>
         <div
-          class="flex items-center gap-3"
+          class="flex flex-1 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
         >
-          <span
-            aria-label="Status: Pending"
-            class="inline-flex items-center gap-1 rounded-full px-3 py-1 text-sm font-semibold bg-[var(--status-warning-bg)] text-[var(--status-warning-foreground)] "
-            role="status"
+          <div
+            class="min-w-0 flex-1"
+          >
+            <p
+              class="text-sm font-medium text-slate-600"
+            >
+              Foreign milestone
+            </p>
+            <div
+              class="mt-1 flex flex-wrap items-center gap-3 text-sm text-slate-500"
+            >
+              <span>
+                Due 
+                2025-01-02
+              </span>
+              <span
+                aria-hidden="true"
+                class="text-slate-300"
+              >
+                •
+              </span>
+              <span
+                aria-label="No date available"
+                class="text-sm text-slate-500"
+              >
+                —
+              </span>
+            </div>
+          </div>
+          <div
+            class="flex items-center gap-3"
           >
             <span
-              aria-hidden="true"
+              aria-label="Status: Pending"
+              class="inline-flex items-center gap-1 rounded-full px-3 py-1 text-sm font-semibold bg-[var(--status-warning-bg)] text-[var(--status-warning-foreground)] "
+              role="status"
             >
-              ⏳
+              <span
+                aria-hidden="true"
+              >
+                ⏳
+              </span>
+              Pending
             </span>
-            Pending
-          </span>
-          <button
-            aria-label="Edit milestone Foreign milestone"
-            class="inline-flex items-center gap-1 rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2"
-            data-testid="edit-milestone-m2"
-            type="button"
-          >
-            <span
-              aria-hidden="true"
+            <button
+              aria-label="Edit milestone Foreign milestone"
+              class="inline-flex items-center gap-1 rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2"
+              data-testid="edit-milestone-m2"
+              tabindex="-1"
+              type="button"
             >
-              ✎
-            </span>
-            Edit
-          </button>
+              <span
+                aria-hidden="true"
+              >
+                ✎
+              </span>
+              Edit
+            </button>
+          </div>
         </div>
       </div>
       <div
@@ -377,62 +471,122 @@ exports[`MilestonesList structural/snapshot tests edge cases matches the structu
     data-testid="milestones-announcement"
     role="status"
   />
+  <span
+    aria-atomic="true"
+    aria-label="Milestone selection announcements"
+    aria-live="polite"
+    class="sr-only"
+    role="status"
+  />
+  <div
+    aria-label="Milestone selection controls"
+    class="flex items-center mt-4"
+    role="group"
+  >
+    <label
+      class="flex items-center gap-2 text-sm text-slate-600"
+    >
+      <input
+        aria-checked="false"
+        aria-label="Select all milestones"
+        class="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+        type="checkbox"
+      />
+      <span>
+        Select all
+      </span>
+    </label>
+  </div>
   <div
     aria-labelledby="milestones-title milestones-count"
     class="max-h-[calc(100vh-260px)] overflow-y-auto pr-2 rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-2 mt-6 space-y-4"
     role="region"
-    tabindex="0"
+    tabindex="-1"
   >
     <article
-      class="rounded-3xl border border-slate-200 bg-slate-50 p-4 shadow-sm"
+      aria-label="Urgent milestone"
+      class="rounded-3xl border p-4 shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 border-slate-200 bg-slate-50"
+      data-milestone-row=""
+      data-row-index="0"
+      data-selected="false"
       id="milestone-m1"
+      tabindex="0"
     >
       <div
-        class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
+        class="flex items-start gap-3"
       >
         <div
-          class="min-w-0 flex-1"
+          class="pt-1"
         >
-          <p
-            class="text-sm font-medium text-slate-600"
-          >
-            Urgent milestone
-          </p>
-          <p
-            class="mt-1 text-sm text-slate-500"
-          >
-            Due 
-            2026-01-03
-          </p>
+          <input
+            aria-label="Select Urgent milestone"
+            class="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+            tabindex="0"
+            type="checkbox"
+          />
         </div>
         <div
-          class="flex items-center gap-3"
+          class="flex flex-1 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
         >
-          <span
-            aria-label="Status: Pending"
-            class="inline-flex items-center gap-1 rounded-full px-3 py-1 text-sm font-semibold bg-[var(--status-warning-bg)] text-[var(--status-warning-foreground)] "
-            role="status"
+          <div
+            class="min-w-0 flex-1"
+          >
+            <p
+              class="text-sm font-medium text-slate-600"
+            >
+              Urgent milestone
+            </p>
+            <div
+              class="mt-1 flex flex-wrap items-center gap-3 text-sm text-slate-500"
+            >
+              <span>
+                Due 
+                2026-01-03
+              </span>
+              <span
+                aria-hidden="true"
+                class="text-slate-300"
+              >
+                •
+              </span>
+              <span
+                aria-label="No date available"
+                class="text-sm text-slate-500"
+              >
+                —
+              </span>
+            </div>
+          </div>
+          <div
+            class="flex items-center gap-3"
           >
             <span
-              aria-hidden="true"
+              aria-label="Status: Pending"
+              class="inline-flex items-center gap-1 rounded-full px-3 py-1 text-sm font-semibold bg-[var(--status-warning-bg)] text-[var(--status-warning-foreground)] "
+              role="status"
             >
-              ⏳
+              <span
+                aria-hidden="true"
+              >
+                ⏳
+              </span>
+              Pending
             </span>
-            Pending
-          </span>
-          <button
-            aria-label="Edit milestone Urgent milestone"
-            class="inline-flex items-center gap-1 rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2"
-            data-testid="edit-milestone-m1"
-            type="button"
-          >
-            <span
-              aria-hidden="true"
+            <button
+              aria-label="Edit milestone Urgent milestone"
+              class="inline-flex items-center gap-1 rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2"
+              data-testid="edit-milestone-m1"
+              tabindex="0"
+              type="button"
             >
-              ✎
-            </span>
-            Edit
-          </button>
+              <span
+                aria-hidden="true"
+              >
+                ✎
+              </span>
+              Edit
+            </button>
+          </div>
         </div>
       </div>
       <div
@@ -535,62 +689,122 @@ exports[`MilestonesList structural/snapshot tests edge cases renders "Due TBD" a
     data-testid="milestones-announcement"
     role="status"
   />
+  <span
+    aria-atomic="true"
+    aria-label="Milestone selection announcements"
+    aria-live="polite"
+    class="sr-only"
+    role="status"
+  />
+  <div
+    aria-label="Milestone selection controls"
+    class="flex items-center mt-4"
+    role="group"
+  >
+    <label
+      class="flex items-center gap-2 text-sm text-slate-600"
+    >
+      <input
+        aria-checked="false"
+        aria-label="Select all milestones"
+        class="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+        type="checkbox"
+      />
+      <span>
+        Select all
+      </span>
+    </label>
+  </div>
   <div
     aria-labelledby="milestones-title milestones-count"
     class="max-h-[calc(100vh-260px)] overflow-y-auto pr-2 rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-2 mt-6 space-y-4"
     role="region"
-    tabindex="0"
+    tabindex="-1"
   >
     <article
-      class="rounded-3xl border border-slate-200 bg-slate-50 p-4 shadow-sm"
+      aria-label="Undated milestone"
+      class="rounded-3xl border p-4 shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 border-slate-200 bg-slate-50"
+      data-milestone-row=""
+      data-row-index="0"
+      data-selected="false"
       id="milestone-m1"
+      tabindex="0"
     >
       <div
-        class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
+        class="flex items-start gap-3"
       >
         <div
-          class="min-w-0 flex-1"
+          class="pt-1"
         >
-          <p
-            class="text-sm font-medium text-slate-600"
-          >
-            Undated milestone
-          </p>
-          <p
-            class="mt-1 text-sm text-slate-500"
-          >
-            Due 
-            TBD
-          </p>
+          <input
+            aria-label="Select Undated milestone"
+            class="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+            tabindex="0"
+            type="checkbox"
+          />
         </div>
         <div
-          class="flex items-center gap-3"
+          class="flex flex-1 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
         >
-          <span
-            aria-label="Status: Pending"
-            class="inline-flex items-center gap-1 rounded-full px-3 py-1 text-sm font-semibold bg-[var(--status-warning-bg)] text-[var(--status-warning-foreground)] "
-            role="status"
+          <div
+            class="min-w-0 flex-1"
+          >
+            <p
+              class="text-sm font-medium text-slate-600"
+            >
+              Undated milestone
+            </p>
+            <div
+              class="mt-1 flex flex-wrap items-center gap-3 text-sm text-slate-500"
+            >
+              <span>
+                Due 
+                TBD
+              </span>
+              <span
+                aria-hidden="true"
+                class="text-slate-300"
+              >
+                •
+              </span>
+              <span
+                aria-label="No date available"
+                class="text-sm text-slate-500"
+              >
+                —
+              </span>
+            </div>
+          </div>
+          <div
+            class="flex items-center gap-3"
           >
             <span
-              aria-hidden="true"
+              aria-label="Status: Pending"
+              class="inline-flex items-center gap-1 rounded-full px-3 py-1 text-sm font-semibold bg-[var(--status-warning-bg)] text-[var(--status-warning-foreground)] "
+              role="status"
             >
-              ⏳
+              <span
+                aria-hidden="true"
+              >
+                ⏳
+              </span>
+              Pending
             </span>
-            Pending
-          </span>
-          <button
-            aria-label="Edit milestone Undated milestone"
-            class="inline-flex items-center gap-1 rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2"
-            data-testid="edit-milestone-m1"
-            type="button"
-          >
-            <span
-              aria-hidden="true"
+            <button
+              aria-label="Edit milestone Undated milestone"
+              class="inline-flex items-center gap-1 rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2"
+              data-testid="edit-milestone-m1"
+              tabindex="0"
+              type="button"
             >
-              ✎
-            </span>
-            Edit
-          </button>
+              <span
+                aria-hidden="true"
+              >
+                ✎
+              </span>
+              Edit
+            </button>
+          </div>
         </div>
       </div>
       <div
@@ -669,6 +883,13 @@ exports[`MilestonesList structural/snapshot tests empty state matches the struct
     aria-live="polite"
     class="sr-only"
     data-testid="milestones-announcement"
+    role="status"
+  />
+  <span
+    aria-atomic="true"
+    aria-label="Milestone selection announcements"
+    aria-live="polite"
+    class="sr-only"
     role="status"
   />
   <div
@@ -791,62 +1012,122 @@ exports[`MilestonesList structural/snapshot tests loaded state matches the struc
     data-testid="milestones-announcement"
     role="status"
   />
+  <span
+    aria-atomic="true"
+    aria-label="Milestone selection announcements"
+    aria-live="polite"
+    class="sr-only"
+    role="status"
+  />
+  <div
+    aria-label="Milestone selection controls"
+    class="flex items-center mt-4"
+    role="group"
+  >
+    <label
+      class="flex items-center gap-2 text-sm text-slate-600"
+    >
+      <input
+        aria-checked="false"
+        aria-label="Select all milestones"
+        class="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+        type="checkbox"
+      />
+      <span>
+        Select all
+      </span>
+    </label>
+  </div>
   <div
     aria-labelledby="milestones-title milestones-count"
     class="max-h-[calc(100vh-260px)] overflow-y-auto pr-2 rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-2 mt-6 space-y-4"
     role="region"
-    tabindex="0"
+    tabindex="-1"
   >
     <article
-      class="rounded-3xl border border-slate-200 bg-slate-50 p-4 shadow-sm"
+      aria-label="Kickoff call"
+      class="rounded-3xl border p-4 shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 border-slate-200 bg-slate-50"
+      data-milestone-row=""
+      data-row-index="0"
+      data-selected="false"
       id="milestone-m1"
+      tabindex="0"
     >
       <div
-        class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
+        class="flex items-start gap-3"
       >
         <div
-          class="min-w-0 flex-1"
+          class="pt-1"
         >
-          <p
-            class="text-sm font-medium text-slate-600"
-          >
-            Kickoff call
-          </p>
-          <p
-            class="mt-1 text-sm text-slate-500"
-          >
-            Due 
-            2025-01-01
-          </p>
+          <input
+            aria-label="Select Kickoff call"
+            class="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+            tabindex="0"
+            type="checkbox"
+          />
         </div>
         <div
-          class="flex items-center gap-3"
+          class="flex flex-1 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
         >
-          <span
-            aria-label="Status: Completed"
-            class="inline-flex items-center gap-1 rounded-full px-3 py-1 text-sm font-semibold bg-[var(--status-info-bg)] text-[var(--status-info-foreground)] "
-            role="status"
+          <div
+            class="min-w-0 flex-1"
+          >
+            <p
+              class="text-sm font-medium text-slate-600"
+            >
+              Kickoff call
+            </p>
+            <div
+              class="mt-1 flex flex-wrap items-center gap-3 text-sm text-slate-500"
+            >
+              <span>
+                Due 
+                2025-01-01
+              </span>
+              <span
+                aria-hidden="true"
+                class="text-slate-300"
+              >
+                •
+              </span>
+              <span
+                aria-label="No date available"
+                class="text-sm text-slate-500"
+              >
+                —
+              </span>
+            </div>
+          </div>
+          <div
+            class="flex items-center gap-3"
           >
             <span
-              aria-hidden="true"
+              aria-label="Status: Completed"
+              class="inline-flex items-center gap-1 rounded-full px-3 py-1 text-sm font-semibold bg-[var(--status-info-bg)] text-[var(--status-info-foreground)] "
+              role="status"
             >
-              ✓
+              <span
+                aria-hidden="true"
+              >
+                ✓
+              </span>
+              Completed
             </span>
-            Completed
-          </span>
-          <button
-            aria-label="Edit milestone Kickoff call"
-            class="inline-flex items-center gap-1 rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2"
-            data-testid="edit-milestone-m1"
-            type="button"
-          >
-            <span
-              aria-hidden="true"
+            <button
+              aria-label="Edit milestone Kickoff call"
+              class="inline-flex items-center gap-1 rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2"
+              data-testid="edit-milestone-m1"
+              tabindex="0"
+              type="button"
             >
-              ✎
-            </span>
-            Edit
-          </button>
+              <span
+                aria-hidden="true"
+              >
+                ✎
+              </span>
+              Edit
+            </button>
+          </div>
         </div>
       </div>
       <div
@@ -864,55 +1145,89 @@ exports[`MilestonesList structural/snapshot tests loaded state matches the struc
       </div>
     </article>
     <article
-      class="rounded-3xl border border-slate-200 bg-slate-50 p-4 shadow-sm"
+      aria-label="Design handoff"
+      class="rounded-3xl border p-4 shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 border-slate-200 bg-slate-50"
+      data-milestone-row=""
+      data-row-index="1"
+      data-selected="false"
       id="milestone-m2"
+      tabindex="-1"
     >
       <div
-        class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
+        class="flex items-start gap-3"
       >
         <div
-          class="min-w-0 flex-1"
+          class="pt-1"
         >
-          <p
-            class="text-sm font-medium text-slate-600"
-          >
-            Design handoff
-          </p>
-          <p
-            class="mt-1 text-sm text-slate-500"
-          >
-            Due 
-            2025-02-01
-          </p>
+          <input
+            aria-label="Select Design handoff"
+            class="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+            tabindex="-1"
+            type="checkbox"
+          />
         </div>
         <div
-          class="flex items-center gap-3"
+          class="flex flex-1 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
         >
-          <span
-            aria-label="Status: Pending"
-            class="inline-flex items-center gap-1 rounded-full px-3 py-1 text-sm font-semibold bg-[var(--status-warning-bg)] text-[var(--status-warning-foreground)] "
-            role="status"
+          <div
+            class="min-w-0 flex-1"
+          >
+            <p
+              class="text-sm font-medium text-slate-600"
+            >
+              Design handoff
+            </p>
+            <div
+              class="mt-1 flex flex-wrap items-center gap-3 text-sm text-slate-500"
+            >
+              <span>
+                Due 
+                2025-02-01
+              </span>
+              <span
+                aria-hidden="true"
+                class="text-slate-300"
+              >
+                •
+              </span>
+              <span
+                aria-label="No date available"
+                class="text-sm text-slate-500"
+              >
+                —
+              </span>
+            </div>
+          </div>
+          <div
+            class="flex items-center gap-3"
           >
             <span
-              aria-hidden="true"
+              aria-label="Status: Pending"
+              class="inline-flex items-center gap-1 rounded-full px-3 py-1 text-sm font-semibold bg-[var(--status-warning-bg)] text-[var(--status-warning-foreground)] "
+              role="status"
             >
-              ⏳
+              <span
+                aria-hidden="true"
+              >
+                ⏳
+              </span>
+              Pending
             </span>
-            Pending
-          </span>
-          <button
-            aria-label="Edit milestone Design handoff"
-            class="inline-flex items-center gap-1 rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2"
-            data-testid="edit-milestone-m2"
-            type="button"
-          >
-            <span
-              aria-hidden="true"
+            <button
+              aria-label="Edit milestone Design handoff"
+              class="inline-flex items-center gap-1 rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2"
+              data-testid="edit-milestone-m2"
+              tabindex="-1"
+              type="button"
             >
-              ✎
-            </span>
-            Edit
-          </button>
+              <span
+                aria-hidden="true"
+              >
+                ✎
+              </span>
+              Edit
+            </button>
+          </div>
         </div>
       </div>
       <div
@@ -930,55 +1245,89 @@ exports[`MilestonesList structural/snapshot tests loaded state matches the struc
       </div>
     </article>
     <article
-      class="rounded-3xl border border-slate-200 bg-slate-50 p-4 shadow-sm"
+      aria-label="Final delivery"
+      class="rounded-3xl border p-4 shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 border-slate-200 bg-slate-50"
+      data-milestone-row=""
+      data-row-index="2"
+      data-selected="false"
       id="milestone-m3"
+      tabindex="-1"
     >
       <div
-        class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
+        class="flex items-start gap-3"
       >
         <div
-          class="min-w-0 flex-1"
+          class="pt-1"
         >
-          <p
-            class="text-sm font-medium text-slate-600"
-          >
-            Final delivery
-          </p>
-          <p
-            class="mt-1 text-sm text-slate-500"
-          >
-            Due 
-            2025-03-01
-          </p>
+          <input
+            aria-label="Select Final delivery"
+            class="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+            tabindex="-1"
+            type="checkbox"
+          />
         </div>
         <div
-          class="flex items-center gap-3"
+          class="flex flex-1 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
         >
-          <span
-            aria-label="Status: Disputed"
-            class="inline-flex items-center gap-1 rounded-full px-3 py-1 text-sm font-semibold bg-[var(--status-error-bg)] text-[var(--status-error-foreground)] "
-            role="status"
+          <div
+            class="min-w-0 flex-1"
+          >
+            <p
+              class="text-sm font-medium text-slate-600"
+            >
+              Final delivery
+            </p>
+            <div
+              class="mt-1 flex flex-wrap items-center gap-3 text-sm text-slate-500"
+            >
+              <span>
+                Due 
+                2025-03-01
+              </span>
+              <span
+                aria-hidden="true"
+                class="text-slate-300"
+              >
+                •
+              </span>
+              <span
+                aria-label="No date available"
+                class="text-sm text-slate-500"
+              >
+                —
+              </span>
+            </div>
+          </div>
+          <div
+            class="flex items-center gap-3"
           >
             <span
-              aria-hidden="true"
+              aria-label="Status: Disputed"
+              class="inline-flex items-center gap-1 rounded-full px-3 py-1 text-sm font-semibold bg-[var(--status-error-bg)] text-[var(--status-error-foreground)] "
+              role="status"
             >
-              ⚠
+              <span
+                aria-hidden="true"
+              >
+                ⚠
+              </span>
+              Disputed
             </span>
-            Disputed
-          </span>
-          <button
-            aria-label="Edit milestone Final delivery"
-            class="inline-flex items-center gap-1 rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2"
-            data-testid="edit-milestone-m3"
-            type="button"
-          >
-            <span
-              aria-hidden="true"
+            <button
+              aria-label="Edit milestone Final delivery"
+              class="inline-flex items-center gap-1 rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2"
+              data-testid="edit-milestone-m3"
+              tabindex="-1"
+              type="button"
             >
-              ✎
-            </span>
-            Edit
-          </button>
+              <span
+                aria-hidden="true"
+              >
+                ✎
+              </span>
+              Edit
+            </button>
+          </div>
         </div>
       </div>
       <div

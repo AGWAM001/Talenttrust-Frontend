@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import { ReputationPageContent } from './page';
+import { ReputationPageContent } from './ReputationPageContent';
 import type { Reputation } from '@/types/domain';
 
 export type ReputationPageClientProps = {

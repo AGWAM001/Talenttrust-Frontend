@@ -14,6 +14,7 @@ import {
   type MilestoneEditFormValues,
 } from '@/lib/validateMilestoneEdit';
 import type { Milestone } from '@/components/MilestonesList';
+import { MilestoneTimestamp } from './MilestoneTimestamp';
 
 /** Status options exposed in the inline edit form (same set as create form). */
 const EDIT_STATUS_OPTIONS: StatusType[] = [
@@ -30,6 +31,10 @@ const EDIT_CURRENCY_OPTIONS = ['USD', 'EUR', 'GBP', 'XLM'] as const;
 export interface MilestoneRowProps {
   /** The milestone this row renders. */
   milestone: Milestone;
+  /** Whether this row is currently selected in multi-select mode. */
+  isSelected?: boolean;
+  /** Called when the user toggles the selection checkbox for this row. */
+  onToggleSelect?: (id: string) => void;
   /**
    * Whether edit mode is currently active. Parent-controlled so only one row
    * is in edit mode at a time across the list. Click the Edit button to
@@ -59,6 +64,16 @@ export interface MilestoneRowProps {
    * announcement. Defaults to a no-op so the component works in isolation.
    */
   onAnnounce?: (message: string) => void;
+  /**
+   * Roving-tabindex slot controlled by the parent list: `0` for the list's
+   * single active row, `-1` for every other row. Applied to the row itself
+   * and its view-mode controls (checkbox, Edit button) so inactive rows are
+   * skipped in the tab order until the user roves to them with the arrow
+   * keys. Omitted for standalone use (all controls stay tabbable).
+   */
+  tabIndex?: number;
+  /** Zero-based position of this row within the list (drives roving). */
+  rowIndex?: number;
 }
 
 /**
@@ -98,11 +113,15 @@ export interface MilestoneRowProps {
  */
 export const MilestoneRow: React.FC<MilestoneRowProps> = ({
   milestone,
+  isSelected = false,
+  onToggleSelect,
   isEditing,
   onRequestEdit,
   onSave,
   onCancel,
   onAnnounce,
+  tabIndex,
+  rowIndex,
 }) => {
   const { formatAmount } = usePreferences();
 
@@ -239,16 +258,54 @@ export const MilestoneRow: React.FC<MilestoneRowProps> = ({
   // --------------------------------------------------------------------------
   // View mode (default): summary row + Edit button
   // --------------------------------------------------------------------------
+  const handleToggle = useCallback(() => {
+    onToggleSelect?.(milestone.id);
+  }, [milestone.id, onToggleSelect]);
+
   if (!isEditing) {
     return (
       <article
         id={`milestone-${milestone.id}`}
-        className="rounded-3xl border border-slate-200 bg-slate-50 p-4 shadow-sm"
+        aria-label={milestone.title}
+        data-selected={isSelected}
+        data-milestone-row=""
+        data-row-index={rowIndex}
+        tabIndex={tabIndex}
+        className={`rounded-3xl border p-4 shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 ${
+          isSelected
+            ? 'border-indigo-300 bg-indigo-50'
+            : 'border-slate-200 bg-slate-50'
+        }`}
       >
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-start gap-3">
+          {onToggleSelect && (
+            <div className="pt-1">
+              <input
+                type="checkbox"
+                checked={isSelected}
+                onChange={handleToggle}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleToggle();
+                  }
+                }}
+                aria-label={`${isSelected ? 'Deselect' : 'Select'} ${milestone.title}`}
+                tabIndex={tabIndex}
+                className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+              />
+            </div>
+          )}
+          <div className="flex flex-1 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0 flex-1">
             <p className="text-sm font-medium text-slate-600">{milestone.title}</p>
-            <p className="mt-1 text-sm text-slate-500">Due {milestone.dueDate ?? 'TBD'}</p>
+            <div className="mt-1 flex flex-wrap items-center gap-3 text-sm text-slate-500">
+              <span>Due {milestone.dueDate ?? 'TBD'}</span>
+              <span aria-hidden="true" className="text-slate-300">•</span>
+              <MilestoneTimestamp 
+                date={milestone.updatedAt || milestone.createdAt} 
+              />
+            </div>
           </div>
           <div className="flex items-center gap-3">
             <StatusBadge status={milestone.status} />
@@ -258,22 +315,24 @@ export const MilestoneRow: React.FC<MilestoneRowProps> = ({
               onClick={onRequestEdit}
               aria-label={`Edit milestone ${milestone.title}`}
               data-testid={`edit-milestone-${milestone.id}`}
+              tabIndex={tabIndex}
               className="inline-flex items-center gap-1 rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2"
             >
               <span aria-hidden="true">✎</span>
               Edit
             </button>
           </div>
-        </div>
-        <div className="mt-4 flex items-center justify-between gap-4 border-t border-slate-200 pt-4 text-sm text-slate-600">
-          <p>Payout</p>
-          <p
-            data-testid={`milestone-payout-${milestone.id}`}
-            className="font-semibold text-slate-900"
-          >
-            {formatAmount(milestone.payout, milestone.currency)}
-          </p>
-        </div>
+            </div>
+          </div>
+          <div className="mt-4 flex items-center justify-between gap-4 border-t border-slate-200 pt-4 text-sm text-slate-600">
+            <p>Payout</p>
+            <p
+              data-testid={`milestone-payout-${milestone.id}`}
+              className="font-semibold text-slate-900"
+            >
+              {formatAmount(milestone.payout, milestone.currency)}
+            </p>
+          </div>
       </article>
     );
   }

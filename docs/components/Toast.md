@@ -84,8 +84,9 @@ There is no multi-column layout.
 | `ToastProvider`      | Component | Context provider; renders viewport and announcer          |
 | `useToast`           | Hook      | Returns `{ toasts, showSuccess, showError, dismissToast }` |
 | `ToastErrorBoundary` | Component | Class error boundary wrapping the toast viewport          |
+| `ToastSkeleton`      | Component | Loading-state placeholder matching the toast layout       |
 
-All three are named exports from `@/components/toast/toast-provider`.
+All four are named exports from `@/components/toast/toast-provider`.
 
 ---
 
@@ -127,8 +128,9 @@ type ToastContextValue = {
 
 ### `useToast()` hook
 
-Must be called inside `<ToastProvider>`.
-Throws `Error('useToast must be used within a ToastProvider')` otherwise.
+Must be called inside `<ToastProvider>`. When called outside a provider the
+context resolves to a default value whose `showSuccess` and `showError` return
+empty strings and `dismissToast` is a no-op — no error is thrown.
 
 Returns the `ToastContextValue` object:
 
@@ -460,15 +462,18 @@ with `aria-atomic="false"`, making it a navigable landmark.
 
 ### Live-Region Announcer
 
-`ToastAnnouncer` renders **two** `sr-only` `<div>` elements:
+`ToastAnnouncer` renders **three** `sr-only` `<div>` elements:
 
-| Region  | `aria-live`   | `aria-atomic` | Content                                                |
-|---------|---------------|---------------|--------------------------------------------------------|
-| Success | `"polite"`    | `"true"`      | `title[. description]` of the **latest** success toast |
-| Error   | `"assertive"` | `"true"`      | `title[. description]` of the **latest** error toast   |
+| Region            | `aria-live`   | `aria-atomic` | Content                                                       |
+|-------------------|---------------|---------------|---------------------------------------------------------------|
+| Success (latest)  | `"polite"`    | `"true"`      | `title[. description]` of the **latest** success toast        |
+| Error (latest)    | `"assertive"` | `"true"`      | `title[. description]` of the **latest** error toast          |
+| Status summary    | `"polite"`    | `"true"`      | Aggregate notification count summary, e.g. `"3 notifications (1 error, 2 successes)"` |
 
-Only the **most recent** toast of each variant is announced. After eviction, the
-live region reflects the newest surviving toast.
+Only the **most recent** toast of each variant appears in the per-variant
+regions. The status-summary region updates 500 ms after every change,
+announcing the total and per-variant breakdown. After eviction, all live
+regions reflect the newest surviving toasts.
 
 ### Dismiss Button
 

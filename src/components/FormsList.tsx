@@ -2,6 +2,7 @@ import React, { useState, useMemo, useCallback } from 'react';
 import { Skeleton } from './Skeleton';
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard';
 import { useToast } from '@/components/toast/toast-provider';
+import { exportData } from '@/utils/export';
 
 export type FormStatus = 'All' | 'Draft' | 'Published';
 
@@ -113,6 +114,10 @@ export const FormsList = ({ forms, isLoading = false, error = null }: FormsListP
     return forms.filter((f) => f.status === filter);
   }, [forms, filter]);
 
+  const handleExport = (format: 'csv' | 'json') => {
+    exportData(filteredForms as unknown as Record<string, unknown>[], 'forms_export', format);
+  };
+
   const displayedForms = filteredForms.slice(0, page * pageSize);
   const hasMore = displayedForms.length < filteredForms.length;
 
@@ -163,10 +168,35 @@ export const FormsList = ({ forms, isLoading = false, error = null }: FormsListP
 
   return (
     <div>
-      <div role="group" aria-label="Filter forms by status">
-        <button type="button" onClick={() => { setFilter('All'); setPage(1); }}>Filter All</button>
-        <button type="button" onClick={() => { setFilter('Draft'); setPage(1); }}>Filter Draft</button>
-        <button type="button" onClick={() => { setFilter('Published'); setPage(1); }}>Filter Published</button>
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+        <div role="group" aria-label="Filter forms by status" className="flex gap-2">
+          <button type="button" onClick={() => { setFilter('All'); setPage(1); }}>Filter All</button>
+          <button type="button" onClick={() => { setFilter('Draft'); setPage(1); }}>Filter Draft</button>
+          <button type="button" onClick={() => { setFilter('Published'); setPage(1); }}>Filter Published</button>
+        </div>
+
+        <div className="flex gap-2">
+          <button
+            type="button"
+            aria-label="Export forms as CSV"
+            data-testid="export-csv-button"
+            onClick={() => handleExport('csv')}
+            disabled={filteredForms.length === 0}
+            className="px-3 py-1 text-xs font-medium bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+          >
+            Export CSV
+          </button>
+          <button
+            type="button"
+            aria-label="Export forms as JSON"
+            data-testid="export-json-button"
+            onClick={() => handleExport('json')}
+            disabled={filteredForms.length === 0}
+            className="px-3 py-1 text-xs font-medium bg-gray-600 text-white rounded hover:bg-gray-700 disabled:opacity-50"
+          >
+            Export JSON
+          </button>
+        </div>
       </div>
 
       {filteredForms.length === 0 ? (

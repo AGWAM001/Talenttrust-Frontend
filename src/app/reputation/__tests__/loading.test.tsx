@@ -81,6 +81,14 @@ describe('ReputationLoading – loading skeleton', () => {
     expect(screen.queryByText('Retry')).not.toBeInTheDocument();
     expect(screen.queryByText('Go Home')).not.toBeInTheDocument();
   });
+
+  it('does NOT render a meter role (success/partial state indicator)', () => {
+    expect(document.querySelector('[role="meter"]')).toBeNull();
+  });
+
+  it('does NOT render an alert role (error state indicator)', () => {
+    expect(document.querySelector('[role="alert"]')).toBeNull();
+  });
 });
 
 describe('ReputationLoading – accessibility', () => {

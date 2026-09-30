@@ -13,11 +13,15 @@ export interface WalletBulkToolbarProps {
   onDelete: () => void;
 }
 
+const FOCUSABLE_SELECTORS =
+  'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
 /**
  * WalletBulkToolbar — accessible toolbar for multi-selected wallet items.
  *
  * Renders bulk actions (Export, Delete, Clear) when items are selected.
- * Supports keyboard navigation and screen-reader announcements.
+ * Supports keyboard navigation (arrow keys within toolbar, Escape to clear)
+ * and screen-reader announcements.
  */
 export const WalletBulkToolbar: React.FC<WalletBulkToolbarProps> = ({
   selectedCount,
@@ -27,6 +31,7 @@ export const WalletBulkToolbar: React.FC<WalletBulkToolbarProps> = ({
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const mountedRef = useRef(true);
+  const prevSelectedCountRef = useRef(selectedCount);
 
   useEffect(() => {
     return () => {
@@ -34,11 +39,57 @@ export const WalletBulkToolbar: React.FC<WalletBulkToolbarProps> = ({
     };
   }, []);
 
+  const getFocusableInToolbar = useCallback((): HTMLElement[] => {
+    const toolbar = containerRef.current;
+    if (!toolbar) return [];
+    return Array.from(toolbar.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTORS));
+  }, []);
+
+  // Auto-focus the first focusable button when toolbar appears
+  useEffect(() => {
+    if (prevSelectedCountRef.current === 0 && selectedCount > 0) {
+      const focusable = getFocusableInToolbar();
+      if (focusable.length > 0) {
+        focusable[0].focus();
+      }
+    }
+    prevSelectedCountRef.current = selectedCount;
+  }, [selectedCount, getFocusableInToolbar]);
+
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     if (e.key === 'Escape' && selectedCount > 0 && mountedRef.current) {
+      e.preventDefault();
       onClearSelection();
+      return;
     }
-  }, [selectedCount, onClearSelection]);
+
+    const toolbar = containerRef.current;
+    const target = e.target as HTMLElement | null;
+    const isInsideToolbar = toolbar && target && toolbar.contains(target);
+    if (!isInsideToolbar) return;
+
+    const focusable = getFocusableInToolbar();
+    if (focusable.length === 0) return;
+
+    const currentIndex = focusable.indexOf(document.activeElement as HTMLElement);
+    if (currentIndex === -1) return;
+
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+      e.preventDefault();
+      const nextIndex = (currentIndex + 1) % focusable.length;
+      focusable[nextIndex].focus();
+    } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      const prevIndex = (currentIndex - 1 + focusable.length) % focusable.length;
+      focusable[prevIndex].focus();
+    } else if (e.key === 'Home') {
+      e.preventDefault();
+      focusable[0].focus();
+    } else if (e.key === 'End') {
+      e.preventDefault();
+      focusable[focusable.length - 1].focus();
+    }
+  }, [selectedCount, onClearSelection, getFocusableInToolbar]);
 
   useEffect(() => {
     window.addEventListener('keydown', handleKeyDown);

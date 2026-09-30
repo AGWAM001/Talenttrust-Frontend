@@ -8,6 +8,7 @@ export interface ContractData {
   totalValue: number;
   currency: string;
   createdAt: string;
+  updatedAt: string;
   milestones: Milestone[];
 }
 
@@ -46,6 +47,7 @@ export async function resolveContractData(
     totalValue: 7000,
     currency: 'USD',
     createdAt: 'Apr 20, 2026',
+    updatedAt: '2026-04-20T12:00:00.000Z',
     milestones: [
       {
         id: 'ms-1',

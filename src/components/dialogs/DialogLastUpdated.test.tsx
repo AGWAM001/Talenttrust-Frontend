@@ -76,3 +76,10 @@ describe('DialogLastUpdated', () => {
     expect(screen.getByText(/updated just now/i).closest('p')).toHaveClass('mb-4');
   });
 });
+
+
+//  it('accepts an optional className for layout', () => {
+//     render(<DialogLastUpdated updatedAt={FIXED_NOW} className="mb-4" />);
+//     expect(screen.getByText(/updated just now/i).closest('p')).toHaveClass('mb-4');
+//   });
+// });

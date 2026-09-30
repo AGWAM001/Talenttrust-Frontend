@@ -12,6 +12,18 @@ export interface ConfirmDialogProps {
   title: string;
   /** Dialog description or message */
   description: string;
+  /**
+   * Optional identifier to display inside the dialog (e.g. a contract ID,
+   * dispute ID, or any entity reference). When supplied, a
+   * {@link DialogIdBadge} is rendered below the description so users can
+   * copy the ID to their clipboard.
+   */
+  dialogId?: string;
+  /**
+   * Human-readable label for the `dialogId` field, e.g. `"Contract ID"`.
+   * Defaults to `"ID"` when `dialogId` is set.
+   */
+  dialogIdLabel?: string;
   /** Text for the confirm button (default: "Confirm") */
   confirmLabel?: string;
   /** Text for the cancel button (default: "Cancel") */

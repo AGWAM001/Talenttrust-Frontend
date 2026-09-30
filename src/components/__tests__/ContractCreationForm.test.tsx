@@ -446,6 +446,56 @@ describe('ContractCreationForm', () => {
       const contractNameLabel = screen.getByText(/contract name/i).closest('label');
       expect(contractNameLabel?.textContent).toContain('*');
     });
+
+    describe('Button focus-visible styles', () => {
+      it('Create Contract button has focus-visible outline classes', () => {
+        render(<ContractCreationForm {...defaultProps} />);
+
+        const createBtn = screen.getByRole('button', { name: /create contract/i });
+        expect(createBtn.className).toMatch(/focus-visible:outline/);
+        expect(createBtn.className).toMatch(/focus-visible:outline-4/);
+        expect(createBtn.className).toMatch(/focus-visible:outline-offset-2/);
+        expect(createBtn.className).toMatch(/focus-visible:outline-blue-500/);
+      });
+
+      it('Cancel button has focus-visible outline classes', () => {
+        render(<ContractCreationForm {...defaultProps} />);
+
+        const cancelBtn = screen.getByRole('button', { name: /cancel/i });
+        expect(cancelBtn.className).toMatch(/focus-visible:outline/);
+        expect(cancelBtn.className).toMatch(/focus-visible:outline-4/);
+        expect(cancelBtn.className).toMatch(/focus-visible:outline-offset-2/);
+        expect(cancelBtn.className).toMatch(/focus-visible:outline-blue-500/);
+      });
+
+      it('Add Another Party button has focus-visible outline classes', () => {
+        render(<ContractCreationForm {...defaultProps} />);
+
+        const addPartyBtn = screen.getByRole('button', { name: /add another party/i });
+        expect(addPartyBtn.className).toMatch(/focus-visible:outline/);
+        expect(addPartyBtn.className).toMatch(/focus-visible:outline-4/);
+        expect(addPartyBtn.className).toMatch(/focus-visible:outline-offset-2/);
+        expect(addPartyBtn.className).toMatch(/focus-visible:outline-blue-500/);
+      });
+
+      it('Remove party buttons have focus-visible outline classes', async () => {
+        render(<ContractCreationForm {...defaultProps} />);
+
+        // Add a third party first so Remove buttons appear
+        fireEvent.click(screen.getByRole('button', { name: /add another party/i }));
+
+        await waitFor(() => {
+          const removeButtons = screen.getAllByRole('button', { name: /remove party/i });
+          expect(removeButtons.length).toBeGreaterThan(0);
+          removeButtons.forEach((btn) => {
+            expect(btn.className).toMatch(/focus-visible:outline/);
+            expect(btn.className).toMatch(/focus-visible:outline-4/);
+            expect(btn.className).toMatch(/focus-visible:outline-offset-2/);
+            expect(btn.className).toMatch(/focus-visible:outline-red-500/);
+          });
+        });
+      });
+    });
   });
 
   describe('Currency Selection', () => {

@@ -46,7 +46,7 @@ This repository keeps user-facing and implementation notes inside the `docs/` fo
 - `docs/persistence.md` — Persistence API and local storage patterns
 - `docs/preferences.md` — Preferences provider and currency/locale helpers
 - `docs/contexts/wallet-session.md` — Wallet session lifecycle and idle disconnect guidance
-- `docs/contexts/wallet-data-flow.md` — Wallet data flow diagram (fetch -> transform -> render)
+- `docs/reputation/hooks.md` — Reputation module helper functions, utilities, and types with usage examples
 - `docs/implementation/ISSUE_383_IMPLEMENTATION.md` — Folded implementation notes for issue #383
 
 If you find other implementation notes in the repository root, they have been consolidated into `docs/` where appropriate. Remove or ignore remaining one-off files.
@@ -99,14 +99,14 @@ The app includes a global accessible toast system for transient feedback:
 
 ## Session safety
 
-To improve security on shared or public machines, the [`WalletProvider`](file:///c:/Users/USER/Desktop/Talenttrust-Frontend/src/contexts/WalletContext.tsx#L31) includes an optional idle auto-disconnect safeguard.
+To improve security on shared or public machines, the [`WalletProvider`](src/contexts/WalletContext.tsx) includes an optional idle auto-disconnect safeguard.
 
-- **Configurable Timeout**: Pass an [`idleTimeout`](file:///c:/Users/USER/Desktop/Talenttrust-Frontend/src/contexts/WalletContext.tsx#L33) prop (in milliseconds) to [`WalletProvider`](file:///c:/Users/USER/Desktop/Talenttrust-Frontend/src/contexts/WalletContext.tsx#L31) in [`src/app/layout.tsx`](file:///c:/Users/USER/Desktop/Talenttrust-Frontend/src/app/layout.tsx).
-- **Activity Monitoring**: The timer resets on user activity (pointer moves, key presses, clicks, etc.).
-- **Auto-Disconnect**: Once the idle period expires, the wallet is automatically disconnected and a notification is shown.
+- **Configurable Timeout**: Pass an `idleTimeout` prop (in milliseconds) to [`WalletProvider`](src/contexts/WalletContext.tsx) in [`src/app/layout.tsx`](src/app/layout.tsx).
+- **Activity Monitoring**: The timer resets on user activity (pointer moves, key presses, clicks, tab visibility changes).
+- **Auto-Disconnect**: Once the idle period expires, the wallet is automatically disconnected and a "Session expired" toast is shown.
 - **Default Behaviour**: The safeguard is disabled by default (`idleTimeout={0}`). Recommended value for production is 15 minutes (`900000` ms).
 
-For more details on the session lifecycle, storage keys, and inactivity events, see the [Wallet Session Management Guide](file:///c:/Users/USER/Desktop/Talenttrust-Frontend/docs/contexts/wallet-session.md).
+For more details on the session lifecycle, storage keys, and inactivity events, see the [Wallet Session Management Guide](docs/contexts/wallet-session.md).
 
 Example:
 

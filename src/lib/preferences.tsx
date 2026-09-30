@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useEffect, useState, useRef } from 'react';
+import React, { createContext, useContext, useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { getItem, setItem } from './safeStorage';
 
@@ -9,6 +9,7 @@ export type AmountFormat = 'usd' | 'ngn' | 'compact';
 export type ToastDensity = 'relaxed' | 'compact';
 export type FormDensity = 'comfortable' | 'compact';
 export type ListDensity = 'comfortable' | 'compact';
+export type ContractsDensity = 'comfortable' | 'compact';
 /**
  * Controls the default auto-dismiss duration for toasts when the caller does
  * not supply an explicit `duration`.
@@ -54,6 +55,7 @@ export interface UserPreferences {
   formDensity: FormDensity;
   milestonesDensity: ListDensity;
   walletDensity: ListDensity;
+  contractsDensity: ContractsDensity;
   quietMode: boolean;
   toastDuration: ToastDuration;
   /**
@@ -70,6 +72,7 @@ const DEFAULT_PREFERENCES: UserPreferences = {
   formDensity: 'comfortable',
   milestonesDensity: 'comfortable',
   walletDensity: 'comfortable',
+  contractsDensity: 'comfortable',
   quietMode: false,
   toastDuration: 'normal',
   idleDisconnectMs: 0,
@@ -88,6 +91,7 @@ const KNOWN_KEYS: ReadonlySet<keyof UserPreferences> = new Set([
   'formDensity',
   'milestonesDensity',
   'walletDensity',
+  'contractsDensity',
   'quietMode',
   'toastDuration',
   'idleDisconnectMs',
@@ -112,6 +116,7 @@ const ALLOWED_AMOUNT_FORMATS: ReadonlySet<AmountFormat> = new Set(['usd', 'ngn',
 const ALLOWED_TOAST_DENSITIES: ReadonlySet<ToastDensity> = new Set(['relaxed', 'compact']);
 const ALLOWED_FORM_DENSITIES: ReadonlySet<FormDensity> = new Set(['comfortable', 'compact']);
 const ALLOWED_LIST_DENSITIES: ReadonlySet<ListDensity> = new Set(['comfortable', 'compact']);
+const ALLOWED_CONTRACTS_DENSITIES: ReadonlySet<ContractsDensity> = new Set(['comfortable', 'compact']);
 const ALLOWED_TOAST_DURATIONS: ReadonlySet<ToastDuration> = new Set(['short', 'normal', 'long', 'persistent']);
 
 interface PreferencesContextType {
@@ -166,6 +171,7 @@ export function sanitizePreferences(raw: unknown): UserPreferences {
   let formDensity: FormDensity = DEFAULT_PREFERENCES.formDensity;
   let milestonesDensity: ListDensity = DEFAULT_PREFERENCES.milestonesDensity;
   let walletDensity: ListDensity = DEFAULT_PREFERENCES.walletDensity;
+  let contractsDensity: ContractsDensity = DEFAULT_PREFERENCES.contractsDensity;
   let quietMode: boolean = DEFAULT_PREFERENCES.quietMode;
   let toastDuration: ToastDuration = DEFAULT_PREFERENCES.toastDuration;
   let idleDisconnectMs: number = DEFAULT_PREFERENCES.idleDisconnectMs;
@@ -215,6 +221,11 @@ export function sanitizePreferences(raw: unknown): UserPreferences {
           walletDensity = value as ListDensity;
         }
         break;
+      case 'contractsDensity':
+        if (typeof value === 'string' && ALLOWED_CONTRACTS_DENSITIES.has(value as ContractsDensity)) {
+          contractsDensity = value as ContractsDensity;
+        }
+        break;
       case 'quietMode':
         if (typeof value === 'boolean') {
           quietMode = value;
@@ -246,6 +257,7 @@ export function sanitizePreferences(raw: unknown): UserPreferences {
     formDensity,
     milestonesDensity,
     walletDensity,
+    contractsDensity,
     quietMode,
     toastDuration,
     idleDisconnectMs,
@@ -259,9 +271,14 @@ export function sanitizePreferences(raw: unknown): UserPreferences {
  */
 export function PreferencesProvider({ children }: { children: React.ReactNode }) {
   const [preferences, setPreferences] = useState<UserPreferences>(DEFAULT_PREFERENCES);
+  const preferencesRef = useRef<UserPreferences>(DEFAULT_PREFERENCES);
   const [isHydrated, setIsHydrated] = useState(false);
   const systemPrefersDark = useMediaQuery('(prefers-color-scheme: dark)');
   const pendingUpdates = useRef<Record<string, number>>({});
+
+  useEffect(() => {
+    preferencesRef.current = preferences;
+  }, [preferences]);
 
   // Load from localStorage on mount. Every value is routed through
   // `sanitizePreferences` so tampered, corrupted, or prototype-polluting
@@ -304,51 +321,57 @@ export function PreferencesProvider({ children }: { children: React.ReactNode })
     applyTheme(preferences.theme);
   }, [preferences.theme, systemPrefersDark]);
 
-  const updatePreference = async <K extends keyof UserPreferences>(key: K, value: UserPreferences[K]) => {
-    const previous = preferences[key];
-    const currentReq = (pendingUpdates.current[key as string] || 0) + 1;
-    pendingUpdates.current[key as string] = currentReq;
+  const updatePreference = useCallback(
+    async <K extends keyof UserPreferences>(key: K, value: UserPreferences[K]) => {
+      const previous = preferencesRef.current[key];
+      const currentReq = (pendingUpdates.current[key as string] || 0) + 1;
+      pendingUpdates.current[key as string] = currentReq;
 
-    setPreferences(prev => ({ ...prev, [key]: value }));
+      setPreferences(prev => ({ ...prev, [key]: value }));
 
-    try {
-      await new Promise<void>((resolve, reject) => {
-        setTimeout(() => {
-          if (typeof window !== 'undefined' && (window as any).__SIMULATE_SETTINGS_ERROR) {
-            reject(new Error('Failed to save settings'));
-          } else {
-            resolve();
-          }
-        }, 600);
-      });
-    } catch (error) {
-      if (pendingUpdates.current[key as string] === currentReq) {
-        setPreferences(prev => ({ ...prev, [key]: previous }));
+      try {
+        await new Promise<void>((resolve, reject) => {
+          setTimeout(() => {
+            if (typeof window !== 'undefined' && (window as any).__SIMULATE_SETTINGS_ERROR) {
+              reject(new Error('Failed to save settings'));
+            } else {
+              resolve();
+            }
+          }, 600);
+        });
+      } catch (error) {
+        if (pendingUpdates.current[key as string] === currentReq) {
+          setPreferences(prev => ({ ...prev, [key]: previous }));
+        }
+        throw error;
       }
-      throw error;
-    }
-  };
+    },
+    [],
+  );
 
   /**
    * Format monetary values using the active amount preference.
    * USD keeps the caller-provided currency, NGN forces Nigerian Naira,
    * and compact keeps the caller-provided currency with compact notation.
    */
-  const formatAmount = (amount: number, currency: string = 'USD') => {
-    const { amountFormat } = preferences;
-    
-    // Determine which currency to use based on settings
-    const activeCurrency = amountFormat === 'ngn' ? 'NGN' : currency;
-    const locale = amountFormat === 'ngn' ? 'en-NG' : 'en-US';
+  const formatAmount = useMemo(
+    () => (amount: number, currency: string = 'USD') => {
+      const { amountFormat } = preferences;
+      
+      // Determine which currency to use based on settings
+      const activeCurrency = amountFormat === 'ngn' ? 'NGN' : currency;
+      const locale = amountFormat === 'ngn' ? 'en-NG' : 'en-US';
 
-    if (amountFormat === 'compact') {
-      return safeCurrencyFormat(amount, activeCurrency, 'en-US', {
-        notation: 'compact',
-      });
-    }
+      if (amountFormat === 'compact') {
+        return safeCurrencyFormat(amount, activeCurrency, 'en-US', {
+          notation: 'compact',
+        });
+      }
 
-    return safeCurrencyFormat(amount, activeCurrency, locale);
-  };
+      return safeCurrencyFormat(amount, activeCurrency, locale);
+    },
+    [preferences.amountFormat],
+  );
 
   return (
     <PreferencesContext.Provider value={{ preferences, updatePreference, formatAmount }}>

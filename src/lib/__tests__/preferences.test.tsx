@@ -77,6 +77,7 @@ describe('PreferencesProvider', () => {
       formDensity: 'comfortable',
       milestonesDensity: 'comfortable',
       walletDensity: 'comfortable',
+      contractsDensity: 'comfortable',
       quietMode: false,
       toastDuration: 'normal',
       idleDisconnectMs: 0,
@@ -159,6 +160,36 @@ describe('PreferencesProvider', () => {
     expect(result.current.preferences.formDensity).toBe('comfortable');
   });
 
+  it('uses default contractsDensity when none is stored', () => {
+    const { result } = renderHook(() => usePreferences(), { wrapper });
+    expect(result.current.preferences.contractsDensity).toBe('comfortable');
+  });
+
+  it('persists contractsDensity and restores it on hydration', () => {
+    const { result } = renderHook(() => usePreferences(), { wrapper });
+
+    act(() => {
+      result.current.updatePreference('contractsDensity', 'compact');
+    });
+
+    expect(result.current.preferences.contractsDensity).toBe('compact');
+    const saved = JSON.parse(localStorage.getItem('talenttrust-user-preferences') || '{}');
+    expect(saved.contractsDensity).toBe('compact');
+
+    // Remount to simulate reload
+    const { result: r2 } = renderHook(() => usePreferences(), { wrapper });
+    expect(r2.current.preferences.contractsDensity).toBe('compact');
+  });
+
+  it('falls back to comfortable when stored contractsDensity is invalid', () => {
+    localStorage.setItem(
+      'talenttrust-user-preferences',
+      JSON.stringify({ contractsDensity: 'ultra-compact' }),
+    );
+    const { result } = renderHook(() => usePreferences(), { wrapper });
+    expect(result.current.preferences.contractsDensity).toBe('comfortable');
+  });
+
   it('rejects non-boolean quietMode values (truthy coercion guard)', () => {
     localStorage.setItem(
       'talenttrust-user-preferences',
@@ -200,6 +231,7 @@ describe('PreferencesProvider', () => {
     // so we compare with `.sort()` for engine-independent comparison.
     expect(Object.keys(serialized).sort()).toEqual([
       'amountFormat',
+      'contractsDensity',
       'formDensity',
       'idleDisconnectMs',
       'milestonesDensity',
@@ -260,6 +292,7 @@ describe('sanitizePreferences (pure helper)', () => {
     formDensity: 'comfortable',
     milestonesDensity: 'comfortable',
     walletDensity: 'comfortable',
+    contractsDensity: 'comfortable',
     quietMode: false,
     toastDuration: 'normal',
     idleDisconnectMs: 0,
@@ -303,6 +336,7 @@ describe('sanitizePreferences (pure helper)', () => {
       formDensity: 'compact',
       milestonesDensity: 'comfortable',
       walletDensity: 'comfortable',
+      contractsDensity: 'comfortable',
       quietMode: true,
       toastDuration: 'long',
       idleDisconnectMs: 15000,
@@ -319,6 +353,7 @@ describe('sanitizePreferences (pure helper)', () => {
       formDensity: 'comfortable',
       milestonesDensity: 'comfortable',
       walletDensity: 'comfortable',
+      contractsDensity: 'comfortable',
       quietMode: true,
       toastDuration: 'normal',
       idleDisconnectMs: 0,
@@ -384,6 +419,30 @@ describe('sanitizePreferences (pure helper)', () => {
     });
   });
 
+  it('accepts valid contractsDensity values', () => {
+    expect(sanitizePreferences({ contractsDensity: 'compact' })).toEqual({
+      ...DEFAULTS,
+      contractsDensity: 'compact',
+    });
+    expect(sanitizePreferences({ contractsDensity: 'comfortable' })).toEqual({
+      ...DEFAULTS,
+      contractsDensity: 'comfortable',
+    });
+  });
+
+  it('rejects invalid contractsDensity values and falls back to default', () => {
+    expect(sanitizePreferences({ contractsDensity: 'wide' })).toEqual({ ...DEFAULTS });
+    expect(sanitizePreferences({ contractsDensity: 1 } as unknown as UserPreferences)).toEqual({
+      ...DEFAULTS,
+    });
+    expect(sanitizePreferences({ contractsDensity: null } as unknown as UserPreferences)).toEqual({
+      ...DEFAULTS,
+    });
+    expect(sanitizePreferences({ contractsDensity: true } as unknown as UserPreferences)).toEqual({
+      ...DEFAULTS,
+    });
+  });
+
   it('rejects non-boolean quietMode values even when truthy', () => {
     expect(sanitizePreferences({ quietMode: 1 } as unknown as UserPreferences)).toEqual({
       ...DEFAULTS,
@@ -443,6 +502,7 @@ describe('sanitizePreferences (pure helper)', () => {
       formDensity: 'comfortable',
       milestonesDensity: 'compact',
       walletDensity: 'comfortable',
+      contractsDensity: 'comfortable',
       quietMode: false,
       toastDuration: 'persistent',
       idleDisconnectMs: 10000,

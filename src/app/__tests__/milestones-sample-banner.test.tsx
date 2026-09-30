@@ -19,10 +19,11 @@ import React from 'react';
 import { render, screen, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { axe } from 'jest-axe';
-import MilestonesPage, {
+import MilestonesPage from '../milestones/page';
+import {
   SAMPLE_DISMISSED_KEY,
   SAMPLE_MILESTONES,
-} from '../milestones/page';
+} from '../milestones/constants';
 import { listMilestones, saveMilestone } from '@/lib/repository';
 import * as safeStorage from '@/lib/safeStorage';
 import { ToastProvider } from '@/components/toast/toast-provider';

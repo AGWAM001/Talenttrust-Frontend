@@ -5,50 +5,10 @@ import EmptyState from '../../components/EmptyState';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { WalletBulkToolbar } from '../../components/wallet/WalletBulkToolbar';
 import { WalletItemList } from '../../components/wallet/WalletItemList';
-import { listWalletItems, saveWalletItem, deleteWalletItems } from '@/lib/repository';
+import { listWalletItems, saveWalletItem, updateWalletItem, deleteWalletItems } from '@/lib/repository';
 import { useToast } from '@/components/toast/toast-provider';
 import type { WalletItem } from '@/types/domain';
-
-export const SAMPLE_WALLET_ITEMS: WalletItem[] = [
-  {
-    id: 'w-1',
-    name: 'Stellar Lumens (XLM)',
-    type: 'Native Asset',
-    balance: 12500,
-    currency: 'XLM',
-    address: 'GAAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQDZ7H',
-    status: 'Active',
-    createdAt: '2026-01-15',
-  },
-  {
-    id: 'w-2',
-    name: 'USD Coin (USDC)',
-    type: 'Stablecoin',
-    balance: 3200,
-    currency: 'USDC',
-    address: 'GA2C456789ABCDEF0123456789ABCDEF0123456789ABCDEF',
-    status: 'Active',
-    createdAt: '2026-02-01',
-  },
-  {
-    id: 'w-3',
-    name: 'Escrow Lock Key #402',
-    type: 'Security Credential',
-    balance: 1,
-    currency: 'KEY',
-    status: 'Pending',
-    createdAt: '2026-03-10',
-  },
-  {
-    id: 'w-4',
-    name: 'Archived Client Token',
-    type: 'Custom Asset',
-    balance: 50,
-    currency: 'ACT',
-    status: 'Archived',
-    createdAt: '2025-11-20',
-  },
-];
+import { SAMPLE_WALLET_ITEMS } from './constants';
 
 export default function WalletPage() {
   const [items, setItems] = useState<WalletItem[]>([]);
@@ -57,6 +17,7 @@ export default function WalletPage() {
   const [targetDeleteIds, setTargetDeleteIds] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const { showSuccess, showError } = useToast();
 
   // Load from repository on mount, fallback to sample items if repository is empty
@@ -229,6 +190,31 @@ export default function WalletPage() {
       console.error('[WalletPage] Exception during delete:', err);
       setItems(previousItems);
       setSelectedIds(previousSelectedIds);
+    const snapshot = items;
+    const deleteIds = targetDeleteIds;
+
+    setItems((prev) => prev.filter((item) => !deleteIds.includes(item.id)));
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      deleteIds.forEach((id) => next.delete(id));
+      return next;
+    });
+
+    const ok = deleteWalletItems(deleteIds);
+    if (ok) {
+      showSuccess({
+        title: 'Items deleted',
+        description: `Successfully deleted ${deleteIds.length} ${
+          deleteIds.length === 1 ? 'item' : 'items'
+        }.`,
+      });
+    } else {
+      setItems(snapshot);
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        deleteIds.forEach((id) => next.add(id));
+        return next;
+      });
       showError({
         title: 'Delete failed',
         description: 'An error occurred while deleting items. Please try again.',
@@ -238,10 +224,37 @@ export default function WalletPage() {
     setIsDeleteModalOpen(false);
     setTargetDeleteIds([]);
   }, [targetDeleteIds, items, selectedIds, showSuccess, showError]);
+  }, [items, targetDeleteIds, showSuccess, showError]);
 
   const handleCancelDelete = useCallback(() => {
     setIsDeleteModalOpen(false);
     setTargetDeleteIds([]);
+  }, []);
+
+  const handleEditItem = useCallback((id: string) => {
+    setEditingId(id);
+  }, []);
+
+  const handleSaveEdit = useCallback((id: string, updated: WalletItem) => {
+    const ok = updateWalletItem(id, updated);
+    if (ok) {
+      const reloaded = listWalletItems();
+      setItems(reloaded);
+      setEditingId(null);
+      showSuccess({
+        title: 'Item updated',
+        description: `"${updated.name}" has been updated successfully.`,
+      });
+    } else {
+      showError({
+        title: 'Update failed',
+        description: 'Failed to save changes to the wallet item.',
+      });
+    }
+  }, [showSuccess, showError]);
+
+  const handleCancelEdit = useCallback((_id: string) => {
+    setEditingId(null);
   }, []);
 
   const deleteModalTitle = useMemo(() => {
@@ -301,6 +314,10 @@ export default function WalletPage() {
           onToggleSelect={handleToggleSelect}
           onToggleSelectAll={handleToggleSelectAll}
           onDeleteItem={handleRequestSingleDelete}
+          editingId={editingId}
+          onEditItem={handleEditItem}
+          onSaveEdit={handleSaveEdit}
+          onCancelEdit={handleCancelEdit}
         />
       )}
 

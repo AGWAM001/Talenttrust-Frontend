@@ -64,7 +64,7 @@ describe('ContractSummary', () => {
 
   afterEach(() => {
     act(() => {
-      jest.runAllTimers();
+      jest.clearAllTimers();
     });
     jest.useRealTimers();
   });
@@ -216,6 +216,28 @@ describe('ContractSummary', () => {
       </PreferencesProvider>
     );
     jest.useFakeTimers();
+  });
+
+  it('shows relative last-updated timestamp when updatedAt is provided', async () => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2026-05-01T12:00:00.000Z'));
+    renderWithPrefs(
+      <ContractSummary
+        {...defaultProps}
+        updatedAt="2026-05-01T11:55:00.000Z"
+      />
+    );
+
+    expect(screen.getByText(/Updated/)).toBeInTheDocument();
+    expect(screen.getByText(/Data last updated/)).toHaveClass('sr-only');
+    jest.clearAllTimers();
+    jest.useRealTimers();
+  });
+
+  it('does not show last-updated timestamp when updatedAt is absent', async () => {
+    renderWithPrefs(<ContractSummary {...defaultProps} />);
+
+    expect(screen.queryByText(/Updated/)).not.toBeInTheDocument();
   });
 
   describe('Clipboard Copying', () => {

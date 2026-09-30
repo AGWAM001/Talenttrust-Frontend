@@ -25,4 +25,11 @@ describe('MilestonesListSkeleton structural/snapshot tests', () => {
     const { container } = render(<MilestonesListSkeleton />);
     expect(await axe(container)).toHaveNoViolations();
   });
+
+  it('contains expected decorative loading structure elements', () => {
+    const { container } = render(<MilestonesListSkeleton />);
+    const section = container.querySelector('section');
+    expect(section).toBeInTheDocument();
+    expect(section?.classList.contains('animate-pulse')).toBe(true);
+  });
 });

@@ -2,10 +2,13 @@
 
 import React, { memo } from 'react';
 import type { Contract } from '@/types/domain';
+import { LastUpdated } from '@/components/LastUpdated';
 
 export interface ContractListItemProps {
   contract: Contract;
   index: number;
+  /** Controls spacing inside the card. Defaults to 'comfortable'. */
+  density?: 'comfortable' | 'compact';
 }
 
 /**
@@ -19,10 +22,11 @@ export interface ContractListItemProps {
  * @param props - Component props
  * @param props.contract - The contract record to display
  * @param props.index - The index of the contract in the list (used for key)
+ * @param props.density - Optional density override ('comfortable' | 'compact')
  *
  * @example
  * ```tsx
- * <ContractListItem contract={contract} index={0} />
+ * <ContractListItem contract={contract} index={0} density="compact" />
  * ```
  */
 const ContractListItem = memo(
@@ -35,6 +39,7 @@ const ContractListItem = memo(
       <p className="text-sm text-slate-500">
         {contract.status} · Created {contract.createdAt}
       </p>
+      {contract.updatedAt && <LastUpdated updatedAt={contract.updatedAt} />}
     </li>
   ),
   (prevProps, nextProps) => {
@@ -43,6 +48,7 @@ const ContractListItem = memo(
       prevProps.contract.contractName === nextProps.contract.contractName &&
       prevProps.contract.status === nextProps.contract.status &&
       prevProps.contract.createdAt === nextProps.contract.createdAt &&
+      prevProps.contract.updatedAt === nextProps.contract.updatedAt &&
       prevProps.index === nextProps.index
     );
   },
