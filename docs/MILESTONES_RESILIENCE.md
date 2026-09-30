@@ -126,6 +126,29 @@ The boundary deliberately does not invent a second logger. Using
 without changing the board UI, and it keeps observability consistent with the
 route-level `error.tsx`.
 
+## Route-level boundary invariants
+
+If a failure escapes the local seams, the route-level
+[`app/milestones/error.tsx`](../src/app/milestones/error.tsx) takes over. Its
+recovery state machine lives in
+[`useMilestonesRouteError`](../src/hooks/useMilestonesRouteError.ts) and
+guarantees:
+
+- each distinct route failure is reported **once**, identified by digest when
+  present and otherwise by error identity, so re-renders cannot duplicate
+  telemetry;
+- `reset` is **single-flight** — repeated/rapid activations cannot overlap, and
+  a cooldown re-arms the control so a persistent failure stays recoverable;
+- a throwing `reset` **degrades gracefully** (safe user-visible notice, no
+  rethrow) instead of crashing the boundary a second time;
+- reported metadata is sanitized by
+  [`buildMilestonesRouteErrorMeta`](../src/lib/milestonesRouteError.ts) — a
+  stable code, the error `name`, and a validated `digest` only, never the
+  message or stack.
+
+See [`docs/hooks/useMilestonesRouteError.md`](./hooks/useMilestonesRouteError.md)
+for the full contract.
+
 ## Test coverage
 
 The resilience tests are split by responsibility:
@@ -153,6 +176,11 @@ The resilience tests are split by responsibility:
 - toolbar minimum-height hooks exist for the no-shift contract.
 
 ### Integration tests
+
+`src/hooks/__tests__/useMilestonesRouteError.test.ts` and
+`src/app/milestones/__tests__/route-states.test.tsx` cover the route boundary:
+report de-duplication, single-flight reset, cooldown re-arm, graceful handling
+of a throwing/non-function `reset`, no-leak assertions, and timer cleanup.
 
 `src/app/milestones/__tests__/resilience.test.tsx` renders the actual page
 composition with controlled filter and list probes. It proves that:
