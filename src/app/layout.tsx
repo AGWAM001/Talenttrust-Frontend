@@ -2,8 +2,37 @@ import type { Metadata } from 'next';
 import './globals.css';
 import { ToastProvider } from '@/components/toast/toast-provider';
 
-const siteUrl =
-  process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
+/**
+ * Resolve the canonical site URL exactly once per module evaluation.
+ *
+ * Invariants:
+ * - The returned URL is always absolute and parseable, so `metadataBase`
+ *   never throws during concurrent server renders or static generation.
+ * - Repeated/concurrent evaluation of this module is idempotent: the same
+ *   environment input always yields the same normalized origin.
+ * - Invalid or non-http(s) values fall back to a safe default instead of
+ *   producing a partially-initialized module (which would surface as a
+ *   non-deterministic crash across racing requests).
+ */
+const DEFAULT_SITE_URL = 'http://localhost:3000';
+
+function resolveSiteUrl(raw: string | undefined): string {
+  const candidate = (raw ?? '').trim();
+  if (candidate.length === 0) {
+    return DEFAULT_SITE_URL;
+  }
+  try {
+    const parsed = new URL(candidate);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return DEFAULT_SITE_URL;
+    }
+    return parsed.origin;
+  } catch {
+    return DEFAULT_SITE_URL;
+  }
+}
+
+const siteUrl = resolveSiteUrl(process.env.NEXT_PUBLIC_SITE_URL);
 const metadataBase = new URL(siteUrl);
 // Social preview image used by Open Graph and Twitter cards lives in public/.
 const socialPreviewImage = '/og-preview.svg';
@@ -55,7 +84,29 @@ import Navbar from '@/components/Navbar';
 import HeaderActions from '@/components/HeaderActions';
 import { registerDefaultCommands } from '@/lib/commands/defaultCommands';
 
-registerDefaultCommands();
+/**
+ * Register the default command palette commands exactly once per process.
+ *
+ * Invariants:
+ * - Concurrent or repeated module evaluation (e.g. HMR, multiple render
+ *   workers, or racing requests in the same isolate) must not double-register
+ *   commands, which would otherwise produce duplicate entries and stale
+ *   handlers in the palette.
+ * - The guard is stored on `globalThis` so it survives module re-evaluation
+ *   without leaking into the public API surface.
+ */
+const COMMANDS_REGISTERED_FLAG = '__talenttrust_defaultCommandsRegistered__';
+
+type GlobalWithCommandsFlag = typeof globalThis & {
+  [COMMANDS_REGISTERED_FLAG]?: boolean;
+};
+
+const globalScope = globalThis as GlobalWithCommandsFlag;
+
+if (globalScope[COMMANDS_REGISTERED_FLAG] !== true) {
+  globalScope[COMMANDS_REGISTERED_FLAG] = true;
+  registerDefaultCommands();
+}
 
 export default function RootLayout({
   children,
@@ -102,3 +153,14 @@ export default function RootLayout({
     </html>
   );
 }
+ 
+/**
+ * Layout invariants (concurrency hardening):
+ * - `siteUrl`/`metadataBase` are computed once at module load from a
+ *   validated, normalized origin; concurrent renders observe the same value.
+ * - Default command registration is idempotent across repeated or racing
+ *   module evaluation, preventing duplicate palette entries.
+ * - Provider nesting order is stable and deterministic; no per-render side
+ *   effects are introduced here, so retries and partial failures cannot
+ *   leave the tree in an inconsistent state.
+ */
