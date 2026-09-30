@@ -1,6 +1,36 @@
 import manifest from '../manifest';
 
 describe('manifest.ts', () => {
+  it('preserves the complete App Router manifest contract and icon order', () => {
+    expect(manifest()).toEqual({
+      name: 'TalentTrust - Safe Freelance Payments',
+      short_name: 'TalentTrust',
+      description:
+        'Safe, secure payments that protect both freelancers and clients throughout your project.',
+      start_url: '/',
+      display: 'standalone',
+      background_color: '#ffffff',
+      theme_color: '#2563eb',
+      icons: [
+        { src: '/icon.svg', sizes: 'any', type: 'image/svg+xml' },
+        { src: '/icon-192x192.png', sizes: '192x192', type: 'image/png' },
+        { src: '/icon-512x512.png', sizes: '512x512', type: 'image/png' },
+      ],
+    });
+  });
+
+  it('returns independent objects so caller mutations do not affect later results', () => {
+    const first = manifest();
+    const second = manifest();
+
+    expect(second).not.toBe(first);
+    expect(second.icons).not.toBe(first.icons);
+    expect(second.icons?.[0]).not.toBe(first.icons?.[0]);
+
+    if (first.icons) first.icons[0].src = '/caller-mutated.svg';
+    expect(manifest().icons?.[0]?.src).toBe('/icon.svg');
+  });
+
   it('should return an object with required top-level fields', () => {
     const result = manifest();
 
