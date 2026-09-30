@@ -71,8 +71,8 @@ export default class MilestonesErrorBoundary extends Component<
   // Lifecycle
   // ------------------------------------------------------------------
 
-  static getDerivedStateFromError(error: Error): State {
-    return { hasError: true, error };
+  static getDerivedStateFromError(_error: Error): Partial<State> {
+    return { hasError: true };
   }
 
   componentDidCatch(error: Error, info: React.ErrorInfo): void {
