@@ -47,6 +47,11 @@ describe('Breadcrumbs — structure and ARIA', () => {
     const { container } = render(<Breadcrumbs items={[]} />);
     expect(container.firstChild).toBeNull();
   });
+
+  it('exposes a data-testid="breadcrumbs" attribute for targeted test selectors', () => {
+    render(<Breadcrumbs items={THREE_CRUMBS} />);
+    expect(screen.getByTestId('breadcrumbs')).toBeInTheDocument();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -220,5 +225,420 @@ describe('Breadcrumbs — dynamic labels', () => {
     );
 
     expect(screen.getByRole('link', { name: 'Untitled' })).toHaveAttribute('href', '/');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Boundary — null / undefined entries (runtime safety)
+// ---------------------------------------------------------------------------
+
+describe('Breadcrumbs — null/undefined item entries', () => {
+  it('silently drops null entries and still renders valid items', () => {
+    // TypeScript would flag this, but runtime data from APIs can bypass types.
+    const items = [
+      { label: 'Dashboard', href: '/' },
+      null,
+      { label: 'Current' },
+    ] as unknown as BreadcrumbItem[];
+
+    render(<Breadcrumbs items={items} />);
+
+    expect(screen.getByRole('link', { name: 'Dashboard' })).toBeInTheDocument();
+    expect(screen.getByText('Current')).toHaveAttribute('aria-current', 'page');
+    // Only 2 valid items → 1 separator
+    const { container } = render(<Breadcrumbs items={items} />);
+    expect(container.querySelectorAll('[aria-hidden="true"]')).toHaveLength(1);
+  });
+
+  it('silently drops undefined entries and still renders valid items', () => {
+    const items = [
+      undefined,
+      { label: 'Contracts', href: '/contracts' },
+      { label: 'Current' },
+    ] as unknown as BreadcrumbItem[];
+
+    render(<Breadcrumbs items={items} />);
+
+    expect(screen.getByRole('link', { name: 'Contracts' })).toBeInTheDocument();
+    expect(screen.getByText('Current')).toHaveAttribute('aria-current', 'page');
+  });
+
+  it('returns null when every entry is null or undefined', () => {
+    const items = [null, undefined, null] as unknown as BreadcrumbItem[];
+    const { container } = render(<Breadcrumbs items={items} />);
+    expect(container.firstChild).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Boundary — empty / whitespace-only labels
+// ---------------------------------------------------------------------------
+
+describe('Breadcrumbs — empty and whitespace-only labels', () => {
+  it('drops an item with an empty string label', () => {
+    render(
+      <Breadcrumbs
+        items={[
+          { label: 'Dashboard', href: '/' },
+          { label: '' },
+          { label: 'Current' },
+        ]}
+      />,
+    );
+
+    // Only Dashboard and Current survive
+    const { container } = render(
+      <Breadcrumbs
+        items={[
+          { label: 'Dashboard', href: '/' },
+          { label: '' },
+          { label: 'Current' },
+        ]}
+      />,
+    );
+    expect(container.querySelector('ol')!.querySelectorAll(':scope > li')).toHaveLength(2);
+  });
+
+  it('drops an item with a whitespace-only label', () => {
+    const { container } = render(
+      <Breadcrumbs
+        items={[
+          { label: 'Home', href: '/' },
+          { label: '   ' },
+          { label: 'Page' },
+        ]}
+      />,
+    );
+    expect(container.querySelector('ol')!.querySelectorAll(':scope > li')).toHaveLength(2);
+  });
+
+  it('trims surrounding whitespace from a label before rendering', () => {
+    render(
+      <Breadcrumbs
+        items={[
+          { label: '  Dashboard  ', href: '/' },
+          { label: '  Current  ' },
+        ]}
+      />,
+    );
+
+    // The rendered text should be the trimmed version
+    expect(screen.getByRole('link', { name: 'Dashboard' })).toBeInTheDocument();
+    expect(screen.getByText('Current')).toHaveAttribute('aria-current', 'page');
+  });
+
+  it('returns null when every item has a blank label', () => {
+    const { container } = render(
+      <Breadcrumbs items={[{ label: '' }, { label: '   ' }, { label: '\t' }]} />,
+    );
+    expect(container.firstChild).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Boundary — duplicate items (deduplication)
+// ---------------------------------------------------------------------------
+
+describe('Breadcrumbs — consecutive duplicate deduplication', () => {
+  it('drops a consecutive duplicate item (same label + same href)', () => {
+    const { container } = render(
+      <Breadcrumbs
+        items={[
+          { label: 'Home', href: '/' },
+          { label: 'Home', href: '/' }, // duplicate
+          { label: 'Current' },
+        ]}
+      />,
+    );
+
+    // Only 2 items after deduplication: Home and Current
+    expect(container.querySelector('ol')!.querySelectorAll(':scope > li')).toHaveLength(2);
+    expect(screen.getAllByRole('link', { name: 'Home' })).toHaveLength(1);
+  });
+
+  it('keeps non-consecutive duplicates intact', () => {
+    // Home → Contracts → Home (intentional loop) → Current
+    const { container } = render(
+      <Breadcrumbs
+        items={[
+          { label: 'Home', href: '/' },
+          { label: 'Contracts', href: '/contracts' },
+          { label: 'Home', href: '/' },
+          { label: 'Current' },
+        ]}
+      />,
+    );
+
+    // All 4 items should be preserved — only consecutive duplicates are dropped
+    expect(container.querySelector('ol')!.querySelectorAll(':scope > li')).toHaveLength(4);
+  });
+
+  it('keeps items with the same label but different hrefs (they are distinct)', () => {
+    const { container } = render(
+      <Breadcrumbs
+        items={[
+          { label: 'Section', href: '/a' },
+          { label: 'Section', href: '/b' },
+          { label: 'Current' },
+        ]}
+      />,
+    );
+
+    expect(container.querySelector('ol')!.querySelectorAll(':scope > li')).toHaveLength(3);
+  });
+
+  it('renders an empty result when all items are the same consecutive duplicate', () => {
+    // After deduplication: only one item remains
+    const { container } = render(
+      <Breadcrumbs
+        items={[
+          { label: 'Only', href: '/only' },
+          { label: 'Only', href: '/only' },
+          { label: 'Only', href: '/only' },
+        ]}
+      />,
+    );
+
+    // 3 identical consecutive crumbs → deduped to 1 → single final crumb rendered
+    expect(container.querySelector('ol')!.querySelectorAll(':scope > li')).toHaveLength(1);
+    expect(screen.getByText('Only')).toHaveAttribute('aria-current', 'page');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Boundary — extremely long labels
+// ---------------------------------------------------------------------------
+
+describe('Breadcrumbs — long labels', () => {
+  it('renders a very long label without throwing', () => {
+    const longLabel = 'A'.repeat(500);
+    expect(() =>
+      render(
+        <Breadcrumbs
+          items={[
+            { label: 'Home', href: '/' },
+            { label: longLabel },
+          ]}
+        />,
+      ),
+    ).not.toThrow();
+  });
+
+  it('applies truncation class to both link and current-page crumbs', () => {
+    const { container } = render(
+      <Breadcrumbs
+        items={[
+          { label: 'A'.repeat(300), href: '/' },
+          { label: 'B'.repeat(300) },
+        ]}
+      />,
+    );
+
+    const link = container.querySelector('a');
+    const current = container.querySelector('[aria-current="page"]');
+
+    expect(link?.className).toContain('truncate');
+    expect(current?.className).toContain('truncate');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Adversarial — XSS / special characters in labels
+// ---------------------------------------------------------------------------
+
+describe('Breadcrumbs — XSS and special characters', () => {
+  it('renders HTML special characters as escaped text, not as markup', () => {
+    render(
+      <Breadcrumbs
+        items={[
+          { label: '<script>alert("xss")</script>', href: '/' },
+          { label: 'Current' },
+        ]}
+      />,
+    );
+
+    // React escapes the content — no script tag should exist in the DOM
+    const link = screen.getByRole('link', { name: /<script>alert\("xss"\)<\/script>/ });
+    expect(link).toBeInTheDocument();
+    expect(document.querySelector('script')).toBeNull();
+  });
+
+  it('renders labels with angle brackets as literal text', () => {
+    render(
+      <Breadcrumbs
+        items={[
+          { label: 'Home', href: '/' },
+          { label: 'A > B & C' },
+        ]}
+      />,
+    );
+
+    expect(screen.getByText('A > B & C')).toHaveAttribute('aria-current', 'page');
+  });
+
+  it('does not use dangerouslySetInnerHTML for label rendering', () => {
+    const { container } = render(
+      <Breadcrumbs
+        items={[
+          { label: 'Safe', href: '/' },
+          { label: '<b>Bold</b>' },
+        ]}
+      />,
+    );
+
+    // If dangerouslySetInnerHTML were used, a <b> element would appear
+    expect(container.querySelector('b')).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Adversarial — href injection
+// ---------------------------------------------------------------------------
+
+describe('Breadcrumbs — href safety', () => {
+  it('renders a javascript: href as given (Next.js Link responsibility)', () => {
+    // The Breadcrumbs component does not sanitize hrefs — this is intentionally
+    // delegated to Next.js Link and the browser. This test documents the
+    // current contract so a future change that does add sanitization is
+    // conscious rather than accidental.
+    render(
+      <Breadcrumbs
+        items={[
+          // eslint-disable-next-line no-script-url
+          { label: 'Malicious', href: 'javascript:void(0)' },
+          { label: 'Current' },
+        ]}
+      />,
+    );
+
+    const link = screen.getByRole('link', { name: 'Malicious' });
+    // Current behaviour: passed through to Next.js Link unchanged.
+    expect(link).toBeInTheDocument();
+  });
+
+  it('falls back to "/" for an ancestor crumb with href=undefined', () => {
+    render(
+      <Breadcrumbs
+        items={[
+          { label: 'Ancestor', href: undefined },
+          { label: 'Current' },
+        ]}
+      />,
+    );
+
+    expect(screen.getByRole('link', { name: 'Ancestor' })).toHaveAttribute('href', '/');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Regression — prop-change stability (re-render without remount)
+// ---------------------------------------------------------------------------
+
+describe('Breadcrumbs — re-render stability', () => {
+  it('updates rendered crumbs when items prop changes', () => {
+    const { rerender } = render(
+      <Breadcrumbs items={[{ label: 'Home', href: '/' }, { label: 'Old Page' }]} />,
+    );
+
+    expect(screen.getByText('Old Page')).toHaveAttribute('aria-current', 'page');
+
+    rerender(
+      <Breadcrumbs items={[{ label: 'Home', href: '/' }, { label: 'New Page' }]} />,
+    );
+
+    expect(screen.queryByText('Old Page')).not.toBeInTheDocument();
+    expect(screen.getByText('New Page')).toHaveAttribute('aria-current', 'page');
+  });
+
+  it('collapses to null when items prop changes to an empty array', () => {
+    const { rerender, container } = render(
+      <Breadcrumbs items={[{ label: 'Home', href: '/' }, { label: 'Page' }]} />,
+    );
+
+    expect(screen.getByRole('navigation')).toBeInTheDocument();
+
+    rerender(<Breadcrumbs items={[]} />);
+
+    expect(container.firstChild).toBeNull();
+  });
+
+  it('recovers and renders correctly when items prop changes from empty to valid', () => {
+    const { rerender } = render(<Breadcrumbs items={[]} />);
+
+    rerender(
+      <Breadcrumbs
+        items={[
+          { label: 'Dashboard', href: '/' },
+          { label: 'Recovered' },
+        ]}
+      />,
+    );
+
+    expect(screen.getByRole('navigation', { name: 'Breadcrumb' })).toBeInTheDocument();
+    expect(screen.getByText('Recovered')).toHaveAttribute('aria-current', 'page');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Regression — key stability and separator count integrity after filtering
+// ---------------------------------------------------------------------------
+
+describe('Breadcrumbs — separator count after filtering', () => {
+  it('has exactly (n - 1) separators for n valid items after filtering nulls', () => {
+    const items = [
+      { label: 'A', href: '/a' },
+      null,
+      { label: 'B', href: '/b' },
+      null,
+      { label: 'C' },
+    ] as unknown as BreadcrumbItem[];
+
+    const { container } = render(<Breadcrumbs items={items} />);
+    // 3 valid items → 2 separators
+    expect(container.querySelectorAll('[aria-hidden="true"]')).toHaveLength(2);
+  });
+
+  it('has exactly (n - 1) separators for n items after whitespace filtering', () => {
+    const { container } = render(
+      <Breadcrumbs
+        items={[
+          { label: 'A', href: '/a' },
+          { label: '   ' },
+          { label: 'B', href: '/b' },
+          { label: '' },
+          { label: 'C' },
+        ]}
+      />,
+    );
+    // 3 valid items → 2 separators
+    expect(container.querySelectorAll('[aria-hidden="true"]')).toHaveLength(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Compatibility — existing caller contract (contracts/[id] page)
+// ---------------------------------------------------------------------------
+
+describe('Breadcrumbs — contracts page caller compatibility', () => {
+  it('renders the standard contracts detail breadcrumb trail unchanged', () => {
+    const id = 'contract-xyz';
+    render(
+      <Breadcrumbs
+        items={[
+          { label: 'Dashboard', href: '/' },
+          { label: 'Contracts', href: '/contracts' },
+          { label: `#${id}` },
+        ]}
+      />,
+    );
+
+    const nav = screen.getByRole('navigation', { name: 'Breadcrumb' });
+    expect(within(nav).getByRole('link', { name: 'Dashboard' })).toHaveAttribute('href', '/');
+    expect(within(nav).getByRole('link', { name: 'Contracts' })).toHaveAttribute(
+      'href',
+      '/contracts',
+    );
+    expect(within(nav).getByText(`#${id}`)).toHaveAttribute('aria-current', 'page');
+    expect(within(nav).queryByRole('link', { name: `#${id}` })).not.toBeInTheDocument();
   });
 });
