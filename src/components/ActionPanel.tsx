@@ -399,18 +399,24 @@ const ActionPanel = ({
             <button
               ref={disputeTriggerRef}
               type="button"
-              onClick={handleOpenDisputeForm}
+              onClick={(e) => {
+                if (_disputeFlow === 'confirm') {
+                  handleOpenConfirm('dispute', e);
+                } else {
+                  handleOpenDisputeForm(e);
+                }
+              }}
               disabled={
                 !isWalletConnected ||
                 isLoading ||
                 !!disabledReasons?.dispute ||
-                disputeFormOpen ||
+                (_disputeFlow === 'inline' && disputeFormOpen) ||
                 disableMutations
               }
               title={!isWalletConnected ? noWalletMsg : mutationsDisabledMsg}
               aria-label="Open a dispute for this contract"
-              aria-expanded={disputeFormOpen}
-              aria-controls={disputeFormOpen ? 'dispute-reason-form' : undefined}
+              aria-expanded={_disputeFlow === 'inline' ? disputeFormOpen : undefined}
+              aria-controls={_disputeFlow === 'inline' && disputeFormOpen ? 'dispute-reason-form' : undefined}
               aria-describedby={describedBy(describedById('dispute'))}
               className={`w-full rounded-2xl bg-rose-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-rose-700 disabled:opacity-50 disabled:cursor-not-allowed ${focusRingClass}`}
             >
@@ -420,7 +426,7 @@ const ActionPanel = ({
             {/* Inline dispute reason form — rendered below the trigger button,
                 visible only when the user clicks "Dispute". The form is not a
                 modal so the rest of the page remains accessible. */}
-            {disputeFormOpen && (
+            {_disputeFlow === 'inline' && disputeFormOpen && (
               <div
                 id="dispute-reason-form"
                 role="group"
