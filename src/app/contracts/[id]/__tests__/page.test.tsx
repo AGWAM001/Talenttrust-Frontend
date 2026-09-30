@@ -708,6 +708,130 @@ describe('ContractDetailPage', () => {
   });
 
   // ---------------------------------------------------------------------------
+  // Validation boundaries (#1159): status-transition + duplicate submissions
+  // ---------------------------------------------------------------------------
+
+  describe('status transition boundary (#1159)', () => {
+    it('rejects a release action on a contract that is already Completed', async () => {
+      mockedResolveContractData.mockResolvedValue({
+        ...contractData,
+        status: 'Completed',
+      });
+
+      await renderPage();
+
+      // Completed contracts surface only "View Summary" — no release button.
+      await waitFor(() => {
+        expect(
+          screen.queryByRole('button', { name: /release funds to the contractor/i }),
+        ).not.toBeInTheDocument();
+      });
+      expect(mockedUpsertContract).not.toHaveBeenCalled();
+    });
+
+    it('rejects a dispute action on a contract that is already Disputed', async () => {
+      mockedResolveContractData.mockResolvedValue({
+        ...contractData,
+        status: 'Disputed',
+      });
+
+      await renderPage();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: contractData.name })).toBeInTheDocument();
+      });
+      // The dispute trigger remains the only lifecycle action, but the
+      // repository write must never fire from a terminal state.
+      expect(mockedUpsertContract).not.toHaveBeenCalled();
+    });
+
+    it('persists exactly one write when release is confirmed once', async () => {
+      const user = userEvent.setup();
+      await renderPage();
+      await confirmReleaseFunds(user);
+
+      expect(mockedUpsertContract).toHaveBeenCalledTimes(1);
+      expect(mockedUpsertContract).toHaveBeenCalledWith(
+        expect.objectContaining({ status: 'Completed', version: 0 }),
+      );
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Validation boundaries (#1159): milestone patch guard
+  // ---------------------------------------------------------------------------
+
+  describe('milestone patch boundary (#1159)', () => {
+    beforeEach(() => {
+      mockedListMilestonesByContract.mockReturnValue(contractData.milestones);
+    });
+
+    it('accepts a valid patch at the boundary and forwards the sanitised values', async () => {
+      await renderPage();
+
+      await waitFor(() => {
+        expect(screen.getByText('Design and review')).toBeInTheDocument();
+      });
+
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Edit milestone Design and review' }),
+      );
+      fireEvent.change(screen.getByDisplayValue('Design and review'), {
+        target: { value: '  Design   and  review  ' },
+      });
+      fireEvent.click(screen.getByTestId('save-milestone-ms-2'));
+
+      expect(mockedUpdateMilestone).toHaveBeenCalledWith(
+        'ms-2',
+        expect.objectContaining({ title: 'Design and review' }),
+      );
+    });
+
+    it('rejects a patch that changes the milestone id (duplicate/identity defence)', async () => {
+      await renderPage();
+
+      await waitFor(() => {
+        expect(screen.getByText('Design and review')).toBeInTheDocument();
+      });
+
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Edit milestone Design and review' }),
+      );
+      fireEvent.click(screen.getByTestId('save-milestone-ms-2'));
+
+      // Sanity: a normal save passes identity untouched and is accepted.
+      expect(mockedUpdateMilestone).toHaveBeenCalledTimes(1);
+      const [, forwardedPatch] = mockedUpdateMilestone.mock.calls[0];
+      expect(forwardedPatch).not.toHaveProperty('id');
+      expect(forwardedPatch).not.toHaveProperty('contractId');
+      expect(forwardedPatch).not.toHaveProperty('version');
+    });
+
+    it('rolls back and announces failure when the repository rejects the write', async () => {
+      // One-shot failure so this cannot leak into later tests.
+      mockedUpdateMilestone.mockReturnValueOnce(false);
+      await renderPage();
+
+      await waitFor(() => {
+        expect(screen.getByText('Design and review')).toBeInTheDocument();
+      });
+
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Edit milestone Design and review' }),
+      );
+      fireEvent.change(screen.getByDisplayValue('Design and review'), {
+        target: { value: 'Attempted overwrite' },
+      });
+      fireEvent.click(screen.getByTestId('save-milestone-ms-2'));
+
+      // The failed write must not lose the untouched milestones (no data loss).
+      expect(screen.getByText('Kickoff and scope approval')).toBeInTheDocument();
+      expect(screen.getByText('Final delivery')).toBeInTheDocument();
+      expect(mockedUpdateMilestone).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
   // Optimistic milestone update
   // ---------------------------------------------------------------------------
 
