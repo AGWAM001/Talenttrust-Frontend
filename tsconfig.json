@@ -15,7 +15,7 @@
     "moduleResolution": "bundler",
     "resolveJsonModule": true,
     "isolatedModules": true,
-    "jsx": "preserve",
+    "jsx": "react-jsx",
     "incremental": true,
     "plugins": [
       {
@@ -42,10 +42,5 @@
     "**/*.test.tsx",
     ".next/types/test",
     ".next/types/test/**/*"
-  ],
-  "references": [
-    {
-      "path": "./tsconfig.test.json"
-    }
   ]
 }

@@ -180,8 +180,8 @@ export const WalletItemList: React.FC<WalletItemListProps> = ({
               <tr
                 key={item.id}
                 data-testid={`wallet-item-row-${item.id}`}
-                aria-selected={isSelected}
-                className={`transition-colors hover:bg-slate-50/80 dark:hover:bg-slate-800/40 ${
+                data-selected={isSelected || undefined}
+                className={`transition-colors hover:bg-slate-50/80 focus-within:bg-slate-100/80 dark:hover:bg-slate-800/40 dark:focus-within:bg-slate-800/60 ${
                   isSelected ? 'bg-blue-50/40 dark:bg-slate-800/60' : ''
                 }`}
               >
@@ -211,11 +211,33 @@ export const WalletItemList: React.FC<WalletItemListProps> = ({
                   {item.balance.toLocaleString()} {item.currency}
                 </td>
                 <td className="px-4 py-4">
-                  <StatusBadge status={item.status} />
+                  <span
+                    data-wallet-status={item.status}
+                    className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+                      item.status === 'Active'
+                        ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                        : item.status === 'Pending'
+                        ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
+                        : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
+                    }`}
+                  >
+                    {item.status}
+                  </span>
                 </td>
                 <td className="px-4 py-4 text-xs text-slate-500 dark:text-slate-400">{item.createdAt}</td>
                 <td className="px-4 py-4 text-right">
                   <div className="flex items-center justify-end gap-1">
+                    <button
+                      type="button"
+                      onClick={() => onEditItem?.(item.id)}
+                      aria-label={`Edit ${item.name}`}
+                      data-testid={`edit-item-btn-${item.id}`}
+                      className="rounded-lg p-1.5 text-slate-400 transition hover:bg-blue-50 hover:text-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:hover:bg-blue-950/50"
+                    >
+                      <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                      </svg>
+                    </button>
                     {onDeleteItem && (
                       <button
                         type="button"

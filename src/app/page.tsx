@@ -6,7 +6,6 @@ import { FormField } from '@/components/FormField';
 import { ErrorSummary } from '@/components/ErrorSummary';
 import { useToast } from '@/components/toast/toast-provider';
 import { useFormAnnouncer } from '@/hooks/useFormAnnouncer';
-import { useFormValidation } from '@/hooks/useFormValidation';
 import {
   MAX_EMAIL_LENGTH,
   MAX_PASSWORD_LENGTH,
@@ -21,7 +20,7 @@ import {
 export default function Home() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const { errors, validateAndSubmit } = useFormValidation();
+  const [errors, setErrors] = useState<{ fieldId: string; message: string }[]>([]);
   const [cooldownRemainingMs, setCooldownRemainingMs] = useState(0);
   const cooldownIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const { showSuccess } = useToast();
@@ -68,27 +67,26 @@ export default function Home() {
       startCooldownCountdown();
     }
 
-    validateAndSubmit(
-      () => validateLogin(email, password),
-      () => {
-        resetThrottle();
-        setCooldownRemainingMs(0);
-        clearCooldownInterval();
-        showSuccess({
-          title: 'Form submitted successfully!',
-        });
-        announce({
-          message: 'Form submitted successfully.',
-          type: 'success',
-        });
-      },
-      (validationErrors) => {
-        announce({
-          message: `Sign in failed. ${validationErrors.length} error${validationErrors.length > 1 ? 's' : ''} found. Please review the form.`,
-          type: 'error',
-        });
-      },
-    );
+    const newErrors = validateLogin(email, password);
+    setErrors(newErrors);
+
+    if (newErrors.length === 0) {
+      resetThrottle();
+      setCooldownRemainingMs(0);
+      clearCooldownInterval();
+      showSuccess({
+        title: 'Form submitted successfully!',
+      });
+      announce({
+        message: 'Form submitted successfully.',
+        type: 'success',
+      });
+    } else {
+      announce({
+        message: `Sign in failed. ${newErrors.length} error${newErrors.length > 1 ? 's' : ''} found. Please review the form.`,
+        type: 'error',
+      });
+    }
   };
 
   const getError = (fieldId: string) => errors.find((e) => e.fieldId === fieldId)?.message;

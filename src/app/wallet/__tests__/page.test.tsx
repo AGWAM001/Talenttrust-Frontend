@@ -14,20 +14,10 @@ jest.mock('@/lib/repository', () => ({
   deleteWalletItems: jest.fn(),
 }));
 
-// Mock export functions to avoid Blob/URL in jsdom
-jest.mock('@/lib/exportWallet', () => ({
-  downloadWalletCsv: jest.fn(),
-  downloadWalletJson: jest.fn(),
-}));
-
 const mockListWalletItems = jest.mocked(listWalletItems);
 const mockSaveWalletItem = jest.mocked(saveWalletItem);
 const mockUpdateWalletItem = jest.mocked(updateWalletItem);
 const mockDeleteWalletItems = jest.mocked(deleteWalletItems);
-
-import { downloadWalletCsv, downloadWalletJson } from '@/lib/exportWallet';
-const mockDownloadWalletCsv = jest.mocked(downloadWalletCsv);
-const mockDownloadWalletJson = jest.mocked(downloadWalletJson);
 
 const renderWithProviders = (ui: React.ReactElement) => {
   return render(
@@ -135,37 +125,16 @@ describe('WalletPage Integration & Bulk Selection', () => {
     expect(itemCheckbox).not.toBeChecked();
   });
 
-  it('exports selected items as CSV and triggers success toast', () => {
+  it('exports selected items and triggers success toast', () => {
     mockListWalletItems.mockReturnValue(SAMPLE_WALLET_ITEMS);
     renderWithProviders(<WalletPage />);
 
     const itemCheckbox = screen.getByTestId('select-item-checkbox-w-1');
     fireEvent.click(itemCheckbox);
 
-    const csvBtn = screen.getByRole('button', { name: /export 1 selected item as csv/i });
-    fireEvent.click(csvBtn);
+    const exportBtn = screen.getByRole('button', { name: /export 1 selected item/i });
+    fireEvent.click(exportBtn);
 
-    expect(mockDownloadWalletCsv).toHaveBeenCalledTimes(1);
-    expect(mockDownloadWalletCsv).toHaveBeenCalledWith(
-      expect.arrayContaining([expect.objectContaining({ id: 'w-1' })]),
-    );
-    expect(screen.getByText('Export successful')).toBeInTheDocument();
-  });
-
-  it('exports selected items as JSON and triggers success toast', () => {
-    mockListWalletItems.mockReturnValue(SAMPLE_WALLET_ITEMS);
-    renderWithProviders(<WalletPage />);
-
-    const itemCheckbox = screen.getByTestId('select-item-checkbox-w-1');
-    fireEvent.click(itemCheckbox);
-
-    const jsonBtn = screen.getByRole('button', { name: /export 1 selected item as json/i });
-    fireEvent.click(jsonBtn);
-
-    expect(mockDownloadWalletJson).toHaveBeenCalledTimes(1);
-    expect(mockDownloadWalletJson).toHaveBeenCalledWith(
-      expect.arrayContaining([expect.objectContaining({ id: 'w-1' })]),
-    );
     expect(screen.getByText('Export successful')).toBeInTheDocument();
   });
 

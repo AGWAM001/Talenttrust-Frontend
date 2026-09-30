@@ -42,10 +42,12 @@ describe('MilestonesList structural/snapshot tests', () => {
       expect(tallyList?.querySelectorAll('[role="listitem"]')).toHaveLength(3);
     });
 
-    it('marks the scroll region as a focusable, labelled region containing every article', () => {
+    it('marks the scroll region as a labelled region containing every article, kept out of the tab order', () => {
       const { container } = render(<MilestonesList milestones={LOADED_MILESTONES} />);
       const region = container.querySelector('[role="region"]');
-      expect(region).toHaveAttribute('tabIndex', '0');
+      // The region is programmatically focusable only; the active milestone
+      // row owns the list's single tab stop (roving tabindex).
+      expect(region).toHaveAttribute('tabIndex', '-1');
       expect(region?.children).toHaveLength(LOADED_MILESTONES.length);
     });
 

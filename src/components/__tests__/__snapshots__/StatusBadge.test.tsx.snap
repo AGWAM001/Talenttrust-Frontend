@@ -1,4 +1,4 @@
-// Jest Snapshot v1, https://goo.gl/fbAQLP
+// Jest Snapshot v1, https://jestjs.io/docs/snapshot-testing
 
 exports[`StatusBadge snapshot tests matches snapshot for Active status 1`] = `
 <span
@@ -12,21 +12,6 @@ exports[`StatusBadge snapshot tests matches snapshot for Active status 1`] = `
     ▶
   </span>
   Active
-</span>
-`;
-
-exports[`StatusBadge snapshot tests matches snapshot for Archived status 1`] = `
-<span
-  aria-label="Status: Archived"
-  class="inline-flex items-center gap-1 rounded-full px-3 py-1 text-sm font-semibold bg-[var(--status-neutral-bg)] text-[var(--status-neutral-foreground)] "
-  role="status"
->
-  <span
-    aria-hidden="true"
-  >
-    ⊘
-  </span>
-  Archived
 </span>
 `;
 

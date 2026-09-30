@@ -1,12 +1,29 @@
-# Wallet CSV/JSON Export Implementation
+# Milestones ICS Export - Implementation Tasks
 
-## Steps
-
-- [x] Create TODO.md
-- [x] 1. Create `src/lib/exportWallet.ts` - export module with csvEscape, walletItemsToCsv, walletItemsToJson, triggerDownload, downloadWalletCsv, downloadWalletJson
-- [x] 2. Edit `src/components/wallet/WalletBulkToolbar.tsx` - split `onExport` into `onExportCsv` and `onExportJson`, add two buttons
-- [ ] 3. Edit `src/app/wallet/page.tsx` - add CSV/JSON export handlers, update toolbar props
-- [ ] 4. Create `src/lib/__tests__/exportWallet.test.ts` - comprehensive tests
-- [ ] 5. Edit `src/components/wallet/__tests__/WalletBulkToolbar.test.tsx` - update tests for new callbacks
-- [ ] 6. Edit `src/app/wallet/__tests__/page.test.tsx` - update export tests
-- [ ] 7. Run `npm run lint`, `npm test`, `npm run build`
+## ✅ Completed
+- [x] Explored repository structure and understood codebase patterns
+- [x] Gathered requirements and created implementation plan
+- [x] Plan approved by user
+- [x] Step 1: Created `src/lib/icsExport.ts`
+  - [x] `escapeICSText(value: string): string` - Escape `\`, `;`, `,`, `\n` per RFC 5545
+  - [x] `milestoneStatusToICS(status: string): string` - Map milestone status to ICS STATUS
+  - [x] `formatICSDDate(date: Date): string` - Format Date to YYYYMMDD
+  - [x] `milestonesToICS(milestones: Milestone[]): string` - Build VCALENDAR + VEVENT blocks
+  - [x] `downloadMilestonesICS(milestones: Milestone[], filename?: string): void` - Download trigger
+- [x] Step 2: Created `src/lib/__tests__/icsExport.test.ts`
+  - [x] Text escaping tests (backslash, semicolon, comma, newline, combined)
+  - [x] ICS status mapping tests
+  - [x] Date formatting tests (YYYYMMDD, padding, edge months)
+  - [x] ICS generation tests (empty array, with/without due dates, structure, VEVENT fields)
+  - [x] Download trigger tests (Blob, URL lifecycle, anchor interaction)
+- [x] Step 3: Created `docs/lib/ics-export.md`
+  - [x] Purpose, usage, format details, escaping rules, edge cases
+- [x] Step 4: Updated `src/app/milestones/page.tsx`
+  - [x] Added "Add to Calendar" button in the toolbar area
+  - [x] Wired up to `downloadMilestonesICS(sortedMilestones)`
+- [x] Step 5: Verify
+  - [x] Dependencies installed (`npm install`)
+  - [x] 49/49 tests pass for `icsExport.test.ts`
+  - [ ] Lint check - running
+  - [ ] Full test suite
+  - [ ] Build

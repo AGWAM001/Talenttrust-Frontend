@@ -44,13 +44,6 @@
   --status-error-foreground: #9f1239;
   --status-warning-bg: #fef3c7;
   --status-warning-foreground: #92400e;
-
-  /* a11y/wallet-71-contrast: neutral token for StatusBadge's `Archived`
-     status, used by the wallet items list. 9.45:1 against this
-     foreground -- verified AA. Matches the slate scale already used
-     elsewhere in the light theme. */
-  --status-neutral-bg: #f1f5f9;
-  --status-neutral-foreground: #334155;
 }
 
 [data-theme='dark'] {
@@ -98,11 +91,6 @@
   --status-error-foreground: #fda4af;
   --status-warning-bg: #78350f;
   --status-warning-foreground: #fcd34d;
-
-  /* a11y/wallet-71-contrast: dark-mode pair for the `Archived` neutral
-     token. 9.85:1 against this foreground -- verified AA. */
-  --status-neutral-bg: #1e293b;
-  --status-neutral-foreground: #cbd5e1;
 }
 
 body {
@@ -180,34 +168,46 @@ body {
     border: 1px solid Highlight !important;
   }
 
-  /* a11y/wallet-71-contrast: WalletBulkToolbar and WalletItemList.
-     Backgrounds/box-shadows are stripped under forced-colors, so any
-     boundary or state that relied on tint alone needs an explicit
-     border here. Status pill borders are already covered above via
-     [role="status"]. */
+  /* ── Wallet-specific high-contrast rules ──
+     Ensures the wallet table, selected rows, status badges, toolbar, and
+     checkboxes remain legible and clearly distinguishable when forced-colors
+     mode is active (e.g. Windows High Contrast). */
 
-  /* Toolbar container boundary (background tint disappears). */
-  [role="toolbar"] {
+  /* Wallet table container and cell borders */
+  [data-wallet-table] {
+    border: 2px solid CanvasText !important;
+  }
+
+  [data-wallet-table] th,
+  [data-wallet-table] td {
+    border-bottom: 1px solid CanvasText !important;
+  }
+
+  /* Selected wallet rows: highlighted background with high-contrast text */
+  [data-wallet-table] tr[data-selected] {
+    background-color: Highlight !important;
+    color: HighlightText !important;
+    forced-color-adjust: none;
+  }
+
+  /* Wallet status badges: visible borders in forced-colors mode */
+  [data-wallet-status] {
     border: 1px solid CanvasText !important;
   }
 
-  /* Toolbar buttons: some (e.g. the destructive Delete action) have no
-     border in normal mode since they rely on solid background color for
-     definition; give every toolbar button a visible boundary. */
-  [role="toolbar"] button {
+  /* Wallet bulk toolbar: visible border in forced-colors mode */
+  [data-wallet-toolbar] {
+    border: 2px solid CanvasText !important;
+  }
+
+  /* Wallet checkboxes: ensure they're visible in high-contrast */
+  [data-wallet-table] input[type="checkbox"] {
+    forced-color-adjust: auto;
+  }
+
+  /* Wallet delete buttons: ensure icon buttons have visible boundaries */
+  [data-wallet-table] button {
     border: 1px solid ButtonText !important;
-  }
-
-  /* Selected-count pill in the toolbar -- decorative background only. */
-  .wallet-count-badge {
-    border: 1px solid CanvasText !important;
-  }
-
-  /* Selected wallet-item row: exposed via aria-selected rather than
-     background tint alone, so it survives forced-colors. */
-  tr[aria-selected='true'] {
-    outline: 2px solid Highlight !important;
-    outline-offset: -2px;
   }
 }
 

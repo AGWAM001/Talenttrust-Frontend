@@ -383,7 +383,7 @@ describe('ReputationPageContent', () => {
       mockShouldThrowInProfile = true;
       rerender(<ReputationPageContent reputationData={data} userName="Fail" />);
 
-      expect(screen.getByText(/the reputation section couldn.t load/i)).toBeInTheDocument();
+      expect(screen.getByText('This section failed to load.')).toBeInTheDocument();
       expect(screen.queryByTestId('reputation-profile')).not.toBeInTheDocument();
       consoleSpy.mockRestore();
     });
@@ -394,7 +394,7 @@ describe('ReputationPageContent', () => {
       const data = { score: 85, level: 'Trusted', history: [{ id: '1', type: 'Review', summary: 'Great work', date: '2026-04-24' }] };
 
       const { rerender } = render(<ReputationPageContent reputationData={data} userName="Recover" />);
-      expect(screen.getByText(/the reputation section couldn.t load/i)).toBeInTheDocument();
+      expect(screen.getByText('This section failed to load.')).toBeInTheDocument();
 
       mockShouldThrowInProfile = false;
       rerender(<ReputationPageContent reputationData={data} userName="Recover" />);
@@ -402,7 +402,7 @@ describe('ReputationPageContent', () => {
       // Error boundary requires explicit Retry click to reset
       fireEvent.click(screen.getByText('Retry'));
 
-      expect(screen.queryByText(/the reputation section couldn.t load/i)).not.toBeInTheDocument();
+      expect(screen.queryByText('This section failed to load.')).not.toBeInTheDocument();
       expect(screen.getByTestId('reputation-profile')).toBeInTheDocument();
       consoleSpy.mockRestore();
     });
@@ -412,13 +412,13 @@ describe('ReputationPageContent', () => {
 
       const { rerender } = render(<ReputationPageContent reputationData={null} />);
       expect(screen.getByText('No reputation yet')).toBeInTheDocument();
-      expect(screen.queryByText(/the reputation section couldn.t load/i)).not.toBeInTheDocument();
+      expect(screen.queryByText('This section failed to load.')).not.toBeInTheDocument();
 
       mockShouldThrowInProfile = true;
       const data = { score: 85, level: 'Trusted', history: [{ id: '1', type: 'Review', summary: 'Great work', date: '2026-04-24' }] };
       rerender(<ReputationPageContent reputationData={data} userName="Fail" />);
 
-      expect(screen.getByText(/the reputation section couldn.t load/i)).toBeInTheDocument();
+      expect(screen.getByText('This section failed to load.')).toBeInTheDocument();
       expect(screen.queryByText('No reputation yet')).not.toBeInTheDocument();
       expect(screen.queryByTestId('reputation-profile')).not.toBeInTheDocument();
       consoleSpy.mockRestore();
@@ -430,17 +430,17 @@ describe('ReputationPageContent', () => {
       const data = { score: 85, level: 'Trusted', history: [{ id: '1', type: 'Review', summary: 'Great work', date: '2026-04-24' }] };
 
       const { rerender } = render(<ReputationPageContent reputationData={data} userName="ToEmpty" />);
-      expect(screen.getByText(/the reputation section couldn.t load/i)).toBeInTheDocument();
+      expect(screen.getByText('This section failed to load.')).toBeInTheDocument();
 
       mockShouldThrowInProfile = false;
       rerender(<ReputationPageContent reputationData={null} />);
 
       // Error boundary still has error, requires explicit Retry click to reset
-      expect(screen.getByText(/the reputation section couldn.t load/i)).toBeInTheDocument();
+      expect(screen.getByText('This section failed to load.')).toBeInTheDocument();
 
       fireEvent.click(screen.getByText('Retry'));
 
-      expect(screen.queryByText(/the reputation section couldn.t load/i)).not.toBeInTheDocument();
+      expect(screen.queryByText('This section failed to load.')).not.toBeInTheDocument();
       expect(screen.getByText('No reputation yet')).toBeInTheDocument();
       expect(screen.queryByTestId('reputation-profile')).not.toBeInTheDocument();
       consoleSpy.mockRestore();
@@ -465,7 +465,7 @@ describe('ReputationPageContent', () => {
       expect(screen.getByTestId('reputation-profile')).toBeInTheDocument();
       expect(screen.queryByRole('status')).not.toBeInTheDocument();
       expect(screen.queryByText('No reputation yet')).not.toBeInTheDocument();
-      expect(screen.queryByText(/the reputation section couldn.t load/i)).not.toBeInTheDocument();
+      expect(screen.queryByText('This section failed to load.')).not.toBeInTheDocument();
     });
 
     it('transitions from loading to empty when no reputation data arrives', () => {
@@ -479,7 +479,7 @@ describe('ReputationPageContent', () => {
       expect(screen.getByText('No reputation yet')).toBeInTheDocument();
       expect(screen.queryByRole('status')).not.toBeInTheDocument();
       expect(screen.queryByTestId('reputation-profile')).not.toBeInTheDocument();
-      expect(screen.queryByText(/the reputation section couldn.t load/i)).not.toBeInTheDocument();
+      expect(screen.queryByText('This section failed to load.')).not.toBeInTheDocument();
     });
 
     it('transitions from loading to error when content fails', () => {
@@ -498,7 +498,7 @@ describe('ReputationPageContent', () => {
       };
       render(<ReputationPageContent reputationData={data} userName="FailLoad" />);
 
-      expect(screen.getByText(/the reputation section couldn.t load/i)).toBeInTheDocument();
+      expect(screen.getByText('This section failed to load.')).toBeInTheDocument();
       expect(screen.queryByRole('status')).not.toBeInTheDocument();
       expect(screen.queryByTestId('reputation-profile')).not.toBeInTheDocument();
       expect(screen.queryByText('No reputation yet')).not.toBeInTheDocument();
@@ -576,15 +576,15 @@ describe('ReputationPageContent', () => {
       const data = { score: 75, level: 'Contributor', history: [] };
       render(<ReputationPageContent reputationData={data} />);
 
-      expect(screen.getByText(/the reputation section couldn.t load/i)).toBeInTheDocument();
+      expect(screen.getByText('This section failed to load.')).toBeInTheDocument();
       expect(screen.getByText('Retry')).toBeInTheDocument();
-      expect(screen.queryByText('Go Home')).not.toBeInTheDocument();
+      expect(screen.getByText('Go Home')).toBeInTheDocument();
       expect(screen.queryByText('No reputation yet')).not.toBeInTheDocument();
       expect(screen.queryByTestId('reputation-profile')).not.toBeInTheDocument();
     });
   });
 
-  describe('Error State — ReputationErrorBoundary fallback', () => {
+  describe('Error State — SafeBoundary fallback', () => {
     let consoleSpy: jest.SpyInstance;
 
     beforeEach(() => {
@@ -600,7 +600,7 @@ describe('ReputationPageContent', () => {
       const data = { score: 100, level: 'Expert', history: [{ id: '1', type: 'Test', summary: 'Test', date: '2026-04-24' }] };
       render(<ReputationPageContent reputationData={data} userName="ErrorUser" />);
 
-      expect(screen.getByText(/the reputation section couldn.t load/i)).toBeInTheDocument();
+      expect(screen.getByText('This section failed to load.')).toBeInTheDocument();
     });
 
     it('renders Retry button in error fallback', () => {
@@ -611,12 +611,12 @@ describe('ReputationPageContent', () => {
       expect(screen.getByText('Retry')).toBeInTheDocument();
     });
 
-    it('does not render Go Home link in error fallback', () => {
+    it('renders Go Home link in error fallback', () => {
       mockShouldThrowInProfile = true;
       const data = { score: 100, level: 'Expert', history: [] };
       render(<ReputationPageContent reputationData={data} />);
 
-      expect(screen.queryByText('Go Home')).not.toBeInTheDocument();
+      expect(screen.getByText('Go Home')).toBeInTheDocument();
     });
 
     it('does not render empty state or profile content when in error', () => {
@@ -624,7 +624,7 @@ describe('ReputationPageContent', () => {
       const data = { score: 100, level: 'Expert', history: [] };
       render(<ReputationPageContent reputationData={data} />);
 
-      expect(screen.getByText(/the reputation section couldn.t load/i)).toBeInTheDocument();
+      expect(screen.getByText('This section failed to load.')).toBeInTheDocument();
       expect(screen.queryByText('No reputation yet')).not.toBeInTheDocument();
       expect(screen.queryByTestId('reputation-profile')).not.toBeInTheDocument();
       expect(screen.queryByText(/Your reputation will be built/i)).not.toBeInTheDocument();
@@ -635,13 +635,13 @@ describe('ReputationPageContent', () => {
       const data = { score: 85, level: 'Trusted', history: [{ id: '1', type: 'Review', summary: 'Great work', date: '2026-04-24' }] };
       render(<ReputationPageContent reputationData={data} userName="RetryUser" />);
 
-      expect(screen.getByText(/the reputation section couldn.t load/i)).toBeInTheDocument();
+      expect(screen.getByText('This section failed to load.')).toBeInTheDocument();
 
       // Resolve the error and click Retry to reset the error boundary
       mockShouldThrowInProfile = false;
       fireEvent.click(screen.getByText('Retry'));
 
-      expect(screen.queryByText(/the reputation section couldn.t load/i)).not.toBeInTheDocument();
+      expect(screen.queryByText('This section failed to load.')).not.toBeInTheDocument();
       expect(screen.getByTestId('reputation-profile')).toBeInTheDocument();
     });
   });

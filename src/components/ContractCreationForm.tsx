@@ -4,7 +4,6 @@ import React, { useState, useCallback, FormEvent, useRef } from 'react';
 import { FormField } from './FormField';
 import { ErrorSummary } from './ErrorSummary';
 import { useDialogFocusTrap } from '@/hooks/useDialogFocusTrap';
-import { useFormValidation } from '@/hooks/useFormValidation';
 import { isValidStellarAddress } from '@/lib/stellarAddress';
 import { sanitizeUserText } from '@/lib/sanitizeUserText';
 import {
@@ -66,7 +65,7 @@ export const ContractCreationForm: React.FC<ContractCreationFormProps> = ({
     { label: '', address: '' },
     { label: '', address: '' },
   ]);
-  const { errors, validateAndSubmit } = useFormValidation();
+  const [errors, setErrors] = useState<Array<{ fieldId: string; message: string }>>([]);
   const [hasSubmitted, setHasSubmitted] = useState(false);
 
   // Inline validators for real-time validation
@@ -195,38 +194,40 @@ export const ContractCreationForm: React.FC<ContractCreationFormProps> = ({
       e.preventDefault();
       setHasSubmitted(true);
 
-      validateAndSubmit(
-        validateForm,
-        () => {
-          // Filter out empty parties and construct the contract
-          const validParties = parties
-            .filter(p => sanitizeUserText(p.label, MAX_PARTY_LABEL_LENGTH) && p.address.trim())
-            .map(p => ({
-              ...p,
-              label: sanitizeUserText(p.label, MAX_PARTY_LABEL_LENGTH),
-            }));
-          
-          const contract: Contract = {
-            id: crypto.randomUUID(),
-            contractName: sanitizeUserText(contractName, MAX_CONTRACT_NAME_LENGTH),
-            parties: validParties,
-            totalValue: parseFloat(totalValue),
-            currency: currency.trim(),
-            status: 'Pending',
-            createdAt: new Date().toLocaleDateString('en-US', {
-              year: 'numeric',
-              month: 'short',
-              day: 'numeric',
-            }),
-            updatedAt: new Date().toISOString(),
-            milestoneCount: 0,
-          };
+      const validationErrors = validateForm();
+      setErrors(validationErrors);
 
-          onSubmit(contract);
-        },
-      );
+      if (validationErrors.length > 0) {
+        return;
+      }
+
+      // Filter out empty parties and construct the contract
+      const validParties = parties
+        .filter(p => sanitizeUserText(p.label, MAX_PARTY_LABEL_LENGTH) && p.address.trim())
+        .map(p => ({
+          ...p,
+          label: sanitizeUserText(p.label, MAX_PARTY_LABEL_LENGTH),
+        }));
+      
+      const contract: Contract = {
+        id: crypto.randomUUID(),
+        contractName: sanitizeUserText(contractName, MAX_CONTRACT_NAME_LENGTH),
+        parties: validParties,
+        totalValue: parseFloat(totalValue),
+        currency: currency.trim(),
+        status: 'Pending',
+        createdAt: new Date().toLocaleDateString('en-US', {
+          year: 'numeric',
+          month: 'short',
+          day: 'numeric',
+        }),
+        updatedAt: new Date().toISOString(),
+        milestoneCount: 0,
+      };
+
+      onSubmit(contract);
     },
-    [contractName, totalValue, currency, parties, validateForm, validateAndSubmit, onSubmit]
+    [contractName, totalValue, currency, parties, validateForm, onSubmit]
   );
 
   // Check if the form has validation errors to disable submit button

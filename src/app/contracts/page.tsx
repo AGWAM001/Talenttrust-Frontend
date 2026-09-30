@@ -1,9 +1,8 @@
 "use client";
 
-import React, { useCallback, useEffect, useRef, useState, useMemo } from 'react';
+import React, { useCallback, useState, useMemo } from 'react';
 import EmptyState from '../../components/EmptyState';
 import ContractsList from '../../components/contracts/ContractsList';
-import { ContractsSkeleton } from '../../components/contracts/ContractsSkeleton';
 import { ContractCreationForm } from '../../components/ContractCreationForm';
 import { listContracts, saveContract } from '@/lib/repository';
 import { downloadContractsCsv, downloadContractsJson } from '@/lib/exportContracts';
@@ -39,23 +38,6 @@ const ContractsPage: React.FC = () => {
   const { showError } = useToast();
   const { preferences, updatePreference } = usePreferences();
   const { contracts } = fetchState;
-
-  // The toolbar (and its "Create Contract" button) unmounts while the dialog
-  // is open, so useDialogFocusTrap's own restoreFocus can't find it again on
-  // close (the button it captured no longer exists). Once the toolbar
-  // remounts, refocus it here instead. Skipped on mount so this doesn't fire
-  // before the dialog has ever been opened.
-  const createButtonRef = useRef<HTMLButtonElement>(null);
-  const hasOpenedFormRef = useRef(false);
-  useEffect(() => {
-    if (showForm) {
-      hasOpenedFormRef.current = true;
-      return;
-    }
-    if (hasOpenedFormRef.current) {
-      createButtonRef.current?.focus();
-    }
-  }, [showForm]);
 
   const contractsDensity = preferences.contractsDensity;
 
@@ -140,7 +122,7 @@ const ContractsPage: React.FC = () => {
   );
 
   return (
-    <main data-contracts-page className="min-h-screen p-8 pb-24">
+    <main className="min-h-screen p-8 pb-24">
       <h1 className="text-2xl font-bold mb-6">Contracts</h1>
 
       <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">
@@ -154,8 +136,13 @@ const ContractsPage: React.FC = () => {
       </p>
 
       {fetchState.status === 'loading' && !showForm && (
-        <div role="status" aria-label="Loading contracts" aria-busy="true">
-          <ContractsSkeleton />
+        <div
+          role="status"
+          aria-label="Loading contracts"
+          aria-busy="true"
+          className="rounded-2xl border border-slate-200 bg-white p-6 text-sm text-slate-600"
+        >
+          Loading contracts…
         </div>
       )}
 
@@ -247,7 +234,6 @@ const ContractsPage: React.FC = () => {
                 JSON
               </button>
               <button
-                ref={createButtonRef}
                 type="button"
                 onClick={handleCreateContract}
                 className="rounded-2xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 focus-visible:outline focus-visible:outline-4 focus-visible:outline-offset-2 focus-visible:outline-blue-500"

@@ -3,7 +3,7 @@
 Transient notification system for success and error feedback. Supports auto-dismiss, pause-on-interaction (hover and focus), screen-reader announcements, density preferences, and quiet-mode suppression.
 
 **Source:** `src/components/toast/toast-provider.tsx`
-**Tests:** `src/components/toast/toast-provider.test.tsx` (behavioral), `src/components/toast/toast.structure.test.tsx` (structural + snapshots)
+**Tests:** `src/components/toast/toast-provider.test.tsx`
 
 ---
 
@@ -495,34 +495,3 @@ Each toast renders one dismiss button with:
 | Toast never dismisses | `toastDuration` is `'persistent'` with no per-call `duration` override |
 | Action button click does not dismiss | Impossible by design: `onDismiss` is called unconditionally after `onClick` |
 | Toast viewport crashes silently | `ToastErrorBoundary` caught a render error; check `reportError` output |
-
----
-
-## Testing
-
-### Snapshot tests
-
-`toast.structure.test.tsx` pairs structural DOM assertions (role, classes, order,
-live-region values) with Jest snapshots for every significant render state
-(loaded/visible with success and error variants, single-toast with action,
-multi-toast stack, empty/skeleton, error-boundary fallback, compact density,
-toast without description, and keyboard-dismiss paths).
-
-### Updating snapshots
-
-When the toast rendered output changes intentionally (e.g. new accent class,
-new badge, ARIA attribute adjustment), review the diff and regenerate the
-`.snap` file by running:
-
-```bash
-npm test -- --testPathPattern="toast.structure" --updateSnapshot
-```
-
-or the shorter equivalent:
-
-```bash
-npm test -- --testPathPattern="toast.structure" -u
-```
-
-Always commit the updated `__snapshots__/toast.structure.test.tsx.snap` in the
-same PR as the component change.

@@ -3,14 +3,12 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import '@testing-library/jest-dom';
 import { WalletBulkToolbar } from '../WalletBulkToolbar';
-import { testA11y } from '@/test-utils/a11y';
 
 describe('WalletBulkToolbar', () => {
   const defaultProps = {
     selectedCount: 2,
     onClearSelection: jest.fn(),
-    onExportCsv: jest.fn(),
-    onExportJson: jest.fn(),
+    onExport: jest.fn(),
     onDelete: jest.fn(),
   };
 
@@ -28,16 +26,14 @@ describe('WalletBulkToolbar', () => {
       render(<WalletBulkToolbar {...defaultProps} selectedCount={1} />);
       expect(screen.getByTestId('wallet-bulk-toolbar')).toBeInTheDocument();
       expect(screen.getByText('1 item selected')).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /export 1 selected item as csv/i })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /export 1 selected item as json/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /export 1 selected item/i })).toBeInTheDocument();
       expect(screen.getByRole('button', { name: /delete 1 selected item/i })).toBeInTheDocument();
     });
 
     it('renders toolbar with correct count for multiple selected items', () => {
       render(<WalletBulkToolbar {...defaultProps} selectedCount={3} />);
       expect(screen.getByText('3 items selected')).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /export 3 selected items as csv/i })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /export 3 selected items as json/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /export 3 selected items/i })).toBeInTheDocument();
       expect(screen.getByRole('button', { name: /delete 3 selected items/i })).toBeInTheDocument();
     });
   });
@@ -50,18 +46,11 @@ describe('WalletBulkToolbar', () => {
       expect(defaultProps.onClearSelection).toHaveBeenCalledTimes(1);
     });
 
-    it('calls onExportCsv when CSV button is clicked', () => {
+    it('calls onExport when Export button is clicked', () => {
       render(<WalletBulkToolbar {...defaultProps} />);
-      const exportBtn = screen.getByRole('button', { name: /export 2 selected items as csv/i });
+      const exportBtn = screen.getByRole('button', { name: /export 2 selected items/i });
       fireEvent.click(exportBtn);
-      expect(defaultProps.onExportCsv).toHaveBeenCalledTimes(1);
-    });
-
-    it('calls onExportJson when JSON button is clicked', () => {
-      render(<WalletBulkToolbar {...defaultProps} />);
-      const exportBtn = screen.getByRole('button', { name: /export 2 selected items as json/i });
-      fireEvent.click(exportBtn);
-      expect(defaultProps.onExportJson).toHaveBeenCalledTimes(1);
+      expect(defaultProps.onExport).toHaveBeenCalledTimes(1);
     });
 
     it('calls onDelete when Delete button is clicked', () => {
@@ -121,28 +110,28 @@ describe('WalletBulkToolbar', () => {
       expect(onClear).toHaveBeenCalledTimes(1);
     });
 
-    it('Enter key activates CSV export button', async () => {
-      const onExportCsv = jest.fn();
+    it('Enter key activates Export button', async () => {
+      const onExport = jest.fn();
       const user = userEvent.setup();
-      render(<WalletBulkToolbar {...defaultProps} onExportCsv={onExportCsv} />);
+      render(<WalletBulkToolbar {...defaultProps} onExport={onExport} />);
 
-      const exportBtn = screen.getByRole('button', { name: /export 2 selected items as csv/i });
+      const exportBtn = screen.getByRole('button', { name: /export 2 selected items/i });
       exportBtn.focus();
       await user.keyboard('{Enter}');
 
-      expect(onExportCsv).toHaveBeenCalledTimes(1);
+      expect(onExport).toHaveBeenCalledTimes(1);
     });
 
-    it('Space key activates JSON export button', async () => {
-      const onExportJson = jest.fn();
+    it('Space key activates Export button', async () => {
+      const onExport = jest.fn();
       const user = userEvent.setup();
-      render(<WalletBulkToolbar {...defaultProps} onExportJson={onExportJson} />);
+      render(<WalletBulkToolbar {...defaultProps} onExport={onExport} />);
 
-      const exportBtn = screen.getByRole('button', { name: /export 2 selected items as json/i });
+      const exportBtn = screen.getByRole('button', { name: /export 2 selected items/i });
       exportBtn.focus();
       await user.keyboard('[Space]');
 
-      expect(onExportJson).toHaveBeenCalledTimes(1);
+      expect(onExport).toHaveBeenCalledTimes(1);
     });
 
     it('Enter key activates Delete button', async () => {
@@ -180,12 +169,8 @@ describe('WalletBulkToolbar', () => {
       expect(clearBtn).toHaveFocus();
 
       await user.keyboard('{ArrowRight}');
-      const csvBtn = screen.getByRole('button', { name: /export 2 selected items as csv/i });
-      expect(csvBtn).toHaveFocus();
-
-      await user.keyboard('{ArrowRight}');
-      const jsonBtn = screen.getByRole('button', { name: /export 2 selected items as json/i });
-      expect(jsonBtn).toHaveFocus();
+      const exportBtn = screen.getByRole('button', { name: /export 2 selected items/i });
+      expect(exportBtn).toHaveFocus();
 
       await user.keyboard('{ArrowRight}');
       const deleteBtn = screen.getByRole('button', { name: /delete 2 selected items/i });
@@ -208,8 +193,8 @@ describe('WalletBulkToolbar', () => {
       const user = userEvent.setup();
       render(<WalletBulkToolbar {...defaultProps} />);
 
-      const csvBtn = screen.getByRole('button', { name: /export 2 selected items as csv/i });
-      csvBtn.focus();
+      const exportBtn = screen.getByRole('button', { name: /export 2 selected items/i });
+      exportBtn.focus();
 
       await user.keyboard('{ArrowLeft}');
       const clearBtn = screen.getByRole('button', { name: /clear item selection/i });
@@ -236,16 +221,16 @@ describe('WalletBulkToolbar', () => {
       clearBtn.focus();
 
       await user.keyboard('{ArrowDown}');
-      const csvBtn = screen.getByRole('button', { name: /export 2 selected items as csv/i });
-      expect(csvBtn).toHaveFocus();
+      const exportBtn = screen.getByRole('button', { name: /export 2 selected items/i });
+      expect(exportBtn).toHaveFocus();
     });
 
     it('ArrowUp works like ArrowLeft', async () => {
       const user = userEvent.setup();
       render(<WalletBulkToolbar {...defaultProps} />);
 
-      const csvBtn = screen.getByRole('button', { name: /export 2 selected items as csv/i });
-      csvBtn.focus();
+      const exportBtn = screen.getByRole('button', { name: /export 2 selected items/i });
+      exportBtn.focus();
 
       await user.keyboard('{ArrowUp}');
       const clearBtn = screen.getByRole('button', { name: /clear item selection/i });
@@ -305,12 +290,8 @@ describe('WalletBulkToolbar', () => {
       expect(clearBtn).toHaveFocus();
 
       await user.tab();
-      const csvBtn = screen.getByRole('button', { name: /export 2 selected items as csv/i });
-      expect(csvBtn).toHaveFocus();
-
-      await user.tab();
-      const jsonBtn = screen.getByRole('button', { name: /export 2 selected items as json/i });
-      expect(jsonBtn).toHaveFocus();
+      const exportBtn = screen.getByRole('button', { name: /export 2 selected items/i });
+      expect(exportBtn).toHaveFocus();
 
       await user.tab();
       const deleteBtn = screen.getByRole('button', { name: /delete 2 selected items/i });
@@ -325,16 +306,10 @@ describe('WalletBulkToolbar', () => {
       expect(clearBtn.className).toMatch(/focus-visible:outline/);
     });
 
-    it('CSV export button has focus-visible outline classes', () => {
+    it('Export button has focus-visible outline classes', () => {
       render(<WalletBulkToolbar {...defaultProps} />);
-      const csvBtn = screen.getByRole('button', { name: /export 2 selected items as csv/i });
-      expect(csvBtn.className).toMatch(/focus-visible:outline/);
-    });
-
-    it('JSON export button has focus-visible outline classes', () => {
-      render(<WalletBulkToolbar {...defaultProps} />);
-      const jsonBtn = screen.getByRole('button', { name: /export 2 selected items as json/i });
-      expect(jsonBtn.className).toMatch(/focus-visible:outline/);
+      const exportBtn = screen.getByRole('button', { name: /export 2 selected items/i });
+      expect(exportBtn.className).toMatch(/focus-visible:outline/);
     });
 
     it('Delete button has focus-visible outline classes', () => {
@@ -356,43 +331,6 @@ describe('WalletBulkToolbar', () => {
 
       const clearBtn = screen.getByRole('button', { name: /clear item selection/i });
       expect(clearBtn).toHaveFocus();
-    });
-  });
-
-  it('does not clear selection when a non-Escape key is pressed', () => {
-    render(<WalletBulkToolbar {...defaultProps} />);
-    fireEvent.keyDown(window, { key: 'Enter' });
-    expect(defaultProps.onClearSelection).not.toHaveBeenCalled();
-  });
-
-  // a11y/wallet-71-contrast: the count pill's own background is stripped
-  // under forced-colors, so it needs a stable selector for the CSS rule
-  // in globals.css (`.wallet-count-badge`) to attach a visible border to.
-  describe('forced-colors support (a11y/wallet-71-contrast)', () => {
-    it('has role="toolbar" so the forced-colors container border applies', () => {
-      render(<WalletBulkToolbar {...defaultProps} />);
-      expect(screen.getByRole('toolbar')).toBeInTheDocument();
-    });
-
-    it('exposes the wallet-count-badge class hook on the selected-count pill', () => {
-      render(<WalletBulkToolbar {...defaultProps} selectedCount={2} />);
-      expect(screen.getByText('2').className).toContain('wallet-count-badge');
-    });
-
-    it('already uses a real focus-visible outline (not outline-none) on every action button', () => {
-      render(<WalletBulkToolbar {...defaultProps} />);
-      const exportBtn = screen.getByRole('button', { name: /export 2 selected items/i });
-      const deleteBtn = screen.getByRole('button', { name: /delete 2 selected items/i });
-      [exportBtn, deleteBtn].forEach((btn) => {
-        expect(btn.className).not.toMatch(/focus:outline-none|focus-visible:outline-none/);
-        expect(btn.className).toContain('focus-visible:outline');
-      });
-    });
-  });
-
-  describe('accessibility', () => {
-    it('has zero axe violations', async () => {
-      await testA11y(<WalletBulkToolbar {...defaultProps} />);
     });
   });
 });

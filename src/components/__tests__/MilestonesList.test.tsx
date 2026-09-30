@@ -220,10 +220,13 @@ describe('MilestonesList', () => {
     });
   });
 
-  it('makes the scroll region keyboard-focusable with focus-ring styles when populated', () => {
+  it('keeps the scroll region out of the tab order but programmatically focusable when populated', () => {
     const { container } = r(<MilestonesList milestones={SAMPLE} />);
     const region = scrollRegion(container);
-    expect(region).toHaveAttribute('tabIndex', '0');
+    // With roving tabindex on the rows, the region must not be a second tab
+    // stop — the list's single tab stop is the active row. It stays
+    // focusable programmatically (e.g. the due-soon banner dismiss flow).
+    expect(region).toHaveAttribute('tabIndex', '-1');
     expect(region).toHaveClass(
       'focus-visible:outline-none',
       'focus-visible:ring-2',
@@ -576,53 +579,6 @@ describe('MilestonesList', () => {
     expect(await axe(container)).toHaveNoViolations();
   });
 
-  describe('due status badges on milestone rows', () => {
-    beforeEach(() => {
-      jest.useFakeTimers().setSystemTime(new Date('2026-05-10T12:00:00'));
-    });
-
-    afterEach(() => {
-      jest.useRealTimers();
-    });
-
-    it('renders Overdue badge on overdue milestone rows', () => {
-      const milestones: Milestone[] = [
-        { id: '1', title: 'Overdue Milestone', status: 'Pending', payout: 500, currency: 'USD', dueDate: '2026-05-01' },
-      ];
-      render(<MilestonesList milestones={milestones} />);
-      expect(screen.getByTestId('due-badge-overdue')).toBeInTheDocument();
-      expect(screen.getByText('Overdue')).toBeInTheDocument();
-    });
-
-    it('renders Due Soon badge on due-soon milestone rows', () => {
-      const milestones: Milestone[] = [
-        { id: '1', title: 'Due Soon Milestone', status: 'Pending', payout: 500, currency: 'USD', dueDate: '2026-05-15' },
-      ];
-      render(<MilestonesList milestones={milestones} />);
-      expect(screen.getByTestId('due-badge-due-soon')).toBeInTheDocument();
-      expect(screen.getByText('Due soon')).toBeInTheDocument();
-    });
-
-    it('does not render due status badge for completed or paid milestones even if date is past', () => {
-      const milestones: Milestone[] = [
-        { id: '1', title: 'Completed Past', status: 'Completed', payout: 500, currency: 'USD', dueDate: '2026-05-01' },
-        { id: '2', title: 'Paid Past', status: 'Paid', payout: 500, currency: 'USD', dueDate: '2026-05-01' },
-      ];
-      render(<MilestonesList milestones={milestones} />);
-      expect(screen.queryByTestId('due-badge-overdue')).not.toBeInTheDocument();
-      expect(screen.queryByTestId('due-badge-due-soon')).not.toBeInTheDocument();
-    });
-
-    it('does not render due status badge for normal/future milestone (beyond 7 days)', () => {
-      const milestones: Milestone[] = [
-        { id: '1', title: 'Far Future', status: 'Pending', payout: 500, currency: 'USD', dueDate: '2026-05-25' },
-      ];
-      render(<MilestonesList milestones={milestones} />);
-      expect(screen.queryByTestId('due-badge-overdue')).not.toBeInTheDocument();
-      expect(screen.queryByTestId('due-badge-due-soon')).not.toBeInTheDocument();
-    });
-  });
-
   describe('dueSoon helper utilities', () => {
     it('parseLocalDate returns null for invalid types and empty values', () => {
       expect(parseLocalDate('')).toBeNull();
@@ -827,39 +783,6 @@ describe('MilestonesList – multi-select and bulk actions', () => {
 
       expect(article).toHaveAttribute('data-selected', 'true');
       expect(cb.checked).toBe(true);
-    });
-
-    it('rows carry a data-milestone-row attribute for forced-colors targeting', () => {
-      render(<MilestonesList milestones={THREE_SAMPLE} />);
-
-      const article = screen.getByRole('article', { name: /Milestone Two/i });
-      expect(article).toHaveAttribute('data-milestone-row');
-    });
-  });
-
-  // ---------------------------------------------------------------------------
-  // High-contrast / forced-colors
-  // ---------------------------------------------------------------------------
-
-  describe('a11y: high-contrast — selected row', () => {
-    it('selected row keeps both data-milestone-row and data-selected="true" so the forced-colors rule can target it', async () => {
-      const user = userEvent.setup();
-      render(<MilestonesList milestones={THREE_SAMPLE} />);
-
-      const article = screen.getByRole('article', { name: /Milestone Two/i });
-      await user.click(itemCheckbox('m2'));
-
-      expect(article).toHaveAttribute('data-milestone-row');
-      expect(article).toHaveAttribute('data-selected', 'true');
-    });
-
-    it('has no axe violations with a row selected', async () => {
-      const user = userEvent.setup();
-      const { container } = render(<MilestonesList milestones={THREE_SAMPLE} />);
-
-      await user.click(itemCheckbox('m2'));
-
-      expect(await axe(container)).toHaveNoViolations();
     });
   });
 

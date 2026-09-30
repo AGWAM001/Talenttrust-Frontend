@@ -13,15 +13,21 @@ import { ContractSummarySkeleton } from '@/components/ContractSummarySkeleton';
 import { MilestonesListSkeleton } from '@/components/MilestonesListSkeleton';
 import ContractStatusAnnouncer from '@/components/ContractStatusAnnouncer';
 import SafeBoundary from '@/components/SafeBoundary';
+import OfflineIndicator from '@/components/OfflineIndicator';
 import { resolveContractData, ContractData } from '@/lib/contractResolver';
 import { useToast } from '@/components/toast/toast-provider';
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard';
+import { useOnlineStatus } from '@/hooks/useOnlineStatus';
 import {
   listMilestonesByContract,
   updateMilestone,
 } from '@/lib/repository';
+import { cacheContractData, getCachedContractData } from '@/lib/contractCache';
 import { isValidContractId } from '@/lib/validateContractId';
-import { useOptimisticContractStatus, type BuildPersistedContract } from '@/hooks/useOptimisticContractStatus';
+import {
+  useOptimisticContractStatus,
+  type BuildPersistedContract,
+} from '@/hooks/useOptimisticContractStatus';
 import type { Milestone } from '@/types/domain';
 
 /**
@@ -57,10 +63,14 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isPersistingStatus, setIsPersistingStatus] = useState(false);
+  const [isUsingCachedData, setIsUsingCachedData] = useState(false);
+  const [cachedAt, setCachedAt] = useState<string | undefined>(undefined);
+  const [isDataStale, setIsDataStale] = useState(false);
   const isMountedRef = useRef(true);
   const milestonesRef = useRef(milestones);
   milestonesRef.current = milestones;
   const { showError, showSuccess } = useToast();
+  const isOnline = useOnlineStatus();
 
   const { copied, copy } = useCopyToClipboard({
     delay: 2000,
@@ -124,6 +134,8 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
    * back and a clear, specific error message is surfaced via both the inline
    * `ActionPanel` banner and a dismissible toast.
    *
+   * When offline, mutations are disabled to prevent data inconsistency.
+   *
    * @param nextStatus - The status to persist to the repository.
    * @param successTitle - The toast title shown after a successful write.
    * @param successDescription - The toast description shown after success.
@@ -134,6 +146,24 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
       successTitle: string,
       successDescription: string,
     ) => {
+      // Disable unsafe mutations while offline
+      if (!isOnline) {
+        showError({
+          title: 'Cannot update contract while offline',
+          description: 'Please connect to the internet to make changes to this contract.',
+        });
+        return;
+      }
+
+      // Also disable if using stale cached data
+      if (isUsingCachedData && isDataStale) {
+        showError({
+          title: 'Cannot update stale data',
+          description: 'Please refresh the page to load the latest data before making changes.',
+        });
+        return;
+      }
+
       setIsPersistingStatus(true);
       setErrorMessage(null);
 
@@ -156,7 +186,7 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
       });
       setIsPersistingStatus(false);
     },
-    [persistStatus, showError, showSuccess],
+    [persistStatus, showError, showSuccess, isOnline, isUsingCachedData, isDataStale],
   );
 
   useEffect(() => {
@@ -166,14 +196,59 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
       try {
         setIsLoading(true);
         setErrorMessage(null);
+
+        // If offline, try to load from cache first
+        if (!isOnline) {
+          const cachedResult = getCachedContractData(id);
+          if (cachedResult.success && cachedResult.data) {
+            if (isMountedRef.current) {
+              setContractData(cachedResult.data);
+              setMilestones(mergeContractMilestones(cachedResult.data.milestones, id));
+              setIsUsingCachedData(true);
+              setIsDataStale(cachedResult.stale || false);
+              setCachedAt(cachedResult.data.updatedAt);
+              setIsLoading(false);
+            }
+            return;
+          }
+          // No cache available when offline - show error
+          if (isMountedRef.current) {
+            setErrorMessage(
+              'You are offline and this contract has not been loaded before. Please connect to the internet and try again.',
+            );
+            setIsLoading(false);
+          }
+          return;
+        }
+
+        // Online - load fresh data
         const data = await resolveContractData(id);
 
         if (isMountedRef.current) {
           setContractData(data);
           setMilestones(mergeContractMilestones(data.milestones, id));
+          setIsUsingCachedData(false);
+          setIsDataStale(false);
+          setCachedAt(undefined);
+
+          // Cache the successfully loaded data
+          cacheContractData(id, data);
         }
       } catch (error) {
-        if (isMountedRef.current) {
+        // On error, try to fall back to cache
+        const cachedResult = getCachedContractData(id);
+        if (cachedResult.success && cachedResult.data) {
+          if (isMountedRef.current) {
+            setContractData(cachedResult.data);
+            setMilestones(mergeContractMilestones(cachedResult.data.milestones, id));
+            setIsUsingCachedData(true);
+            setIsDataStale(cachedResult.stale || false);
+            setCachedAt(cachedResult.data.updatedAt);
+            setErrorMessage(
+              'Unable to load fresh data. Showing cached version which may be outdated.',
+            );
+          }
+        } else if (isMountedRef.current) {
           setErrorMessage(
             error instanceof Error
               ? error.message
@@ -192,7 +267,7 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
     return () => {
       isMountedRef.current = false;
     };
-  }, [id]);
+  }, [id, isOnline]);
 
   /**
    * Placeholder for the future milestone-submission workflow.
@@ -228,6 +303,24 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
   };
 
   const handleUpdateMilestone = useCallback((id: string, patch: Partial<Milestone>) => {
+    // Disable unsafe mutations while offline
+    if (!isOnline) {
+      showError({
+        title: 'Cannot update milestone while offline',
+        description: 'Please connect to the internet to make changes to milestones.',
+      });
+      return false;
+    }
+
+    // Also disable if using stale cached data
+    if (isUsingCachedData && isDataStale) {
+      showError({
+        title: 'Cannot update stale data',
+        description: 'Please refresh the page to load the latest data before making changes.',
+      });
+      return false;
+    }
+
     const snapshot = milestonesRef.current;
 
     setMilestones((current) =>
@@ -242,7 +335,7 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
     }
 
     return true;
-  }, []);
+  }, [isOnline, isUsingCachedData, isDataStale, showError]);
 
   const status = contractData?.status || 'Active';
 
@@ -250,6 +343,9 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
     <main className="min-h-screen bg-slate-50 px-4 py-8 sm:px-6 lg:px-8">
       {contractData ? <ContractStatusAnnouncer status={contractData.status} /> : null}
       <div className="mx-auto max-w-screen-2xl space-y-6">
+        {/* Offline/stale data indicator */}
+        <OfflineIndicator isStale={isDataStale} cachedAt={cachedAt} />
+
         <div className="flex items-center justify-between gap-4 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
           <div>
             <Breadcrumbs
@@ -337,6 +433,7 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
               isLoading={isLoading || isPersistingStatus}
               errorMessage={errorMessage || undefined}
               disputeFlow="confirm"
+              disableMutations={!isOnline || (isUsingCachedData && isDataStale)}
             />
           </div>
         </div>

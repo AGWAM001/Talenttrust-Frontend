@@ -74,7 +74,7 @@ export function resolveReputationLevel(score: number, maxScore: number): string 
 const reputationSummary =
   'Reputation represents verified trust signals and activity history, not sensitive personal metadata. Privacy-friendly defaults keep your profile safe.';
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { ConfirmDialog } from './ConfirmDialog';
 import { useToast } from './toast/toast-provider';
@@ -92,7 +92,6 @@ import {
   isReputationUrlInSync,
   type ReputationSortDir,
 } from '@/lib/reputationUrlState';
-import ReputationExportButton from './ReputationExportButton';
 
 /** Number of history events shown per page before "Load more" is needed. */
 export const REPUTATION_PAGE_SIZE = 5;
@@ -616,18 +615,9 @@ export default function ReputationProfile({
                 />
                 Select all
               </label>
-              {selectedCount > 0 && (
-                <KbdHint
-                  keys={['Esc']}
-                  label="to clear selection"
-                  className="hidden sm:inline-flex"
-                />
-              )}
               <div
-                ref={toolbarRef}
                 role="toolbar"
                 aria-label="Reputation history actions"
-                data-reputation-toolbar
                 className="flex flex-wrap gap-2"
               >
                 <button
@@ -661,12 +651,10 @@ export default function ReputationProfile({
                 >
                   Clear selection
                 </button>
-                <ReputationExportButton events={visibleHistory} />
               </div>
             </div>
             <ol
               aria-labelledby="reputation-history-heading"
-              data-reputation-list
               className="space-y-4"
             >
               {visibleHistory.map((event) => {
@@ -679,7 +667,6 @@ export default function ReputationProfile({
                   <li
                     key={event.id}
                     aria-labelledby={`${typeId} ${summaryId} ${dateId}`}
-                    {...(isSelected ? { 'data-selected': true } : {})}
                     className={`rounded-3xl border p-5 ${isSelected ? 'border-[var(--foreground)] bg-[var(--muted)]' : 'border-[var(--border)] bg-[var(--card)]'}`}
                   >
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">

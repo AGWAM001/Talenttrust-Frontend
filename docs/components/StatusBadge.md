@@ -15,7 +15,7 @@ This component eliminates duplicated status styling logic that previously existe
 
 | Prop | Type | Required | Default | Description |
 |------|------|----------|---------|-------------|
-| `status` | `StatusType` | Yes | — | The status value to display. One of: `Active`, `Completed`, `Disputed`, `Pending`, or `Paid`. Defensive fallback if a non-typed value slips through at runtime (see [Unknown status fallback](#unknown-status-fallback)). |
+| `status` | `StatusType` | Yes | — | The status value to display. One of: `Active`, `Completed`, `Disputed`, `Pending`, or `Paid`. |
 | `className` | `string` | No | `''` | Additional CSS classes to apply to the badge element. |
 
 ## Status Types
@@ -31,41 +31,6 @@ Each status renders an icon + label token so meaning is never conveyed by color 
 | Paid      | ✔    | `--status-success-*`         |
 
 Icons are rendered in a child `<span aria-hidden="true">` so screen readers only announce the label text.
-
-## Unknown status fallback
-
-The component defends against runtime values outside the `StatusType` union
-(e.g. unvalidated API data, third-party integrations). When `status` is not
-one of the five canonical values, `StatusBadge`:
-
-1. Renders the **neutral** token `--status-neutral-*` for background/foreground
-   (defined in `globals.css`, light + dark pairs both pass WCAG AA contrast).
-2. Renders the fallback icon `?` in the `aria-hidden` slot.
-3. Sets `aria-label` to `Status: Unknown — value "<raw value>"` so AT users
-   hear that the value is unrecognised while still learning the raw value.
-4. Shows the visible label as `Unknown (<raw value>)` so sighted users see
-   both the unknown indicator and the original value.
-5. Logs a single `console.warn` in development (silent in production).
-
-The `isKnownStatus(value)` type-guard is exported alongside the component
-for callers that want to validate status data before rendering:
-
-```tsx
-import { isKnownStatus } from '@/components/StatusBadge';
-
-const raw = await fetchStatusFromApi();
-const normalized: StatusType = isKnownStatus(raw) ? raw : 'Unknown';
-
-// TS prevents passing an unknown status string at the prop boundary,
-// but this also handles data that crosses the type boundary at runtime.
-```
-
-Direct usage (e.g. an `as`-escape in tests) renders the fallback rather than crashing:
-
-```tsx
-<StatusBadge status={'Cancelled' as unknown as StatusType} />
-// → [?] Unknown (Cancelled) with aria-label `Status: Unknown — value "Cancelled"`
-```
 
 ## Usage Examples
 
@@ -144,8 +109,6 @@ The component includes comprehensive test coverage:
 - **Props tests**: Tests additional className functionality
 - **Accessibility tests**: Ensures proper ARIA attributes and roles
 - **Snapshot tests**: Confirms visual consistency across status types
-- **Unknown status fallback**: Neutral styling, fallback icon, accessible label, dev-only warning
-- **isKnownStatus type-guard**: Returns true for canonical statuses, false for anything else
 
 Run tests with: `npm test src/components/__tests__/StatusBadge.test.tsx`
 

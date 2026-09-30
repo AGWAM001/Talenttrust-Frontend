@@ -29,6 +29,14 @@ export function useDialogFocusTrap({
   restoreFocus = false,
 }: UseDialogFocusTrapOptions): void {
   const triggerRef = useRef<HTMLElement | null>(null);
+  const onEscapeRef = useRef(onEscape);
+
+  // Keep the active callback current without rebuilding the document listener.
+  // Callers commonly inline their close handler; rebuilding the effect for
+  // every render could otherwise restore focus while a user is typing.
+  useEffect(() => {
+    onEscapeRef.current = onEscape;
+  }, [onEscape]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -45,7 +53,7 @@ export function useDialogFocusTrap({
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         event.preventDefault();
-        onEscape();
+        onEscapeRef.current();
         return;
       }
 
@@ -62,10 +70,19 @@ export function useDialogFocusTrap({
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
 
-      if (event.shiftKey && document.activeElement === first) {
+      const activeElement = document.activeElement as HTMLElement | null;
+      const activeIndex = focusable.indexOf(activeElement);
+
+      // Defensive entry guard: focus can be outside the dialog after browser
+      // chrome interaction or programmatic focus. Keep the next tab action in
+      // the modal instead of allowing it to escape into the page.
+      if (activeIndex === -1) {
+        event.preventDefault();
+        (event.shiftKey ? last : first).focus();
+      } else if (event.shiftKey && activeElement === first) {
         event.preventDefault();
         last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
+      } else if (!event.shiftKey && activeElement === last) {
         event.preventDefault();
         first.focus();
       }
@@ -86,6 +103,5 @@ export function useDialogFocusTrap({
         }
       }
     };
-  }, [dialogRef, initialFocusRef, isOpen, onEscape, restoreFocus]);
+  }, [dialogRef, initialFocusRef, isOpen, restoreFocus]);
 }
-

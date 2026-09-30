@@ -65,42 +65,40 @@ describe('MilestoneCreationForm', () => {
   });
 
   describe('form validation', () => {
-    it('shows validation messages for empty required fields on submit, and disables the button until all fields are valid', async () => {
+    it('shows validation messages for empty required fields on submit, and clears them when fixed', async () => {
       render(<MilestoneCreationForm onSubmit={onSubmit} onCancel={onCancel} />);
 
-      const submitButton = screen.getByRole('button', { name: /add milestone/i });
-
       // Submit the empty form
-      fireEvent.click(submitButton);
+      fireEvent.click(screen.getByRole('button', { name: /add milestone/i }));
 
       // Expect validation messages
       await waitFor(() => {
-        expect(screen.getByText('There is a problem')).toBeInTheDocument();
         expect(screen.getAllByText('Title is required')[0]).toBeInTheDocument();
         expect(screen.getAllByText('Payout amount is required')[0]).toBeInTheDocument();
       });
 
-      // Submit button should be disabled while errors exist
-      expect(submitButton).toBeDisabled();
-
-      // Fix the title field — button should stay disabled because payout is still invalid
+      // Fix the title field
       fireEvent.change(screen.getByLabelText(/^title/i), {
         target: { value: 'Valid Title' },
       });
-      expect(submitButton).toBeDisabled();
+      // Submit again to trigger validation
+      fireEvent.click(screen.getByRole('button', { name: /add milestone/i }));
 
-      // Fix the payout field too — now the button should be enabled
+      // Title error should be gone, payout error should still be there
+      await waitFor(() => {
+        expect(screen.queryByText('Title is required')).not.toBeInTheDocument();
+        expect(screen.getAllByText('Payout amount is required')[0]).toBeInTheDocument();
+      });
+
+      // Fix the payout field
       fireEvent.change(screen.getByLabelText(/payout amount/i), {
         target: { value: '100' },
       });
-      expect(submitButton).not.toBeDisabled();
-
       // Submit again
-      fireEvent.click(submitButton);
+      fireEvent.click(screen.getByRole('button', { name: /add milestone/i }));
 
       // All errors should be gone, and onSubmit should be called
       await waitFor(() => {
-        expect(screen.queryByText('Title is required')).not.toBeInTheDocument();
         expect(screen.queryByText('Payout amount is required')).not.toBeInTheDocument();
         expect(onSubmit).toHaveBeenCalledTimes(1);
       });

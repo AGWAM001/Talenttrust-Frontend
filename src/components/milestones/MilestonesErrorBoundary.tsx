@@ -21,11 +21,24 @@ export interface MilestonesErrorBoundaryProps {
    * internal `reportError` call. Useful for testing or custom instrumentation.
    */
   onError?: (error: Error, info: React.ErrorInfo) => void;
+  /** Stable, user-facing name for the isolated board subtree. */
+  sectionName?: MilestonesSection;
 }
 
 interface State {
   hasError: boolean;
-  error: Error | null;
+  retryKey: number;
+}
+
+/** Public error code used by dashboards and tests without exposing internals. */
+export const MILESTONES_SECTION_ERROR_CODE = 'MILESTONES_SECTION_FAILED' as const;
+
+export type MilestonesSection = 'milestones' | 'filters' | 'actions' | 'milestone list';
+
+export interface MilestonesSectionErrorMeta extends Record<string, unknown> {
+  code: typeof MILESTONES_SECTION_ERROR_CODE;
+  section: MilestonesSection;
+  componentStack?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -52,7 +65,7 @@ export default class MilestonesErrorBoundary extends Component<
   MilestonesErrorBoundaryProps,
   State
 > {
-  state: State = { hasError: false, error: null };
+  state: State = { hasError: false, retryKey: 0 };
 
   // ------------------------------------------------------------------
   // Lifecycle
@@ -63,9 +76,12 @@ export default class MilestonesErrorBoundary extends Component<
   }
 
   componentDidCatch(error: Error, info: React.ErrorInfo): void {
-    reportError(error, 'MilestonesErrorBoundary', 'error', {
+    const metadata: MilestonesSectionErrorMeta = {
+      code: MILESTONES_SECTION_ERROR_CODE,
+      section: this.props.sectionName ?? 'milestones',
       componentStack: info.componentStack ?? undefined,
-    });
+    };
+    reportError(error, 'MilestonesErrorBoundary', 'error', metadata);
     this.props.onError?.(error, info);
   }
 
@@ -75,7 +91,10 @@ export default class MilestonesErrorBoundary extends Component<
 
   /** Clears the error state so the children are re-mounted on the next render. */
   handleRetry = (): void => {
-    this.setState({ hasError: false, error: null });
+    this.setState((current) => ({
+      hasError: false,
+      retryKey: current.retryKey + 1,
+    }));
   };
 
   // ------------------------------------------------------------------
@@ -83,11 +102,13 @@ export default class MilestonesErrorBoundary extends Component<
   // ------------------------------------------------------------------
 
   render(): ReactNode {
-    const { hasError, error } = this.state;
-    const { children, fallback } = this.props;
+    const { hasError, retryKey } = this.state;
+    const { children, fallback, sectionName = 'milestones' } = this.props;
 
     if (!hasError) {
-      return children;
+      // A key guarantees a clean subtree after retry, which clears failed
+      // child state and re-runs mount-time data reads.
+      return <React.Fragment key={retryKey}>{children}</React.Fragment>;
     }
 
     // Custom fallback supplied by the consumer takes full precedence.
@@ -106,14 +127,8 @@ export default class MilestonesErrorBoundary extends Component<
         className="rounded-2xl border border-red-200 bg-red-50 p-6 text-center shadow-sm"
       >
         <p className="text-base font-semibold text-red-800">
-          The milestones section couldn&rsquo;t load.
+          The {sectionName} section couldn&rsquo;t load.
         </p>
-
-        {error?.message && (
-          <p className="mt-1 text-sm text-red-600" data-testid="milestones-error-message">
-            {error.message}
-          </p>
-        )}
 
         <p className="mt-2 text-sm text-red-700">
           This is likely a temporary issue. Use the button below to try again.

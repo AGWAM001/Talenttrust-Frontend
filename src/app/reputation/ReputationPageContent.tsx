@@ -4,7 +4,7 @@ import React, { Suspense } from 'react';
 import EmptyState from '../../components/EmptyState';
 import ReputationProfile from '../../components/ReputationProfile';
 import ReputationSummaryCard from '../../components/ReputationSummaryCard';
-import ReputationErrorBoundary from '../../components/ReputationErrorBoundary';
+import SafeBoundary from '../../components/SafeBoundary';
 import type { Reputation } from '@/types/domain';
 
 export type ReputationPageContentProps = {
@@ -20,7 +20,7 @@ export function ReputationPageContent({
   const hasReputation = typeof score === 'number' && score >= 0;
 
   return (
-    <ReputationErrorBoundary>
+    <SafeBoundary>
       {!reputationData || !hasReputation ? (
         <main className="min-h-screen p-8">
           <h1 className="text-2xl font-bold mb-6">Reputation</h1>
@@ -49,7 +49,7 @@ export function ReputationPageContent({
           </Suspense>
         </main>
       )}
-    </ReputationErrorBoundary>
+    </SafeBoundary>
   );
 }
 
