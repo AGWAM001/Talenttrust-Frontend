@@ -46,6 +46,7 @@ const HeaderCardSkeleton = () => (
 const ActionPanelSkeleton = () => (
   <div
     aria-hidden="true"
+    data-testid="action-panel-skeleton"
     className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm space-y-4"
   >
     <div className="h-5 w-32 rounded-lg bg-slate-200 animate-shimmer motion-reduce:animate-none" />
@@ -67,6 +68,7 @@ const ActionPanelSkeleton = () => (
 export default function ContractDetailLoading() {
   return (
     <main
+      data-testid="contract-detail-loading"
       className="min-h-screen bg-slate-50 px-4 py-8 sm:px-6 lg:px-8"
       aria-busy="true"
     >
