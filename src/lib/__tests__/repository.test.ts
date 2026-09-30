@@ -32,6 +32,7 @@ import {
   saveWalletItem,
   updateWalletItem,
   deleteWalletItems,
+  deleteReputationEvents,
   clearAppData,
   clearByPrefix,
   STORAGE_KEY,
@@ -661,6 +662,28 @@ describe('write failure resilience', () => {
     expect(result).toEqual({ success: false, stale: false });
     expect(mockReporter).toHaveBeenCalledTimes(1);
     expect(mockReporter.mock.calls[0][1]).toMatch(/\[repository\]/);
+  });
+
+  it('reports no reputation deletions when the persistence write fails', () => {
+    const reputationEvent = {
+      id: 'event-write-failure',
+      type: 'review_received',
+      summary: 'Received feedback',
+      date: '2026-01-01',
+    };
+    window.localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({ reputationEvents: [reputationEvent] }),
+    );
+    jest.spyOn(window.localStorage, 'setItem').mockImplementation(() => {
+      throw new DOMException('QuotaExceededError');
+    });
+
+    expect(deleteReputationEvents([reputationEvent.id])).toBe(0);
+    expect(mockReporter).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(window.localStorage.getItem(STORAGE_KEY)!).reputationEvents).toEqual([
+      reputationEvent,
+    ]);
   });
 });
 
