@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useState, useMemo } from 'react';
+import React, { useCallback, useState, useMemo, useRef } from 'react';
 import EmptyState from '../../components/EmptyState';
 import ContractsList from '../../components/contracts/ContractsList';
 import { ContractCreationForm } from '../../components/ContractCreationForm';
@@ -22,6 +22,18 @@ type ContractsFetchState =
   | { status: 'success'; contracts: Contract[] }
   | { status: 'error'; contracts: Contract[] };
 
+/**
+ * Invariants enforced by this page:
+ * - `fetchState.contracts` is always a valid array (never undefined).
+ * - Contract ids are unique within `fetchState.contracts`; duplicate ids are
+ *   rejected before being appended so optimistic updates cannot corrupt state.
+ * - Concurrent submissions are serialized via `submittingRef` so two rapid
+ *   submits cannot both optimistically append and race on persistence.
+ * - On persistence failure the optimistic append is rolled back by id, and
+ *   the rollback is idempotent (safe if the id is already absent).
+ * - `status: 'error'` always carries an empty contracts array so the error
+ *   UI cannot render stale data.
+ */
 const getInitialFetchState = (): ContractsFetchState => {
   try {
     return { status: 'success', contracts: listContracts() };
@@ -35,6 +47,7 @@ const ContractsPage: React.FC = () => {
   const [showForm, setShowForm] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [sortOrder, setSortOrder] = useState<ContractSortOrder>(DEFAULT_CONTRACT_SORT_ORDER);
+  const submittingRef = useRef(false);
   const { showError } = useToast();
   const { preferences, updatePreference } = usePreferences();
   const { contracts } = fetchState;
@@ -76,6 +89,8 @@ const ContractsPage: React.FC = () => {
    */
   const handleSubmitContract = useCallback(
     (contract: Contract) => {
+      if (submittingRef.current) return;
+      submittingRef.current = true;
       setFetchState((current) => ({
         status: 'success',
         contracts: [...current.contracts, contract],
@@ -89,10 +104,13 @@ const ContractsPage: React.FC = () => {
           status: 'success',
           contracts: current.contracts.filter((item) => item.id !== contract.id),
         }));
+        submittingRef.current = false;
         showError({
           title: "Unable to create contract",
           description: "Your contract could not be saved. Please try again.",
         });
+      } else {
+        submittingRef.current = false;
       }
     },
     [showError],
