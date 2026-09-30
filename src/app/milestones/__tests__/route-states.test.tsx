@@ -36,4 +36,23 @@ describe('Milestones route states', () => {
     expect(reset).toHaveBeenCalledTimes(1);
     expect(report).toHaveBeenCalledWith(error, 'Milestones page', undefined, undefined);
   });
+
+  it('reports one failure once and makes retry idempotent while recovery is pending', async () => {
+    const user = userEvent.setup();
+    const reset = jest.fn();
+    const report = jest.fn();
+    setErrorReporter(report);
+    const error = new Error('transient repository failure');
+
+    const { rerender } = render(<MilestonesError error={error} reset={reset} />);
+    rerender(<MilestonesError error={error} reset={reset} />);
+
+    expect(report).toHaveBeenCalledTimes(1);
+    const retry = screen.getByRole('button', { name: 'Try again' });
+    await user.click(retry);
+    await user.click(retry);
+
+    expect(reset).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('button', { name: 'Retrying…' })).toBeDisabled();
+  });
 });
