@@ -9,8 +9,7 @@
  * ──────────────────
  * 1. Accessibility — region role, busy attribute, labelling
  * 2. Visual state  — `animate-pulse` class is applied
- * 3. Layout contract — the skeleton heading-id matches the live component so a
- *                      loading → loaded transition does not shift ARIA wiring
+ * 3. Repeated rendering — every loading region keeps its accessible name
  */
 
 import React from 'react';
@@ -34,12 +33,10 @@ describe('ContractProgressSkeleton', () => {
       expect(region).toHaveAttribute('aria-busy', 'true');
     });
 
-    it('is wired to the shared heading id "contract-progress-title"', () => {
+    it('does not reference the live heading while that heading is absent', () => {
       render(<ContractProgressSkeleton />);
       const region = screen.getByRole('region', { name: /loading escrow progress/i });
-      // The skeleton ships only the `aria-labelledby` attribute (not a visible h2)
-      // to mirror the eventual live heading id without introducing empty chrome.
-      expect(region).toHaveAttribute('aria-labelledby', 'contract-progress-title');
+      expect(region).not.toHaveAttribute('aria-labelledby');
     });
   });
 
@@ -52,7 +49,7 @@ describe('ContractProgressSkeleton', () => {
     });
   });
 
-  describe('Layout contract', () => {
+  describe('Repeated rendering', () => {
     it('does not mount a visible heading while loading', () => {
       // The skeleton does not render a heading node — the section landmark carries
       // the same id via aria-labelledby so the live heading can swap in without
@@ -61,12 +58,19 @@ describe('ContractProgressSkeleton', () => {
       expect(screen.queryByRole('heading')).not.toBeInTheDocument();
     });
 
-    it('matches the aria-labelledby of the live ContractProgress section', () => {
-      // Loading and loaded states share the same `aria-labelledby` id so the
-      // accessible name remains stable across the transition.
-      render(<ContractProgressSkeleton />);
-      const region = screen.getByRole('region', { name: /loading escrow progress/i });
-      expect(region.getAttribute('aria-labelledby')).toBe('contract-progress-title');
+    it('keeps repeated instances independently named and busy', () => {
+      render(
+        <>
+          <ContractProgressSkeleton />
+          <ContractProgressSkeleton />
+        </>,
+      );
+
+      const regions = screen.getAllByRole('region', { name: /loading escrow progress/i });
+      expect(regions).toHaveLength(2);
+      regions.forEach((region) => {
+        expect(region).toHaveAttribute('aria-busy', 'true');
+      });
     });
   });
 });

@@ -1,15 +1,15 @@
 /**
- * Placeholder skeleton rendered while contract milestones are loading.
+ * Stateless placeholder rendered while contract milestones are loading.
  *
  * Mirrors the visual shape of `ContractProgress` with pulsing grey blocks,
  * and declares `aria-busy="true"` plus `aria-label="Loading escrow progress"`
- * so screen readers announce the loading state consistently with the other
- * skeleton components on the contract detail page.
+ * so screen readers announce the loading state. This component has no effects
+ * or shared state, so repeated and concurrent renders remain independent. Do
+ * not reference the live heading, which is absent during this loading state.
  */
 export const ContractProgressSkeleton = () => {
   return (
     <section
-      aria-labelledby="contract-progress-title"
       aria-busy="true"
       aria-label="Loading escrow progress"
       className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm animate-pulse"
