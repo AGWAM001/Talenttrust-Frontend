@@ -54,6 +54,8 @@ function getValidSortOption(param: string | null): MilestoneSortOption {
 
 
 
+const MILESTONE_LOAD_EPOCH = Symbol('milestone-load-epoch');
+
 const MilestonesContent: React.FC = () => {
   const [milestones, setMilestones] = useState<Milestone[]>(SAMPLE_MILESTONES);
   const [isDismissed, setIsDismissed] = useState<boolean>(false);
@@ -61,6 +63,7 @@ const MilestonesContent: React.FC = () => {
   const router = useRouter();
   const headingRef = useRef<HTMLHeadingElement | null>(null);
   const startFromScratchRef = useRef<HTMLButtonElement | null>(null);
+  const loadEpochRef = useRef<symbol>(MILESTONE_LOAD_EPOCH);
 
   const initialStatus = getValidStatus(searchParams.get('status'));
   const [statusFilter, setStatusFilter] =
@@ -71,6 +74,7 @@ const MilestonesContent: React.FC = () => {
   const [showForm, setShowForm] = useState(false);
   const { showError } = useToast();
   const reconcileFromRepo = useCallback(() => {
+    if (loadEpochRef.current !== MILESTONE_LOAD_EPOCH) return;
     setMilestones(listMilestones());
   }, []);
   const offline = useOfflineMilestones(reconcileFromRepo);
@@ -107,6 +111,7 @@ const MilestonesContent: React.FC = () => {
   }, [statusFilter, sortOrder, router, searchParams]);
 
   useEffect(() => {
+    const epoch = loadEpochRef.current;
     const persisted = listMilestones();
     if (persisted.length > 0) {
       setMilestones(persisted);
@@ -120,6 +125,11 @@ const MilestonesContent: React.FC = () => {
       }
       setMilestones(SAMPLE_MILESTONES);
     }
+    return () => {
+      if (loadEpochRef.current === epoch) {
+        loadEpochRef.current = Symbol('milestone-load-epoch-closed');
+      }
+    };
   }, []);
 
   const handleDismissSampleBanner = useCallback(() => {
@@ -128,6 +138,7 @@ const MilestonesContent: React.FC = () => {
     } catch {
       // safeStorage resilience
     }
+    loadEpochRef.current = Symbol('milestone-load-epoch-dismissed');
     setIsDismissed(true);
     setMilestones([]);
     setTimeout(() => {
@@ -169,6 +180,7 @@ const MilestonesContent: React.FC = () => {
   }, []);
 
   const handleSubmitMilestone = useCallback((milestone: Milestone) => {
+    loadEpochRef.current = Symbol('milestone-load-epoch-mutated');
     const result = optimisticCreate(milestone);
     if (!result.ok) {
       showError({
@@ -186,6 +198,7 @@ const MilestonesContent: React.FC = () => {
 
   const handleUpdateMilestone = useCallback(
     (id: string, patch: Partial<Milestone>): boolean => {
+      loadEpochRef.current = Symbol('milestone-load-epoch-mutated');
       const result = optimisticUpdate(id, patch);
       if (result.ok) return true;
       showError({
