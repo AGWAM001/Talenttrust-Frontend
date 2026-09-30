@@ -25,24 +25,46 @@ export default function ReputationPageClient({
 }: ReputationPageClientProps) {
   const mainRef = useRef<HTMLElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
+  const focusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const focusRequestIdRef = useRef(0);
 
   useEffect(() => {
-    // Store the previously focused element when the page mounts
-    previousFocusRef.current = document.activeElement instanceof HTMLElement 
-      ? document.activeElement 
+    // Store the previously focused element when the page mounts. This value is
+    // intentionally kept as a ref so a stale timer cannot race with a later
+    // mount or re-render and restore focus to the wrong target.
+    previousFocusRef.current = document.activeElement instanceof HTMLElement
+      ? document.activeElement
       : null;
 
-    // Focus the main content area after a small delay to ensure DOM is ready
-    const timer = setTimeout(() => {
+    // Only the latest focus request should be allowed to complete. StrictMode
+    // double-invocation and rapid re-renders can otherwise queue multiple timers
+    // that race each other over the same page instance.
+    const requestId = ++focusRequestIdRef.current;
+
+    if (focusTimerRef.current !== null) {
+      clearTimeout(focusTimerRef.current);
+      focusTimerRef.current = null;
+    }
+
+    focusTimerRef.current = setTimeout(() => {
+      if (requestId !== focusRequestIdRef.current) {
+        return;
+      }
+
       const main = document.querySelector('main') || mainRef.current;
-      if (main) {
+      if (main && document.activeElement !== main) {
         main.focus();
       }
+
+      focusTimerRef.current = null;
     }, 100);
 
     return () => {
-      clearTimeout(timer);
-      // Note: Focus restoration is handled by RouteAnnouncer on navigation away
+      if (focusTimerRef.current !== null) {
+        clearTimeout(focusTimerRef.current);
+        focusTimerRef.current = null;
+      }
+      // Note: Focus restoration is handled by RouteAnnouncer on navigation away.
     };
   }, []);
 

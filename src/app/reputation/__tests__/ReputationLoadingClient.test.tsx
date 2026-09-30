@@ -175,4 +175,22 @@ describe('ReputationLoadingClient – focus management', () => {
       });
     });
   });
+
+  describe('StrictMode behavior', () => {
+    it('ignores duplicate StrictMode focus timers and focuses once', () => {
+      jest.useFakeTimers();
+      const focusSpy = jest.spyOn(HTMLElement.prototype, 'focus');
+
+      render(
+        <React.StrictMode>
+          <ReputationLoadingClient />
+        </React.StrictMode>
+      );
+
+      jest.advanceTimersByTime(100);
+
+      expect(focusSpy).toHaveBeenCalledTimes(1);
+      jest.useRealTimers();
+    });
+  });
 });
