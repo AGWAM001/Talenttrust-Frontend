@@ -11,63 +11,56 @@
  *   technologies understand the region is in a transient loading state.
  * - The visually-hidden span announces "Loading contracts…" via an
  *   `aria-live="polite"` region on mount.
- * - All shimmer blocks carry `aria-hidden="true"` — they are decorative
+ * - All shimmer blocks carry `aria-hidden="true` — they are decorative
  *   placeholders with no semantic content.
  * - The shimmer animation is suppressed via the project-wide
  *   `prefers-reduced-motion` CSS rule in globals.css plus the
  *   `motion-reduce:animate-none` Tailwind variant belt-and-suspenders guard.
  *
- * Validation boundaries:
- * This component is a purely presentational Suspense fallback. The only
- * externally influenced input is the number of skeleton rows to render.
- * To keep the render deterministic and bounded regardless of how the
- * component is invoked (e.g. from tests, storybooks, or future refactors),
- * the row count is normalized through `resolveSkeletonCount`:
- *
- *   - Non-finite values (NaN, Infinity, -Infinity) fall back to the
- *     default.
- *   - Negative values clamp to 0 (renders an empty list, never a crash).
- *   - Fractional values are truncated towards zero.
- *   - Values above `MAX_SKELETON_ROWS` clamp to the maximum, so a
- *     misconfigured caller cannot force an unbounded render (memory/DOS
- *     exhaustion).
- *   - Duplicate or repeated invocations are idempotent: the same input
- *     always produces the same number of rows.
- *
- * The default export keeps its existing signature (no props) so existing
- * callers remain compatible.
+ * Validation boundaries (deterministic skeleton count):
+ * - The number of skeleton cards is a derived, bounded value. It is not
+ *   accepted from random input and cannot be negative, naN, or Infinity.
+ * - `DEFAULT_SKELETON_COUNT` is the canonical count used in production.
+ *   Tests may override it via the `count` prop, but the value is always
+ *   coerced to an integer in [`MIN_SKELETON_COUNT`, `MAX_SKELETON_COUNT`].
+ * - Duplicate or out-of-range inputs are normalized to the nearest valid
+ *   boundary, so rendering is always deterministic and side-effect free.
  */
 
-/** Default number of skeleton rows rendered while loading. */
-export const DEFAULT_SKELETON_ROWS = 5;
+/** Minimum number of skeleton cards rendered. */
+export const MIN_SKELETON_COUNT = 1;
 
-/** Hard upper bound on skeleton rows to prevent unbounded renders. */
-export const MAX_SKELETON_ROWS = 50;
+/** Maximum number of skeleton cards rendered. */
+export const MAX_SKELETON_COUNT = 20;
+
+/** Default number of skeleton cards rendered in production. */
+const DEFAULT_SKELETON_COUNT = 5;
 
 /**
- * Normalize a candidate row count into a safe, deterministic integer.
+ * Normalize a requested skeleton count into a deterministic, bounded integer.
  *
- * Accepted: finite numbers in [0, MAX_SKELETON_ROWS].
- * Rejected (coerced to a defined, safe value): non-numbers, NaN,
- * ±Infinity, negatives, fractions, and out-of-range values.
+ * Accepted input: any number or undefined.
+ * - `undefined` -> `DEFAULT_SKELETON_COUNT`.
+ * - `NaN`, `Infinity`, `-Infinity`, non-numbers -> `DEFAULT_SKELETON_COUNT`.
+ * - Fractional values -> truncated toward zero.
+ * - Out-of-range values -> clamped to [`MIN_SKELETON_COUNT`, `MAX_SKELETON_COUNT`].
+ *
+ * The result is always an integer in [`MIN_SKELETON_COUNT`, `MAX_SKELETON_COUNT`],
+ * so the rendered output is always deterministic and cannot throw.
  */
-export function resolveSkeletonCount(candidate?: number): number {
-  if (candidate === undefined || candidate === null) {
-    return DEFAULT_SKELETON_ROWS;
+export function normalizeSkeletonCount(count?: number): number {
+  if (count === undefined || !Number.isFinite(count)) {
+    return DEFAULT_SKELETON_COUNT;
   }
 
-  if (typeof candidate !== "number" || !Number.isFinite(candidate)) {
-    return DEFAULT_SKELETON_ROWS;
+  const truncated = Math.trunc(count);
+
+  if (truncated < MIN_SKELETON_COUNT) {
+    return MIN_SKELETON_COUNT;
   }
 
-  if (candidate <= 0) {
-    return 0;
-  }
-
-  const truncated = Math.trunc(candidate);
-
-  if (truncated > MAX_SKELETON_ROWS) {
-    return MAX_SKELETON_ROWS;
+  if (truncated > MAX_SKELETON_COUNT) {
+    return MAX_SKELETON_COUNT;
   }
 
   return truncated;
@@ -87,15 +80,18 @@ const ContractCardSkeleton = () => (
 
 export interface ContractsLoadingProps {
   /**
-   * Optional override for the number of skeleton rows. Normalized by
-   * `resolveSkeletonCount` so invalid or out-of-range values cannot
-   * produce an unsafe or non-deterministic render.
+   * Optional override for the number of skeleton cards rendered.
+   *
+   * This is normalized to a deterministic integer in
+   * [`MIN_SKELETON_COUNT`, `MAX_SKELETON_COUNT`] via `normalizeSkeletonCount`.
+   * Invalid, duplicate, or out-of-range values fall back to the default or
+   * the nearest valid boundary.
    */
-  rows?: number;
+  count?: number;
 }
 
-export default function ContractsLoading({ rows }: ContractsLoadingProps = {}) {
-  const rowCount = resolveSkeletonCount(rows);
+export default function ContractsLoading({ count }: ContractsLoadingProps = {}) {
+  const skeletonCount = normalizeSkeletonCount(count);
 
   return (
     <main className="min-h-screen p-8" aria-busy="true">
@@ -120,12 +116,11 @@ export default function ContractsLoading({ rows }: ContractsLoadingProps = {}) {
 
       {/* Contract card list */}
       <ul className="space-y-4" aria-label="Loading contract list">
-        {Array.from({ length: rowCount }, (_, i) => (
-          <li key={i} data-testid="contract-skeleton-row">
+        {Array.from({ length: skeletonCount }, (_, i) => (
+          <li key={i}>
             <ContractCardSkeleton />
           </li>
-        ))
-      }
+        ))}
       </ul>
     </main>
   );
