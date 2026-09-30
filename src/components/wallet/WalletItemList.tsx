@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useRef } from 'react';
 import StatusBadge from '@/components/StatusBadge';
 import type { WalletItem } from '@/types/domain';
 import { useToast } from '@/components/toast/toast-provider';
@@ -216,16 +216,6 @@ export const WalletItemList: React.FC<WalletItemListProps> = ({
                 <td className="px-4 py-4 text-xs text-slate-500 dark:text-slate-400">{item.createdAt}</td>
                 <td className="px-4 py-4 text-right">
                   <div className="flex items-center justify-end gap-1">
-                    <button
-                      type="button"
-                      onClick={() => onDeleteItem(item.id)}
-                      className="rounded-lg p-1 text-slate-400 transition hover:bg-rose-50 hover:text-rose-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-500 dark:hover:bg-rose-950/50"
-                      aria-label={`Delete ${item.name}`}
-                    >
-                      <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                      </svg>
-                    </button>
                     {onDeleteItem && (
                       <button
                         type="button"

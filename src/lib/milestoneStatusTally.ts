@@ -16,6 +16,9 @@ export function milestoneStatusTally(
     Disputed: 0,
     Pending: 0,
     Paid: 0,
+    // Present so the map satisfies `Record<StatusType, number>`; Archived is
+    // intentionally excluded from STATUS_ORDER and therefore never emitted.
+    Archived: 0,
   };
 
   for (const m of milestones) {

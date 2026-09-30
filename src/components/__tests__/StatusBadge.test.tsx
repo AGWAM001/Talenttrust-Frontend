@@ -211,9 +211,11 @@ describe('StatusBadge', () => {
       expect(span?.className).not.toMatch(/var\(--status-(success|info|error|warning)-/);
     });
 
+    // NOTE: `Archived` is a canonical StatusType, so the fallback path is
+    // exercised with a value that is genuinely outside the union instead.
     it('renders the fallback question mark icon for an unknown status', () => {
       const { container } = render(
-        <StatusBadge status={'Archived' as unknown as StatusType} />,
+        <StatusBadge status={'OnHold' as unknown as StatusType} />,
       );
       const iconSpan = container.querySelector('span[aria-hidden="true"]');
       expect(iconSpan?.textContent).toBe('?');
@@ -221,19 +223,19 @@ describe('StatusBadge', () => {
 
     it('uses a fallback aria-label that names the unknown status', () => {
       render(
-        <StatusBadge status={'Archived' as unknown as StatusType} />,
+        <StatusBadge status={'OnHold' as unknown as StatusType} />,
       );
       const badge = screen.getByRole('status', {
-        name: 'Status: Unknown — value "Archived"',
+        name: 'Status: Unknown — value "OnHold"',
       });
       expect(badge).toBeInTheDocument();
     });
 
     it('preserves the raw status string in the visible label', () => {
       const { container } = render(
-        <StatusBadge status={'Archived' as unknown as StatusType} />,
+        <StatusBadge status={'OnHold' as unknown as StatusType} />,
       );
-      expect(container).toHaveTextContent('Archived');
+      expect(container).toHaveTextContent('OnHold');
       expect(container).toHaveTextContent('Unknown');
     });
 

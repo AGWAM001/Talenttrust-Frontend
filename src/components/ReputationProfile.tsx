@@ -2,6 +2,7 @@ import { useCopyToClipboard } from '@/hooks/useCopyToClipboard';
 import { execCommandFallback } from '@/lib/clipboardFallback';
 import { useOptimisticReputationMutation } from '@/hooks/useOptimisticReputationMutation';
 import { formatRelativeTime, toISOString } from '@/lib/formatRelativeTime';
+import { KbdHint } from '@/components/KbdHint';
 
 export type ReputationEvent = {
   id: string;
@@ -248,6 +249,10 @@ export default function ReputationProfile({
   // ---------------------------------------------------------------------------
 
   const toolbarRef = useRef<HTMLDivElement>(null);
+
+  const clearSelection = useCallback(() => {
+    setSelectedIds([]);
+  }, []);
 
   const getFocusableInToolbar = useCallback((): HTMLElement[] => {
     const toolbar = toolbarRef.current;

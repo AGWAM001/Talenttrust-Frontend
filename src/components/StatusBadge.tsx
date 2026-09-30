@@ -18,6 +18,9 @@ const KNOWN_STATUSES: ReadonlySet<StatusType> = new Set<StatusType>([
   'Disputed',
   'Pending',
   'Paid',
+  // `Archived` is a canonical StatusType with dedicated colour/icon entries,
+  // so it must resolve through the known-status path, not the fallback.
+  'Archived',
 ]);
 
 export interface StatusBadgeProps {
