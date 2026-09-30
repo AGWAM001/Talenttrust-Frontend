@@ -1,9 +1,11 @@
 import type { Metadata } from 'next';
 import './globals.css';
 import { ToastProvider } from '@/components/toast/toast-provider';
+import { resolveSiteUrl } from '@/lib/siteMetadata';
 
-const siteUrl =
-  process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
+// Normalized so `new URL` below cannot throw and so `openGraph.url` matches the
+// origins `sitemap.ts` and `robots.ts` advertise for the same deployment.
+const siteUrl = resolveSiteUrl(process.env.NEXT_PUBLIC_SITE_URL);
 const metadataBase = new URL(siteUrl);
 // Social preview image used by Open Graph and Twitter cards lives in public/.
 const socialPreviewImage = '/og-preview.svg';
