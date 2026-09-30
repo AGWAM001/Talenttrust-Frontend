@@ -1,3 +1,5 @@
+import React from 'react';
+
 /**
  * loading.tsx – /contracts
  *
@@ -5,6 +7,11 @@
  * in. Mirrors the visual shape of ContractsPage: a page heading followed by
  * a column of contract-card rows (matching the `<li>` cards rendered when
  * contracts exist).
+ *
+ * Invariants:
+ * - Pure and Stateless: This component is purely presentational and side-effect free.
+ * - Concurrency Safe: Uses `React.useId()` for deterministic, hydration-safe list keys,
+ *   ensuring concurrent or repeated execution never produces stale or inconsistent DOM state.
  *
  * Accessibility:
  * - Outer wrapper carries `aria-busy="true"` and `role="status"` so assistive
@@ -31,6 +38,8 @@ const ContractCardSkeleton = () => (
 );
 
 export default function ContractsLoading() {
+  const id = React.useId();
+
   return (
     <main className="min-h-screen p-8" aria-busy="true">
       {/* Accessible announcement */}
@@ -55,7 +64,7 @@ export default function ContractsLoading() {
       {/* Contract card list */}
       <ul className="space-y-4" aria-label="Loading contract list">
         {Array.from({ length: 5 }, (_, i) => (
-          <li key={i}>
+          <li key={`${id}-skeleton-${i}`}>
             <ContractCardSkeleton />
           </li>
         ))}
