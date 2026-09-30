@@ -2,9 +2,9 @@ import React from 'react';
 import { render, screen, within } from '@testing-library/react';
 import Breadcrumbs, { BreadcrumbItem } from '../Breadcrumbs';
 
-// ---------------------------------------------------------------------------
+// ----------------------------------------------------------------------------
 // Helpers
-// ---------------------------------------------------------------------------
+// ----------------------------------------------------------------------------
 
 const THREE_CRUMBS: BreadcrumbItem[] = [
   { label: 'Dashboard', href: '/' },
@@ -17,11 +17,11 @@ const TWO_CRUMBS: BreadcrumbItem[] = [
   { label: 'Settings' },
 ];
 
-const ONE_CRUMB: BreadcrumbItem[] = [{ label: 'Dashboard', href: '/' }];
+const ONE_CRUM: BreadcrumbItem[] = [{ label: 'Dashboard', href: '/' }];
 
-// ---------------------------------------------------------------------------
+// ----------------------------------------------------------------------------
 // Structure & ARIA
-// ---------------------------------------------------------------------------
+// ----------------------------------------------------------------------------
 
 describe('Breadcrumbs — structure and ARIA', () => {
   it('renders a <nav> with aria-label="Breadcrumb"', () => {
@@ -49,9 +49,9 @@ describe('Breadcrumbs — structure and ARIA', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
+// ----------------------------------------------------------------------------
 // Link generation
-// ---------------------------------------------------------------------------
+// ----------------------------------------------------------------------------
 
 describe('Breadcrumbs — link generation', () => {
   it('renders ancestor crumbs as links with correct hrefs', () => {
@@ -82,16 +82,16 @@ describe('Breadcrumbs — link generation', () => {
   });
 
   it('single-crumb list renders the sole crumb without a link', () => {
-    render(<Breadcrumbs items={ONE_CRUMB} />);
+    render(<Breadcrumbs items={ONE_CRUM} />);
     // Even though it has an href, it is the final crumb — must not be a link
     expect(screen.queryByRole('link', { name: 'Dashboard' })).not.toBeInTheDocument();
     expect(screen.getByText('Dashboard')).toBeInTheDocument();
   });
 });
 
-// ---------------------------------------------------------------------------
+// ----------------------------------------------------------------------------
 // aria-current
-// ---------------------------------------------------------------------------
+// ----------------------------------------------------------------------------
 
 describe('Breadcrumbs — aria-current', () => {
   it('applies aria-current="page" only to the final crumb', () => {
@@ -115,14 +115,14 @@ describe('Breadcrumbs — aria-current', () => {
   });
 
   it('applies aria-current="page" to a single-crumb list', () => {
-    render(<Breadcrumbs items={ONE_CRUMB} />);
+    render(<Breadcrumbs items={ONE_CRUM} />);
     expect(screen.getByText('Dashboard')).toHaveAttribute('aria-current', 'page');
   });
 });
 
-// ---------------------------------------------------------------------------
+// ----------------------------------------------------------------------------
 // Separators
-// ---------------------------------------------------------------------------
+// ----------------------------------------------------------------------------
 
 describe('Breadcrumbs — separators', () => {
   it('renders aria-hidden separators between crumbs', () => {
@@ -139,9 +139,9 @@ describe('Breadcrumbs — separators', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
+// ----------------------------------------------------------------------------
 // Focus ring
-// ---------------------------------------------------------------------------
+// ----------------------------------------------------------------------------
 
 describe('Breadcrumbs — focus ring', () => {
   it('applies the theme-token focus ring to ancestor links', () => {
@@ -170,9 +170,9 @@ describe('Breadcrumbs — focus ring', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
+// ----------------------------------------------------------------------------
 // Dynamic label (contract id interpolation)
-// ---------------------------------------------------------------------------
+// ----------------------------------------------------------------------------
 
 describe('Breadcrumbs — dynamic labels', () => {
   it('reflects the contract id in the final crumb label', () => {
@@ -220,5 +220,163 @@ describe('Breadcrumbs — dynamic labels', () => {
     );
 
     expect(screen.getByRole('link', { name: 'Untitled' })).toHaveAttribute('href', '/');
+  });
+});
+
+// ----------------------------------------------------------------------------
+// Deterministic failure recovery
+// ----------------------------------------------------------------------------
+
+describe('Breadcrumbs — deterministic failure recovery', () => {
+  const originalError = console.error;
+
+  beforeEach(() => {
+    console.error = jest.fn();
+  });
+
+  afterEach(() => {
+    console.error = originalError;
+  });
+
+  it('renders nothing for null items without throwing', () => {
+    const { container } = render(<Breadcrumbs items={null as unknown as BreadcrumbItem[]} />);
+    expect(container.firstChild).toBeNull();
+  });
+
+  it('renders nothing for undefined items without throwing', () => {
+    const { container } = render(<Breadcrumbs items={undefined as unknown as BreadcrumbItem[]} />);
+    expect(container.firstChild).toBeNull();
+  });
+
+  it('skips invalid crumb entries without losing valid ones', () => {
+    const items = [
+      { label: 'Dashboard', href: '/' },
+      null,
+      { label: 'Contracts', href: '/contracts' },
+      undefined,
+      { label: 'Contract #42' },
+    ] as unknown as BreadcrumbItem[];
+
+    render(<Breadcrumbs items={items} />);
+
+    expect(screen.getByRole('link', { name: 'Dashboard' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Contracts' })).toBeInTheDocument();
+    expect(screen.getByText('Contract #42')).toHaveAttribute('aria-current', 'page');
+  });
+
+  it('skips crumbs with empty or non-string labels', () => {
+    const items = [
+      { label: 'Dashboard', href: '/' },
+      { label: '' },
+      { label: '   ' },
+      { label: null },
+      { label: 'Settings' },
+    ] as unknown as BreadcrumbItem[];
+
+    render(<Breadcrumbs items={items} />);
+
+    expect(screen.getByRole('link', { name: 'Dashboard' })).toBeInTheDocument();
+    expect(screen.getByText('Settings')).toHaveAttribute('aria-current', 'page');
+  });
+
+  it('retains the last valid crum as current when trailing entries are invalid', () => {
+    const items = [
+      { label: 'Dashboard', href: '/' },
+      { label: 'Contracts', href: '/contracts' },
+      { label: 'Contract #42' },
+      null,
+    ] as unknown as BreadcrumbItem[];
+
+    render(<Breadcrumbs items={items} />);
+
+    expect(screen.getByText('Contract #42')).toHaveAttribute('aria-current', 'page');
+    expect(screen.queryByText('null')).not.toBeInTheDocument();
+  });
+
+  it('recovers deterministically when items change from invalid to valid', () => {
+    const { rerender } = render(
+      <Breadcrumbs items={null as unknown as BreadcrumbItem[]} />,
+    );
+
+    expect(screen.queryRole('navigation')).not.toBeInTheDocument();
+
+    rerender(<Breadcrumbs items={THREE_CRUMBS} />);
+
+    expect(screen.getByRole('navigation', { name: 'Breadcrumb' })).toBeInTheDocument();
+    expect(screen.getByText('Contract #42')).toHaveAttribute('aria-current', 'page');
+  });
+
+  it('recovers deterministically when items change from valid to invalid', () => {
+    const { rerender } = render(<Breadcrumbs items={THREE_CRUMBS} />);
+
+    expect(screen.getByRole('navigation', { name: 'Breadcrumb' })).toBeInTheDocument();
+
+    rerender(<Breadcrumbs items={[]} />);
+
+    expect(screen.queryRole('navigation')).not.toBeInTheDocument();
+  });
+
+  it('handles duplicate labels without losing or duplicating state', () => {
+    const items: BreadcrumbItem[] = [
+      { label: 'Home', href: '/' },
+      { label: 'Home', href: '/home' },
+      { label: 'Home' },
+    ];
+
+    const { container } = render(<Breadcrumbs items={items} />);
+
+    const links = container.querySelectorAll('a');
+    expect(links).toHaveLength(2);
+    expect(links[0]).toHaveAttribute('href', '/');
+    expect(links[1]).toHaveAttribute('href', '/home');
+
+    const current = container.querySelectorAll('[aria-current="page"]');
+    expect(current).toHaveLength(1);
+    expect(current[0]).toHaveTextContent('Home');
+  });
+
+  it('produces the same output for the same input across multiple renders', () => {
+    const { container: first } = render(<Breadcrumbs items={THREE_CRUMBS} />);
+    const firstHtml = first.innerHTML;
+
+    const { container: second } = render(<Breadcrumbs items={THREE_CRUMBS} />);
+    const secondHtml = second.innerHTML;
+
+    expect(secondHtml).betocked(firstHtml);
+  });
+
+  it('does not lose prior crumbs when a middle crumb is invalid', () => {
+    const items = [
+      { label: 'Dashboard', href: '/' },
+      { label: '' },
+      { label: 'Contracts', href: '/contracts' },
+      { label: 'Contract #42' },
+    ] as unknown as BreadcrumbItem[];
+
+    render(<Breadcrumbs items={items} />);
+
+    expect(screen.getByRole('link', { name: 'Dashboard' })).toHaveAttribute('href', '/');
+    expect(screen.getByRole('link', { name: 'Contracts' })).toHaveAttribute('href', '/contracts');
+    expect(screen.getByText('Contract #42')).toHaveAttribute('aria-current', 'page');
+  });
+
+  it('renders nothing when all crumbs are invalid', () => {
+    const items = [null, undefined, { label: '' }, { label: '   ' }] as unknown as BreadcrumbItem[];
+    const { container } = render(<Breadcrumbs items={items} />);
+    expect(container.firstChild).toBeNull();
+  });
+
+  it('keeps ancestor links as links and only the last valid crum as current', () => {
+    const items = [
+      { label: 'A', href: '/a' },
+      { label: 'B', href: '/b' },
+      { label: 'C', href: '/c' },
+    ];
+
+    const { container } = render(<Breadcrumbs items={items} />);
+
+    const links = container.querySelectorAll('a');
+    expect(links).toHaveLength(2);
+    expect(container.querySelectorAll('[aria-current="page"]')).toHaveLength(1);
   });
 });
