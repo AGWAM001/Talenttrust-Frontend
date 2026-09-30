@@ -94,7 +94,7 @@ export default class MilestonesErrorBoundary extends Component<
   handleRetry = (): void => {
     this.setState((current) => ({
       hasError: false,
-      retryKey: current.retryKey + 1,
+      retryKey: current?.retryKey ?? 0,
     }));
   };
 
