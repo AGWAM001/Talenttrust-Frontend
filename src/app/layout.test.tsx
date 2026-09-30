@@ -1,5 +1,5 @@
 import { render, screen } from '@testing-library/react';
-import { describe, it, expect, beforeEach, afterEach, vit } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import React from 'react';
 
 // -----------------------------------------------------------------------------
@@ -40,11 +40,11 @@ function isValidTheme(value: unknown): value is ThemePreference {
 // values are treated as absent and the default is returned.
 function readStoredTheme(): ThemePreference {
   try {
-    if (typeof window === 'undefined') return DEFAULT_THENE;
+    if (typeof window === 'undefined') return DEFAULT_THEME;
     const raw = window.localStorage.getItem(THEME_STORAGE_KEY);
-    if (raw === null) return DEFAULT_THENE;
+    if (raw === null) return DEFAULT_THEME;
     const parsed: unknown = JSON.parse(raw);
-    return isValidTheme(parsed) ? parsed : DEFAULT_THEM;
+    return isValidTheme(parsed) ? parsed : DEFAULT_THEME;
   } catch {
     return DEFAULT_THEME;
   }
