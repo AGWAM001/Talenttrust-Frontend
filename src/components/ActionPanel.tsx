@@ -4,6 +4,17 @@ import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useWallet } from '@/contexts/WalletContext';
 import { ConfirmDialog } from './ConfirmDialog';
 import { DISPUTE_REASON_MAX_LENGTH, validateDisputeReason } from '@/lib/disputeReason';
+import { reportError } from '@/lib/errorReporter';
+import {
+  clampDisputeReason,
+  evaluateActionGate,
+  getVisibleActions,
+  type ActionBlockedDetail,
+  type ActionGateResult,
+  type ActionId,
+} from '@/lib/actionPanelPolicy';
+
+export type { ActionBlockedDetail, ActionBlockCode, ActionId } from '@/lib/actionPanelPolicy';
 
 /**
  * Defines the per-action screen-reader-only disabled reasons.
@@ -28,7 +39,9 @@ export type ActionPanelDisabledReasons = {
 export type ActionPanelProps = {
   /**
    * Current lifecycle status of the contract.
-   * Drives which actions are visible and their order (mapped via `getActionButtons`).
+   * Drives which actions are visible and their order (resolved via
+   * `getVisibleActions`). Values outside the canonical set degrade to the
+   * read-only "View Summary" surface rather than exposing a mutation.
    */
   status: 'Active' | 'Completed' | 'Disputed' | 'Pending';
   /** Callback triggered when the user initiates a milestone submission. */
@@ -56,11 +69,20 @@ export type ActionPanelProps = {
   /**
    * Per-action accessible reason for why a specific button is disabled.
    * Useful for wallet-gating, unmet conditions, or missing permissions.
+   * Re-checked when a confirmation surface or the inline dispute form is
+   * submitted, so revoking a reason mid-flow blocks the mutation instead of
+   * silently dispatching it.
    */
   disabledReasons?: ActionPanelDisabledReasons;
   /**
    * Chooses whether Dispute uses the newer inline reason form or the legacy
    * confirmation dialog expected by older page-level flows.
+   *
+   * Reserved: the inline form is currently the only wired dispute surface, and
+   * this value is accepted (and preserved) for backwards compatibility but does
+   * not yet select the dialog path. See `CONFIRM_ACTION_ID` for the mapping the
+   * confirm path uses, which is guarded by the same action gate as the inline
+   * form so it stays safe if it is wired up later.
    */
   disputeFlow?: 'inline' | 'confirm';
   /**
@@ -68,6 +90,14 @@ export type ActionPanelProps = {
    * unsafe changes while offline or when viewing stale cached data.
    */
   disableMutations?: boolean;
+  /**
+   * Optional observer notified whenever the panel refuses to dispatch an action
+   * (refused by the status, loading, offline/stale, caller-permission or wallet
+   * gate, or rejected as a duplicate submission). The payload carries only the
+   * action id and a stable reason code — never the dispute reason, wallet
+   * address or contract id — so it is safe to forward to analytics.
+   */
+  onBlockedAction?: (detail: ActionBlockedDetail) => void;
 };
 
 const LOADING_REASON = 'Action is disabled while contract data is loading.';
@@ -77,16 +107,34 @@ const DISPUTE_REASON_ERROR_ID = 'dispute-reason-error';
 const DISPUTE_REASON_HINT_ID = 'dispute-reason-hint';
 const DISPUTE_REASON_COUNTER_ID = 'dispute-reason-counter';
 const DISPUTE_REASON_ASSERTIVE_THRESHOLD = 50;
-const DISPUTE_WALLET_ERROR = 'Connect your wallet before submitting a dispute.';
 
-const getActionButtons = (status: ActionPanelProps['status']) => {
-  if (status === 'Active') return ['Submit Milestone', 'Release Funds', 'Dispute'];
-  if (status === 'Pending') return ['Release Funds', 'Dispute'];
-  if (status === 'Disputed') return ['Dispute'];
-  return ['View Summary'];
-};
+/**
+ * Reason emitted when a dispute is confirmed through the (currently unwired)
+ * `disputeFlow="confirm"` path. It is still run through
+ * `validateDisputeReason` before dispatch so `onDispute` can never receive an
+ * unvalidated string from any code path.
+ */
+const DEFAULT_DISPUTE_REASON = 'Dispute opened from action panel.';
+
+/**
+ * Gate result used when a surface tries to dispatch a second time. It carries
+ * no user-facing message on purpose: the surface is already closing, so
+ * flashing an error would only be noise. The refusal is still reported.
+ */
+const DUPLICATE_DISPATCH: ActionGateResult = Object.freeze({
+  allowed: false,
+  code: 'duplicate_submission',
+  message: null,
+});
 
 type ConfirmAction = keyof typeof CONFIRM_COPY | null;
+
+/** Maps a confirmation dialog target onto its canonical action id. */
+const CONFIRM_ACTION_ID: Record<Exclude<ConfirmAction, null>, ActionId> = {
+  submit: 'submitMilestone',
+  release: 'releaseFunds',
+  dispute: 'dispute',
+};
 
 const CONFIRM_COPY = {
   submit: {
@@ -106,6 +154,36 @@ const CONFIRM_COPY = {
   },
 } as const;
 
+/**
+ * Contract action panel.
+ *
+ * ## Validation boundaries
+ *
+ * Three input boundaries cross this component, and each one is validated here
+ * rather than trusted:
+ *
+ * 1. **Props (untrusted at runtime).** `status` may arrive from the network or
+ *    `localStorage`, so it is normalised: an unrecognised status degrades to the
+ *    read-only "View Summary" surface and can never expose a mutation.
+ *    `disabledReasons`, `isLoading`, `disableMutations` and the wallet address
+ *    are session/authorization inputs.
+ * 2. **User input.** The dispute reason is clamped to
+ *    `DISPUTE_REASON_MAX_LENGTH`, rejected when empty/whitespace-only, and the
+ *    *trimmed* value that reaches `onDispute` is the only value that ever
+ *    passed `validateDisputeReason`.
+ * 3. **Callbacks.** No callback is invoked unless the action gate allows it at
+ *    dispatch time, and each opened surface dispatches at most once.
+ *
+ * The gate from {@link evaluateActionGate} is evaluated twice — once for the
+ * `disabled` attribute and once inside the dispatching handler — because a
+ * `disabled` attribute is a rendering hint, not an authorization control: a
+ * surface opened while a wallet was connected can still be open after the
+ * wallet drops, and a parent can revoke `disabledReasons` mid-flow.
+ *
+ * Refusals are non-destructive: the surface stays open with the user's input
+ * intact and a `role="alert"` explanation, and are reported to
+ * `reportError`/`onBlockedAction` with only the action id and a stable code.
+ */
 const ActionPanel = ({
   status,
   onSubmitMilestone,
@@ -117,8 +195,9 @@ const ActionPanel = ({
   disabledReasons,
   disputeFlow: _disputeFlow = 'inline',
   disableMutations = false,
+  onBlockedAction,
 }: ActionPanelProps) => {
-  const actions = getActionButtons(status);
+  const visibleActions = getVisibleActions(status);
   const { address } = useWallet();
   const isWalletConnected = !!address;
   const noWalletMsg = 'Connect wallet to perform this action';
@@ -133,8 +212,96 @@ const ActionPanel = ({
   const focusRingClass =
     'focus-visible:outline focus-visible:outline-4 focus-visible:outline-offset-2 focus-visible:outline-blue-500';
 
+  /**
+   * Single source of truth for "may this action run right now?".
+   *
+   * The result drives both the `disabled` attribute and the guard inside the
+   * handler that performs the mutation, so a click that slips past the DOM
+   * attribute (stale render, scripted event, a surface that was open when the
+   * wallet dropped or a permission was revoked) is still refused.
+   */
+  const gateFor = (
+    action: ActionId,
+    options?: { disputeFormOpen?: boolean },
+  ): ActionGateResult =>
+    evaluateActionGate({
+      action,
+      status,
+      isLoading,
+      disableMutations,
+      isWalletConnected,
+      disabledReasons,
+      disputeFormOpen: options?.disputeFormOpen ?? false,
+    });
+
+  /**
+   * Reports a refusal to both the app's error reporter and the optional
+   * `onBlockedAction` observer.
+   *
+   * Only the action id and the enum code are emitted — never the dispute
+   * reason, the wallet address or any contract identifier — so blocked actions
+   * stay diagnosable without leaking user input.
+   */
+  const reportBlocked = (action: ActionId, gate: ActionGateResult) => {
+    if (gate.allowed || !gate.code) return;
+    reportError(gate.code, 'ActionPanel.actionBlocked', 'warn', { action, code: gate.code });
+    onBlockedAction?.({ action, code: gate.code });
+  };
+
+  // Inline dispute form state.
+  const [disputeFormOpen, setDisputeFormOpen] = useState(false);
+  const [disputeReason, setDisputeReason] = useState('');
+  const [disputeReasonError, setDisputeReasonError] = useState('');
+  const [liveAnnouncement, setLiveAnnouncement] = useState('');
+
+  const gates = {
+    submitMilestone: gateFor('submitMilestone'),
+    releaseFunds: gateFor('releaseFunds'),
+    dispute: gateFor('dispute'),
+    // Trigger-side gate: the Dispute button is refused while its own form is
+    // open. The submit handler deliberately re-evaluates the gate *without*
+    // this flag so submitting an open form is never blocked by it.
+    disputeTrigger: gateFor('dispute', { disputeFormOpen }),
+    viewSummary: gateFor('viewSummary'),
+  };
+
   // Submit / Release confirmation dialog state.
   const [confirmAction, setConfirmAction] = useState<ConfirmAction>(null);
+  /** Reason a confirm was refused, surfaced inside the dialog as `role="alert"`. */
+  const [confirmBlockError, setConfirmBlockError] = useState<string | null>(null);
+
+  /**
+   * Duplicate-submission guard.
+   *
+   * Every opened surface (confirmation dialog or inline dispute form) takes a
+   * monotonically increasing token. The token is consumed synchronously —
+   * before the React state update that closes the surface flushes — at the
+   * moment the action is dispatched, so a double click, an Enter keypress plus
+   * a click, or any other re-entrant dispatch inside the same tick emits
+   * exactly one mutation.
+   *
+   * Tokens are strictly increasing and never reused, so a consumed token can
+   * never match a later surface: closing a surface deliberately does *not*
+   * clear the marker, and re-opening mints a fresh token. A refused attempt
+   * never consumes its token either, so the user can fix the problem and retry
+   * on the same surface. Cross-surface duplicates (dispatching again after the
+   * surface closed) remain the caller's responsibility — it owns the status
+   * state machine and the `isLoading` flag.
+   */
+  const surfaceTokenRef = useRef(0);
+  const consumedTokenRef = useRef(-1);
+  const openSurface = () => {
+    // Defensive wrap so the counter can never collide with a consumed value.
+    if (surfaceTokenRef.current >= Number.MAX_SAFE_INTEGER - 1) {
+      surfaceTokenRef.current = 0;
+      consumedTokenRef.current = -1;
+    }
+    surfaceTokenRef.current += 1;
+  };
+  const isSurfaceConsumed = () => consumedTokenRef.current === surfaceTokenRef.current;
+  const consumeSurface = () => {
+    consumedTokenRef.current = surfaceTokenRef.current;
+  };
 
   /**
    * Holds a reference to the button that opened the confirmation dialog or the
@@ -147,35 +314,69 @@ const ActionPanel = ({
     action: Exclude<ConfirmAction, null>,
     event: React.MouseEvent<HTMLButtonElement>,
   ) => {
-    if (disableMutations) return;
+    const actionId = CONFIRM_ACTION_ID[action];
+    const gate = gateFor(actionId);
+    if (!gate.allowed) {
+      reportBlocked(actionId, gate);
+      return;
+    }
     triggerElementRef.current = event.currentTarget;
+    setConfirmBlockError(null);
+    openSurface();
     setConfirmAction(action);
   };
 
   const handleConfirm = () => {
-    if (disableMutations) {
-      setConfirmAction(null);
+    // Nothing is open: nothing to confirm.
+    if (confirmAction === null) return;
+
+    const actionId = CONFIRM_ACTION_ID[confirmAction];
+
+    if (isSurfaceConsumed()) {
+      reportBlocked(actionId, DUPLICATE_DISPATCH);
       return;
     }
+
+    const gate = gateFor(actionId);
+    if (!gate.allowed) {
+      reportBlocked(actionId, gate);
+      // Keep the dialog open with an explanation so the user is never left
+      // wondering why the action did nothing.
+      setConfirmBlockError(gate.message);
+      return;
+    }
+
+    // The reserved `disputeFlow="confirm"` path still routes its canned reason
+    // through the shared validator, so `onDispute` can never be handed an
+    // unvalidated string from any code path.
+    if (confirmAction === 'dispute') {
+      const validation = validateDisputeReason(DEFAULT_DISPUTE_REASON);
+      if (!validation.valid) {
+        setConfirmBlockError(validation.error ?? null);
+        return;
+      }
+    }
+
+    // Consume before dispatch so a synchronous re-entrant confirm is refused.
+    consumeSurface();
+
     if (confirmAction === 'submit') {
       onSubmitMilestone?.();
     } else if (confirmAction === 'release') {
       onReleaseFunds?.();
-    } else if (confirmAction === 'dispute') {
-      onDispute?.('Dispute opened from action panel.');
+    } else {
+      onDispute?.(DEFAULT_DISPUTE_REASON);
     }
+    setConfirmBlockError(null);
     setConfirmAction(null);
   };
 
   const handleCancel = () => {
+    setConfirmBlockError(null);
     setConfirmAction(null);
   };
 
-  // Inline dispute form state.
-  const [disputeFormOpen, setDisputeFormOpen] = useState(false);
-  const [disputeReason, setDisputeReason] = useState('');
-  const [disputeReasonError, setDisputeReasonError] = useState('');
-  const [liveAnnouncement, setLiveAnnouncement] = useState('');
+  // Inline dispute form state (refs and derived announcements).
   const disputeTextareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   const previousConfirmActionRef = useRef<ConfirmAction>(null);
@@ -183,11 +384,19 @@ const ActionPanel = ({
 
   /** Opens the inline dispute form and moves focus to the textarea. */
   const handleOpenDisputeForm = (event: React.MouseEvent<HTMLButtonElement>) => {
-    if (disableMutations) return;
+    // Re-use the trigger-side gate that drives this button's `disabled`
+    // attribute. `disputeFormOpen` is still false at click time, so the
+    // `form_open` rule only refuses a re-entrant open (see the policy module).
+    const gate = gates.disputeTrigger;
+    if (!gate.allowed) {
+      reportBlocked('dispute', gate);
+      return;
+    }
     triggerElementRef.current = event.currentTarget;
     disputeTriggerRef.current = event.currentTarget;
     setDisputeReason('');
     setDisputeReasonError('');
+    openSurface();
     setDisputeFormOpen(true);
   };
 
@@ -264,41 +473,64 @@ const ActionPanel = ({
   };
 
   const handleDisputeReasonChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const value = e.target.value;
-    // Enforce hard max-length in the handler as a safety net in addition to
-    // the maxLength attribute; silently truncate to avoid confusing the user
-    // mid-keystroke (the character counter below communicates the limit).
-    if (value.length <= DISPUTE_REASON_MAX_LENGTH) {
-      setDisputeReason(value);
-    }
+    // Hard clamp in the handler as a safety net in addition to the `maxLength`
+    // attribute. Input is *truncated* rather than discarded so an over-long
+    // paste (or an IME/autofill commit that bypasses `maxLength`) still yields
+    // a usable reason instead of silently emptying the field; the character
+    // counter communicates the limit.
+    const value = clampDisputeReason(e.target.value, DISPUTE_REASON_MAX_LENGTH);
+    setDisputeReason(value);
     // Clear the validation error as soon as the user starts correcting input.
     if (disputeReasonError && value.trim().length > 0) {
       setDisputeReasonError('');
     }
   };
 
+  /** Guards the read-only summary navigation with the same action gate. */
+  const handleViewSummary = () => {
+    const gate = gates.viewSummary;
+    if (!gate.allowed) {
+      reportBlocked('viewSummary', gate);
+      return;
+    }
+    onViewSummary?.();
+  };
+
   /**
    * Validates and submits the dispute reason.
    *
-   * Validation rules:
-   *   1. Wallet must still be connected at submit time.
-   *   2. Reason must not be empty / whitespace-only.
-   *   3. Trimmed length must not exceed DISPUTE_REASON_MAX_LENGTH.
+   * Checks run in a fixed order so the surfaced error is deterministic:
+   *   1. The form must still be open (guards stale/duplicate submit events).
+   *   2. This surface must not have already dispatched (`duplicate_submission`).
+   *   3. The action gate must still allow `dispute` — re-checked at submit time
+   *      so a wallet drop, an offline/stale session or a revoked
+   *      `disabledReasons.dispute` cannot slip a mutation through a form that
+   *      was opened while it was still allowed.
+   *   4. The reason itself must satisfy `validateDisputeReason`
+   *      (non-empty after trim, at most 500 characters).
    *
-   * On success the trimmed reason is forwarded to `onDispute` and the form
-   * is closed; focus returns to the originating "Dispute" button.
+   * On success the trimmed reason is forwarded to `onDispute` and the form is
+   * closed; focus returns to the originating "Dispute" button. A refused
+   * attempt never consumes the surface token and never clears the typed
+   * reason, so the user can fix the problem and retry.
    */
   const handleDisputeSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (disableMutations) {
-      closeDisputeForm();
+    if (!disputeFormOpen) return;
+
+    if (isSurfaceConsumed()) {
+      reportBlocked('dispute', DUPLICATE_DISPATCH);
       return;
     }
 
-    if (!isWalletConnected) {
-      setDisputeReasonError(DISPUTE_WALLET_ERROR);
-      disputeTextareaRef.current?.focus();
+    const gate = gateFor('dispute');
+    if (!gate.allowed) {
+      reportBlocked('dispute', gate);
+      if (gate.message) {
+        setDisputeReasonError(gate.message);
+        disputeTextareaRef.current?.focus();
+      }
       return;
     }
 
@@ -309,6 +541,7 @@ const ActionPanel = ({
       return;
     }
 
+    consumeSurface();
     onDispute?.(disputeReason.trim());
     closeDisputeForm();
   };
@@ -366,11 +599,11 @@ const ActionPanel = ({
       </div>
 
       <div className="space-y-3">
-        {actions.includes('Submit Milestone') && (
+        {visibleActions.includes('submitMilestone') && (
           <button
             type="button"
             onClick={(e) => handleOpenConfirm('submit', e)}
-            disabled={!isWalletConnected || isLoading || !!disabledReasons?.submitMilestone || disableMutations}
+            disabled={!gates.submitMilestone.allowed}
             title={!isWalletConnected ? noWalletMsg : mutationsDisabledMsg}
             aria-label="Submit milestone for approval"
             aria-describedby={describedBy(describedById('submitMilestone'))}
@@ -380,11 +613,11 @@ const ActionPanel = ({
           </button>
         )}
 
-        {actions.includes('Release Funds') && (
+        {visibleActions.includes('releaseFunds') && (
           <button
             type="button"
             onClick={(event) => handleOpenConfirm('release', event)}
-            disabled={!isWalletConnected || isLoading || !!disabledReasons?.releaseFunds || disableMutations}
+            disabled={!gates.releaseFunds.allowed}
             title={!isWalletConnected ? noWalletMsg : mutationsDisabledMsg}
             aria-label="Release funds to the contractor"
             aria-describedby={describedBy(describedById('releaseFunds'))}
@@ -394,19 +627,13 @@ const ActionPanel = ({
           </button>
         )}
 
-        {actions.includes('Dispute') && (
+        {visibleActions.includes('dispute') && (
           <>
             <button
               ref={disputeTriggerRef}
               type="button"
               onClick={handleOpenDisputeForm}
-              disabled={
-                !isWalletConnected ||
-                isLoading ||
-                !!disabledReasons?.dispute ||
-                disputeFormOpen ||
-                disableMutations
-              }
+              disabled={!gates.disputeTrigger.allowed}
               title={!isWalletConnected ? noWalletMsg : mutationsDisabledMsg}
               aria-label="Open a dispute for this contract"
               aria-expanded={disputeFormOpen}
@@ -526,11 +753,11 @@ const ActionPanel = ({
           </>
         )}
 
-        {actions.includes('View Summary') && (
+        {visibleActions.includes('viewSummary') && (
           <button
             type="button"
-            onClick={() => onViewSummary?.()}
-            disabled={isLoading || !!disabledReasons?.viewSummary}
+            onClick={handleViewSummary}
+            disabled={!gates.viewSummary.allowed}
             aria-label="View contract summary details"
             aria-describedby={describedBy(describedById('viewSummary'))}
             className={`w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-900 transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-50 ${focusRingClass}`}
@@ -541,7 +768,9 @@ const ActionPanel = ({
       </div>
 
       {/* Confirmation Dialog: used for Submit Milestone and Release Funds only.
-          Dispute is handled by the inline form above. */}
+          Dispute is handled by the inline form above. `error` surfaces a refused
+          confirm (e.g. the wallet disconnected while the dialog was open) as a
+          `role="alert"` without closing the dialog. */}
       <ConfirmDialog
         isOpen={confirmAction !== null}
         title={confirmAction && confirmAction in CONFIRM_COPY ? CONFIRM_COPY[confirmAction as keyof typeof CONFIRM_COPY].title : ''}
@@ -549,6 +778,7 @@ const ActionPanel = ({
         confirmLabel={confirmAction && confirmAction in CONFIRM_COPY ? CONFIRM_COPY[confirmAction as keyof typeof CONFIRM_COPY].confirmLabel : 'Confirm'}
         cancelLabel="Cancel"
         tone={confirmAction === 'release' || confirmAction === 'dispute' ? 'destructive' : 'default'}
+        error={confirmBlockError ?? undefined}
         onConfirm={handleConfirm}
         onCancel={handleCancel}
       />
