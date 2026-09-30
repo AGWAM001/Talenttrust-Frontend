@@ -104,8 +104,8 @@ type GlobalWithCommandsFlag = typeof globalThis & {
 const globalScope = globalThis as GlobalWithCommandsFlag;
 
 if (globalScope[COMMANDS_REGISTERED_FLAG] !== true) {
-  globalScope[COMMANDS_REGISTERED_FLAG] = true;
   registerDefaultCommands();
+  globalScope[COMMANDS_REGISTERED_FLAG] = true;
 }
 
 export default function RootLayout({
