@@ -237,7 +237,7 @@ describe('RootLayout theme invariants', () => {
     if (originalMatchMedia) {
       window.matchMedia = originalMatchMedia;
     }
-    delete (window as unknown a{ { __talentTrustTheme?: unknown }).__talentTrustTheme;
+    delete (window as unknown as { __talentTrustTheme?: unknown }).__talentTrustTheme;
   });
 
   it('renders children and exposes the default preference', () => {
