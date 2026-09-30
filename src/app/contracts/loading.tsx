@@ -7,7 +7,7 @@
  * contracts exist).
  *
  * Accessibility:
- * - Outer wrapper carries `aria-busy="true"` and `role="status"` so assistive
+ * - Outer wrapper carries `aria-busy="true"` and `role="status` so assistive
  *   technologies understand the region is in a transient loading state.
  * - The visually-hidden span announces "Loading contracts…" via an
  *   `aria-live="polite"` region on mount.
@@ -16,7 +16,36 @@
  * - The shimmer animation is suppressed via the project-wide
  *   `prefers-reduced-motion` CSS rule in globals.css plus the
  *   `motion-reduce:animate-none` Tailwind variant belt-and-suspenders guard.
+ *
+ * State invariants (this file is a pure presentational boundary):
+ * - 1. The component is a pure function of its props: it accepts no props,
+ *      reads no external mutable state, and performs no side effects.
+ *      Rendering it therefore cannot corrupt any shared state.
+ * - 2. The skeleton count is a fixed, bounded constant (`SKELETON_COUNT`).
+ *      It is never derived from untrusted input, so a compromised or
+ *      unexpected value cannot cause unbounded memory/DOM growth or a DOS.
+ * - 3. Keys are derived from the stable integer index of a fixed-length
+ *      array, guaranteeing unique, stable React keys across re-renders.
+ * - 4. The component never fetches, mutates, or persists data; failure of the
+ *      underlying data load is handled by the route's error boundary, not
+ *      here. This boundary only ever represents the transient loading state.
+ * - 5. The announcement text is a static literal containing no user or
+ *      server-supplied data, so no sensitive information can be leaked through
+ *      the live region.
  */
+
+/**
+ * Fixed, bounded number of placeholder cards. Kept as a module-level
+ * constant so the render output is deterministic and the DOM growth is capped
+ * regardless of external input.
+ */
+const SKELETON_COUNT = 5;
+
+/**
+ * Stable identity for the announcement text. Extracted as a constant to
+ * avoid accidental interpolation of dynamic data into the live region.
+ */
+const LOADING_MESSAGE = "Loading contracts…";
 
 const ContractCardSkeleton = () => (
   <div
@@ -35,7 +64,7 @@ export default function ContractsLoading() {
     <main className="min-h-screen p-8" aria-busy="true">
       {/* Accessible announcement */}
       <span role="status" aria-live="polite" aria-atomic="true" className="sr-only">
-        Loading contracts…
+        {LOADING_MESSAGE}
       </span>
 
       {/* Heading skeleton */}
@@ -54,7 +83,7 @@ export default function ContractsLoading() {
 
       {/* Contract card list */}
       <ul className="space-y-4" aria-label="Loading contract list">
-        {Array.from({ length: 5 }, (_, i) => (
+        {Array.from({ length: SKELETON_COUNT }, (_, i) => (
           <li key={i}>
             <ContractCardSkeleton />
           </li>
