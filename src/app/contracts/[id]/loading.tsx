@@ -1,3 +1,4 @@
+import { notFound } from 'next/navigation';
 /**
  * loading.tsx – /contracts/[id]
  *
@@ -20,6 +21,7 @@
  *   globals.css project-wide rule and `motion-reduce:animate-none`.
  */
 
+import { isValidContractId } from '@/lib/contracts/validation';
 import { ContractSummarySkeleton } from '@/components/ContractSummarySkeleton';
 import { ContractProgressSkeleton } from '@/components/ContractProgressSkeleton';
 import { MilestonesListSkeleton } from '@/components/MilestonesListSkeleton';
@@ -64,7 +66,7 @@ const ActionPanelSkeleton = () => (
 // Route loading export
 // ---------------------------------------------------------------------------
 
-export default function ContractDetailLoading() {
+export default function ContractDetailLoading({ params }: { params: { id: string } }) {
   return (
     <main
       className="min-h-screen bg-slate-50 px-4 py-8 sm:px-6 lg:px-8"
@@ -96,3 +98,4 @@ export default function ContractDetailLoading() {
     </main>
   );
 }
+

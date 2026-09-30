@@ -58,7 +58,7 @@ flowchart TB
 
 ## Flow Notes
 
-### Contracts List (`/contracts`)
+### Contracts List (/contracts)
 
 - **Fetch**: `listContracts()` (from `src/lib/repository.ts`) reads `talenttrust_app_data` from `localStorage`. SSR-safe — returns an empty array when `window` is undefined or the store is corrupt.
 - **Render**: Shows `EmptyState` when the list is empty, otherwise renders a card list with contract name, status, and creation date.
@@ -66,13 +66,24 @@ flowchart TB
 
 A secondary inline form (`CreateContractForm`, in `src/components/contracts/`) follows the same validation and persistence pattern but renders in-page instead of in a modal.
 
-### Contract Detail (`/contracts/[id]`)
+### Contract Detail (/contracts/[id])
 
 - **Route validation**: `isValidContractId(id)` (from `src/lib/validateContractId.ts`) guards the route — rejects empty, oversized, or special-character IDs by calling Next.js `notFound()`.
 - **Fetch**: Two sources — `resolveContractData(id)` (async, from `src/lib/contractResolver.ts`, a typed mock that returns `ContractData`) and `listMilestonesByContract(id)` (sync, from the repository).
 - **Transform**: `mergeContractMilestones()` de-duplicates by milestone `id`, with persisted records taking precedence over resolver records. `buildPersistedContract()` narrows `ContractData` into the repository `Contract` shape for status writes.
 - **Render**: Left column — `ContractSummary` (metadata, parties), `ContractProgress` (escrow bar + fund cards), `MilestonesList` (scrollable roster). Right column — `ActionPanel` (context-aware buttons). Each component is wrapped in `SafeBoundary` for render-error isolation. Skeleton placeholders display during loading.
 - **State updates**: `persistContractStatus()` writes status transitions (Complete/Dispute) to the repository via `upsertContract()`, updates local state optimistically, and surfaces a toast. `ContractStatusAnnouncer` (with `aria-live`) announces transitions to screen readers.
+
+### Loading Boundary (`src/app/contracts/[id]/loading.tsx`)
+
+The route-level `loading.tsx` suspense fallback is a pure presentational component with no data dependencies. To keep it deterministic and reviewable, it defines explicit validation boundaries for the contract `id` it is rendering for:
+
+- **Accepted input**: `id` is a non-empty string that passes `isValidContractId(id)`. The fallback renders the same skeleton layout as the loaded page (summary, progress, and milestone placeholders) with `aria-busy="true"` and `aria-live="polite"`.
+- **Invalid input**: When `id` is missing, empty, oversized, or contains disallowed characters, the fallback does not attempt to resolve or render contract data. It renders a neutral container with a single `aria-live="polite"` status message so the user is told the route is unavailable without exposing the raw `id`.
+- **Duplicate input**: The fallback is idempotent. Re-rendering with the same `id` produces the same markup and the same accessibility announcement; no data is fetched, no state is written, and no consecutive renders can change the outcome.
+- **Boundary values**: The validation boundaries match `isValidContractId()` exactly (maximum length and allowed character set), so the loading fallback and the page itself agree on which IDs are acceptable. This avoids a flash of loading UI for an ID that will immediately resolve to `notFound()`.
+
+The fallback never reads from `localStorage`, never calls `resolveContractData()`, and never writes to the repository, so it cannot introduce concurrency, retry, or partial-failure hazards.
 
 ### Shared Derived State
 
