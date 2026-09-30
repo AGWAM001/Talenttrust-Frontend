@@ -7,7 +7,7 @@
  * contracts exist).
  *
  * Accessibility:
- * - Outer wrapper carries `aria-busy="true"` and `role="status"` so assistive
+ * - Outer wrapper carries `aria-busy="true"` and `role="status` so assistive
  *   technologies understand the region is in a transient loading state.
  * - The visually-hidden span announces "Loading contracts…" via an
  *   `aria-live="polite"` region on mount.
@@ -16,7 +16,62 @@
  * - The shimmer animation is suppressed via the project-wide
  *   `prefers-reduced-motion` CSS rule in globals.css plus the
  *   `motion-reduce:animate-none` Tailwind variant belt-and-suspenders guard.
+ *
+ * Validation boundaries:
+ * This component is a purely presentational Suspense fallback. The only
+ * externally influenced input is the number of skeleton rows to render.
+ * To keep the render deterministic and bounded regardless of how the
+ * component is invoked (e.g. from tests, storybooks, or future refactors),
+ * the row count is normalized through `resolveSkeletonCount`:
+ *
+ *   - Non-finite values (NaN, Infinity, -Infinity) fall back to the
+ *     default.
+ *   - Negative values clamp to 0 (renders an empty list, never a crash).
+ *   - Fractional values are truncated towards zero.
+ *   - Values above `MAX_SKELETON_ROWS` clamp to the maximum, so a
+ *     misconfigured caller cannot force an unbounded render (memory/DOS
+ *     exhaustion).
+ *   - Duplicate or repeated invocations are idempotent: the same input
+ *     always produces the same number of rows.
+ *
+ * The default export keeps its existing signature (no props) so existing
+ * callers remain compatible.
  */
+
+/** Default number of skeleton rows rendered while loading. */
+export const DEFAULT_SKELETON_ROWS = 5;
+
+/** Hard upper bound on skeleton rows to prevent unbounded renders. */
+export const MAX_SKELETON_ROWS = 50;
+
+/**
+ * Normalize a candidate row count into a safe, deterministic integer.
+ *
+ * Accepted: finite numbers in [0, MAX_SKELETON_ROWS].
+ * Rejected (coerced to a defined, safe value): non-numbers, NaN,
+ * ±Infinity, negatives, fractions, and out-of-range values.
+ */
+export function resolveSkeletonCount(candidate?: number): number {
+  if (candidate === undefined || candidate === null) {
+    return DEFAULT_SKELETON_ROWS;
+  }
+
+  if (typeof candidate !== "number" || !Number.isFinite(candidate)) {
+    return DEFAULT_SKELETON_ROWS;
+  }
+
+  if (candidate <= 0) {
+    return 0;
+  }
+
+  const truncated = Math.trunc(candidate);
+
+  if (truncated > MAX_SKELETON_ROWS) {
+    return MAX_SKELETON_ROWS;
+  }
+
+  return truncated;
+}
 
 const ContractCardSkeleton = () => (
   <div
@@ -30,7 +85,18 @@ const ContractCardSkeleton = () => (
   </div>
 );
 
-export default function ContractsLoading() {
+export interface ContractsLoadingProps {
+  /**
+   * Optional override for the number of skeleton rows. Normalized by
+   * `resolveSkeletonCount` so invalid or out-of-range values cannot
+   * produce an unsafe or non-deterministic render.
+   */
+  rows?: number;
+}
+
+export default function ContractsLoading({ rows }: ContractsLoadingProps = {}) {
+  const rowCount = resolveSkeletonCount(rows);
+
   return (
     <main className="min-h-screen p-8" aria-busy="true">
       {/* Accessible announcement */}
@@ -54,11 +120,12 @@ export default function ContractsLoading() {
 
       {/* Contract card list */}
       <ul className="space-y-4" aria-label="Loading contract list">
-        {Array.from({ length: 5 }, (_, i) => (
-          <li key={i}>
+        {Array.from({ length: rowCount }, (_, i) => (
+          <li key={i} data-testid="contract-skeleton-row">
             <ContractCardSkeleton />
           </li>
-        ))}
+        ))
+      }
       </ul>
     </main>
   );
