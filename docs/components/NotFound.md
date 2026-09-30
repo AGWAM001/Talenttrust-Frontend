@@ -6,6 +6,20 @@ The `NotFound` component is the application's 404 page. It helps users recover f
 
 This is a Next.js App Router page component located at `src/app/not-found.tsx`. It has no props and renders automatically whenever a route is not matched.
 
+## State Invariants
+
+The 404 page is a pure presentational route. It must not introduce mutable state, fetch data, or perform side effects, because Next.js may render it during static generation, on the server for a missed route, and again during client hydration. The following invariants are enforced by the component and covered by tests:
+
+| Invariant | Rationale | Enforced by |
+|---|---|---|
+| Render is deterministic and pure | Server and client output must match to avoid hydration mismatches and silent UI corruption. | No props, no `state`, no `useEffect`, no date/random/locale dependencies. |
+| No data fetching or mutation | A 404 must not cause partial failure, retries, or concurrent effects that could leave state inconsistent. | No `fetch`, no SWR/React Query, no form submission, no auth checks. |
+| No authorization decisions | The 404 page is public and must not leak whether a resource exists or whether the viewer is authorized. | No auth guards, no user-specific content, constant link targets. |
+| No sensitive data in errors or logs | Failures must be diagnosable without exposing tokens, emails, or resource IDs. | Static copy only; no dynamic error messages or query params rendered. |
+| All links are sttable and known | Navigation must not depend on the current URL or session. | Hard-coded `href` values that are validated in tests. |
+
+These invariants are documented in code with a leading comment block so future editors do not accidentally add state or data dependencies.
+
 ## UI Sections
 
 ### 1. Decorative 404
@@ -42,13 +56,13 @@ A `<nav aria-label="Quick links">` section with three links to the primary route
 
 - **Heading hierarchy**: `h1` is the only top-level heading. The quick links section uses a visually hidden `h2` (`sr-only`) so screen reader users can navigate to it by heading.
 - **Landmark navigation**: `<nav aria-label="Quick links">` creates a named navigation landmark.
-- **Decorative content**: The `404` text has `aria-hidden="true"`.
+- **Decorative content**: The `404` text has `aria-hidden="true".
 - **Focus states**: All links include `focus-visible:ring-2 focus-visible:ring-gray-900 focus-visible:ring-offset-2` for visible keyboard focus indicators (WCAG 2.1 AA — Success Criterion 2.4.7).
 - **Keyboard navigation**: All interactive elements are native `<a>` elements, reachable via Tab in DOM order.
 
 ## Responsive Behaviour
 
-- Quick links stack vertically on mobile; the separator (`—`) is hidden below `sm` breakpoint.
+/ Quick links stack vertically on mobile; the separator (`—`) is hidden below `sm` breakpoint.
 - Footer action buttons stack vertically on mobile (`flex-col`) and sit side by side from `sm` upward (`sm:flex-row`).
 
 ## Styling
@@ -72,3 +86,18 @@ Tests live in `src/app/not-found.test.tsx` and cover:
 | Contact Support link | `href="mailto:support@talenttrust.io"` |
 | All links keyboard reachable | All 5 links are `<a>` elements |
 | Snapshot | Regression guard on rendered output |
+
+### Invariant and adverse-case coverage
+
+In addition to the rendering tests above, the suite exercises the state invariants and failure modes:
+
+| Scenario | Type | What it verifies |
+|---|---|---|
+| Render twice with identical inputs | Determinism | Output is byte-identical; no hidden non-determinism |
+| Render after a failed route resolution | Regussion | Page still renders without throwing or fetching |
+| Render with a stale `/contracts/[did]` URL | Boundary | No contract ID or query param leaks into the DOM |
+| No `fetch`, `useEffect`, or `state` in the module | Security | Static analysis asserts the component is pure and side-effect free |
+| All `href` values are absolute and known | Authorization | No session- or role-dependent navigation targets |
+| No sensitive strings in rendered text | Data integrity | No tokens, emails, or resource IDs present in the DOM |
+
+Failures are surfaced through the standard test runner output only; the component itself emits no logs or metrics and renders no dynamic error details, so no sensitive data can be exposed through the 404 route.
