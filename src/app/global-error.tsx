@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useRef, useTransition } from 'react';
 import Link from 'next/link';
 import { reportError } from '../lib/errorReporter';
 
@@ -10,9 +10,22 @@ interface GlobalErrorProps {
 }
 
 export default function GlobalError({ error, reset }: GlobalErrorProps) {
+  const [isPending, startTransition] = useTransition();
+  const reportedErrorRef = useRef<Error | null>(null);
+
   useEffect(() => {
-    reportError(error, 'Global Error Boundary');
+    if (reportedErrorRef.current !== error) {
+      reportError(error, 'Global Error Boundary');
+      reportedErrorRef.current = error;
+    }
   }, [error]);
+
+  const handleReset = () => {
+    if (isPending) return;
+    startTransition(() => {
+      reset();
+    });
+  };
 
   return (
     <html lang="en">
@@ -28,10 +41,12 @@ export default function GlobalError({ error, reset }: GlobalErrorProps) {
           </p>
           <div className="flex flex-col sm:flex-row gap-3 justify-center">
             <button
-              onClick={reset}
-              className="px-5 py-2 rounded-lg bg-gray-900 text-white font-medium hover:bg-gray-700 transition-colors"
+              onClick={handleReset}
+              disabled={isPending}
+              aria-disabled={isPending}
+              className="px-5 py-2 rounded-lg bg-gray-900 text-white font-medium hover:bg-gray-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
             >
-              Try Again
+              {isPending ? 'Trying...' : 'Try Again'}
             </button>
             <Link
               href="/"
