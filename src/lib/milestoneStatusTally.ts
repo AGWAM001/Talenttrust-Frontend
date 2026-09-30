@@ -18,8 +18,19 @@ export function milestoneStatusTally(
     Paid: 0,
   };
 
+  // Invariant: tolerate malformed/empty input without throwing. Non-array
+  // inputs and entries with unknown or missing statuses are ignored so that
+  // callers relying on the previous public contract keep working.
+  if (!Array.isArray(milestones)) {
+    return [];
+  }
+
   for (const m of milestones) {
-    counts[m.status]++;
+    if (m == null) continue;
+    const status = m.status;
+    if (typeof status !== 'string') continue;
+    if (!Object.prototype.hasOwnProperty.call(counts, status)) continue;
+    counts[status as StatusType]++;
   }
 
   return STATUS_ORDER

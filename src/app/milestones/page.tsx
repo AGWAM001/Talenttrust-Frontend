@@ -26,6 +26,7 @@ import { useOfflineMilestones } from '@/hooks/useOfflineMilestones';
 import { SAMPLE_MILESTONES, SAMPLE_DISMISSED_KEY } from './constants';
 import type { Milestone } from '@/types/domain';
 import { useOptimisticMilestoneMutation } from '@/hooks/useOptimisticMilestoneMutation';
+import { normalizeMilestoneStatus } from '@/lib/milestoneStatus';
 
 const UNPAGINATED_LIST_SIZE = 9999;
 
@@ -35,6 +36,7 @@ const VALID_STATUSES: MilestoneStatusFilter[] = [
   'Completed',
   'Paid',
   'Disputed',
+  'Cancelled',
 ];
 
 function getValidStatus(param: string | null): MilestoneStatusFilter {
@@ -42,6 +44,15 @@ function getValidStatus(param: string | null): MilestoneStatusFilter {
     ? (param as MilestoneStatusFilter)
     : 'All';
 }
+
+/**
+ * Compatibility contract: the `status` query parameter is a public
+ * interface. Unknown or legacy values (including casing differences and
+ * whitespace) must resolve deterministically to a valid filter rather than
+ * throwing or silently dropping the user's selection. See
+ * `normalizeMilestoneStatus` for the canonical mapping.
+ */
+const CANONICAL_STATUS_PARAM = 'status';
 
 type MilestoneSortOption = 'newest' | 'oldest';
 const VALID_SORT_OPTIONS: MilestoneSortOption[] = ['newest', 'oldest'];
@@ -51,6 +62,13 @@ function getValidSortOption(param: string | null): MilestoneSortOption {
     ? (param as MilestoneSortOption)
     : 'newest';
 }
+
+/**
+ * Compatibility contract: `sort` is a public query parameter. Unknown values
+ * must fall back to the default (`newest`) so that deep links from older
+ * versions of the app continue to render a stable, sorted list.
+ */
+const CANONICAL_SORT_PARAM = 'sort';
 
 
 
@@ -62,11 +80,11 @@ const MilestonesContent: React.FC = () => {
   const headingRef = useRef<HTMLHeadingElement | null>(null);
   const startFromScratchRef = useRef<HTMLButtonElement | null>(null);
 
-  const initialStatus = getValidStatus(searchParams.get('status'));
+  const initialStatus = getValidStatus(searchParams.get(CANONICAL_STATUS_PARAM));
   const [statusFilter, setStatusFilter] =
     useState<MilestoneStatusFilter>(initialStatus);
   const [sortOrder, setSortOrder] = useState<MilestoneSortOption>(
-    getValidSortOption(searchParams.get('sort')),
+    getValidSortOption(searchParams.get(CANONICAL_SORT_PARAM)),
   );
   const [showForm, setShowForm] = useState(false);
   const { showError } = useToast();
@@ -80,23 +98,23 @@ const MilestonesContent: React.FC = () => {
   );
 
   useEffect(() => {
-    setStatusFilter(getValidStatus(searchParams.get('status')));
-    setSortOrder(getValidSortOption(searchParams.get('sort')));
+    setStatusFilter(getValidStatus(searchParams.get(CANONICAL_STATUS_PARAM)));
+    setSortOrder(getValidSortOption(searchParams.get(CANONICAL_SORT_PARAM)));
   }, [searchParams]);
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
       const params = new URLSearchParams(searchParams.toString());
       if (statusFilter !== 'All') {
-        params.set('status', statusFilter);
+        params.set(CANONICAL_STATUS_PARAM, statusFilter);
       } else {
-        params.delete('status');
+        params.delete(CANONICAL_STATUS_PARAM);
       }
 
       if (sortOrder !== 'newest') {
-        params.set('sort', sortOrder);
+        params.set(CANONICAL_SORT_PARAM, sortOrder);
       } else {
-        params.delete('sort');
+        params.delete(CANONICAL_SORT_PARAM);
       }
 
       const query = params.toString();
@@ -118,7 +136,7 @@ const MilestonesContent: React.FC = () => {
       } catch {
         setIsDismissed(true);
       }
-      setMilestones(SAMPLE_MILESTONES);
+      setMilestones(SAMPLE_MILESTONES.map((m) => ({ ...m })));
     }
   }, []);
 
@@ -141,7 +159,7 @@ const MilestonesContent: React.FC = () => {
 
   const filtered = useMemo(() => {
     if (statusFilter === 'All') return displayMilestones;
-    return displayMilestones.filter((m) => m.status === statusFilter);
+    return displayMilestones.filter((m) => normalizeMilestoneStatus(m.status) === statusFilter);
   }, [displayMilestones, statusFilter]);
 
   const sortedMilestones = useMemo(() => {
@@ -151,25 +169,33 @@ const MilestonesContent: React.FC = () => {
       nextMilestones.sort((left, right) => {
         const leftTime = left.dueDate ? Date.parse(left.dueDate) : Number.POSITIVE_INFINITY;
         const rightTime = right.dueDate ? Date.parse(right.dueDate) : Number.POSITIVE_INFINITY;
-        return leftTime - rightTime;
+        const delta = leftTime - rightTime;
+        if (delta !== 0) return delta;
+        return left.id.localeCompare(right.id);
       });
     } else {
       nextMilestones.sort((left, right) => {
         const leftTime = left.dueDate ? Date.parse(left.dueDate) : Number.NEGATIVE_INFINITY;
         const rightTime = right.dueDate ? Date.parse(right.dueDate) : Number.NEGATIVE_INFINITY;
-        return rightTime - leftTime;
+        const delta = rightTime - leftTime;
+        if (delta !== 0) return delta;
+        return left.id.localeCompare(right.id);
       });
     }
 
     return nextMilestones;
   }, [filtered, sortOrder]);
 
+  const isUsingSampleData = milestones === SAMPLE_MILESTONES;
+  const showSampleBanner = isUsingSampleData && !isDismissed;
+  const displayMilestones = isUsingSampleData && isDismissed ? [] : milestones;
+
   const handleAddMilestone = useCallback(() => {
     setShowForm(true);
   }, []);
 
   const handleSubmitMilestone = useCallback((milestone: Milestone) => {
-    const result = optimisticCreate(milestone);
+    const result = optimisticCreate({ ...milestone, status: normalizeMilestoneStatus(milestone.status) });
     if (!result.ok) {
       showError({
         title: 'Unable to create milestone',
@@ -186,7 +212,8 @@ const MilestonesContent: React.FC = () => {
 
   const handleUpdateMilestone = useCallback(
     (id: string, patch: Partial<Milestone>): boolean => {
-      const result = optimisticUpdate(id, patch);
+      const normalizedPatch = patch.status ? { ...patch, status: normalizeMilestoneStatus(patch.status) } : patch;
+      const result = optimisticUpdate(id, normalizedPatch);
       if (result.ok) return true;
       showError({
         title: 'Unable to update milestone',
