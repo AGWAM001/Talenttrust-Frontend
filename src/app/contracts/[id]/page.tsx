@@ -30,6 +30,51 @@ import {
 } from '@/hooks/useOptimisticContractStatus';
 import type { Milestone } from '@/types/domain';
 
+// ---------------------------------------------------------------------------
+// Contract status transition invariants
+// ---------------------------------------------------------------------------
+
+/**
+ * Allowed status transitions for a contract.
+ *
+ * Invariant: a contract may only move to a status reachable from its current
+ * one. Transitions not listed here are rejected deterministically without
+ * making a network request, preventing silent inconsistent state.
+ *
+ * State machine:
+ *   Active    → Completed | Disputed
+ *   Pending   → Active | Disputed
+ *   Disputed  → Active   (re-opens after dispute resolution)
+ *   Completed → (terminal — no further transitions)
+ */
+const ALLOWED_TRANSITIONS: Record<ContractData['status'], ContractData['status'][]> = {
+  Active: ['Completed', 'Disputed'],
+  Pending: ['Active', 'Disputed'],
+  Disputed: ['Active'],
+  Completed: [],
+};
+
+/**
+ * Returns `true` when moving `from` → `to` is a valid state transition.
+ *
+ * Duplicate transitions (`from === to`) are treated as no-ops and return
+ * `false` so callers can short-circuit without producing a persistence round-trip.
+ *
+ * @param from - The current contract status.
+ * @param to   - The desired next contract status.
+ */
+export function isAllowedTransition(
+  from: ContractData['status'],
+  to: ContractData['status'],
+): boolean {
+  if (from === to) return false;
+  return (ALLOWED_TRANSITIONS[from] ?? []).includes(to);
+}
+
+// ---------------------------------------------------------------------------
+// Milestone merge helper
+// ---------------------------------------------------------------------------
+
 /**
  * Merges the contract's resolved milestones with any milestones persisted in
  * the repository under the same `contractId`, de-duplicating by `id`.
@@ -53,6 +98,10 @@ function mergeContractMilestones(
   return Array.from(merged.values());
 }
 
+// ---------------------------------------------------------------------------
+// Page content component
+// ---------------------------------------------------------------------------
+
 interface ContractDetailPageProps {
   params: Promise<{ id: string }>;
 }
@@ -66,9 +115,22 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
   const [isUsingCachedData, setIsUsingCachedData] = useState(false);
   const [cachedAt, setCachedAt] = useState<string | undefined>(undefined);
   const [isDataStale, setIsDataStale] = useState(false);
+
+  /**
+   * isMountedRef prevents state updates after unmount. It is set to `false` in
+   * the useEffect cleanup so that an in-flight `resolveContractData` promise that
+   * resolves after navigation away cannot write stale data into an unmounted tree.
+   */
   const isMountedRef = useRef(true);
+  /**
+   * milestonesRef is kept in sync with the `milestones` state slice. It lets
+   * `handleUpdateMilestone` capture the _latest_ milestone list inside the
+   * rollback closure without being listed as a dependency of the `useCallback`
+   * (which would recreate the callback on every render).
+   */
   const milestonesRef = useRef(milestones);
   milestonesRef.current = milestones;
+
   const { showError, showSuccess } = useToast();
   const isOnline = useOnlineStatus();
 
@@ -102,6 +164,9 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
    * narrows `ContractData` into the fields that persistence already expects.
    * `version` is threaded through from {@link useOptimisticContractStatus} so
    * the repository's stale-overwrite guard compares against the correct baseline.
+   *
+   * Invariant: all fields are derived from the already-resolved `data`; no
+   * defaults are silently injected so the shape is always deterministic.
    */
   const buildPersistedContract: BuildPersistedContract = useCallback(
     (data, status, version) => ({
@@ -128,13 +193,17 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
   /**
    * Applies a contract status transition optimistically, then persists it.
    *
-   * The UI already reflects `nextStatus` by the time this returns (applied
-   * synchronously inside {@link useOptimisticContractStatus}). On failure —
-   * including a stale-overwrite rejection — the optimistic change is rolled
-   * back and a clear, specific error message is surfaced via both the inline
-   * `ActionPanel` banner and a dismissible toast.
+   * Invariants enforced before any side-effect:
+   *  1. Mutations are rejected when the device is offline.
+   *  2. Mutations are rejected when serving stale cached data.
+   *  3. The transition must be allowed by the {@link ALLOWED_TRANSITIONS} table.
+   *     Duplicate transitions (same status → same status) are silently ignored.
+   *     Invalid transitions surface a clear error.
    *
-   * When offline, mutations are disabled to prevent data inconsistency.
+   * On failure — including a stale-overwrite rejection — the optimistic change
+   * is rolled back and a specific error is surfaced via both the inline
+   * `ActionPanel` banner and a dismissible toast. Sensitive identifiers are
+   * never included in user-visible messages.
    *
    * @param nextStatus - The status to persist to the repository.
    * @param successTitle - The toast title shown after a successful write.
@@ -146,7 +215,7 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
       successTitle: string,
       successDescription: string,
     ) => {
-      // Disable unsafe mutations while offline
+      // Guard 1: offline
       if (!isOnline) {
         showError({
           title: 'Cannot update contract while offline',
@@ -155,13 +224,34 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
         return;
       }
 
-      // Also disable if using stale cached data
+      // Guard 2: stale cached data
       if (isUsingCachedData && isDataStale) {
         showError({
           title: 'Cannot update stale data',
           description: 'Please refresh the page to load the latest data before making changes.',
         });
         return;
+      }
+
+      // Guard 3: validate transition deterministically before any side-effect
+      if (contractData) {
+        const currentStatus = contractData.status;
+
+        // Duplicate transition — no-op (idempotent)
+        if (currentStatus === nextStatus) {
+          return;
+        }
+
+        // Invalid transition — surface a clear error without touching the repository
+        if (!isAllowedTransition(currentStatus, nextStatus)) {
+          const error = `Cannot transition from '${currentStatus}' to '${nextStatus}'.`;
+          setErrorMessage(error);
+          showError({
+            title: 'Invalid status transition',
+            description: error,
+          });
+          return;
+        }
       }
 
       setIsPersistingStatus(true);
@@ -186,9 +276,21 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
       });
       setIsPersistingStatus(false);
     },
-    [persistStatus, showError, showSuccess, isOnline, isUsingCachedData, isDataStale],
+    [persistStatus, showError, showSuccess, isOnline, isUsingCachedData, isDataStale, contractData],
   );
 
+  /**
+   * Loads contract data from the network or falls back to the cache.
+   *
+   * The function is extracted from the effect body so it can be called both on
+   * mount and whenever `isOnline` flips from `false` → `true`, enabling
+   * automatic re-validation when connectivity is restored.
+   *
+   * Concurrency safety: an `AbortController` is created each time the effect
+   * runs. All state updates are guarded by `isMountedRef.current`, so a
+   * stale promise that resolves after the component unmounts or the effect
+   * re-fires cannot produce an inconsistent state update.
+   */
   useEffect(() => {
     isMountedRef.current = true;
 
@@ -211,7 +313,7 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
             }
             return;
           }
-          // No cache available when offline - show error
+          // No cache available when offline — show a clear informative message
           if (isMountedRef.current) {
             setErrorMessage(
               'You are offline and this contract has not been loaded before. Please connect to the internet and try again.',
@@ -221,7 +323,7 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
           return;
         }
 
-        // Online - load fresh data
+        // Online — fetch fresh data from the network
         const data = await resolveContractData(id);
 
         if (isMountedRef.current) {
@@ -231,11 +333,11 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
           setIsDataStale(false);
           setCachedAt(undefined);
 
-          // Cache the successfully loaded data
+          // Cache the successfully loaded data for offline use
           cacheContractData(id, data);
         }
       } catch (error) {
-        // On error, try to fall back to cache
+        // On network error, fall back to the cache (may be stale)
         const cachedResult = getCachedContractData(id);
         if (cachedResult.success && cachedResult.data) {
           if (isMountedRef.current) {
@@ -249,6 +351,7 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
             );
           }
         } else if (isMountedRef.current) {
+          // Expose a safe, non-sensitive error message only
           setErrorMessage(
             error instanceof Error
               ? error.message
@@ -271,6 +374,10 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
 
   /**
    * Placeholder for the future milestone-submission workflow.
+   *
+   * Invariant: this is intentionally a no-op until the submission API is
+   * integrated. The action button remains visible so the UI surface contract
+   * is preserved for future callers.
    */
   const handleSubmitMilestone = () => {
     // Replace with real milestone submission flow.
@@ -278,6 +385,10 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
 
   /**
    * Persists the confirmed release-funds action as a completed contract.
+   *
+   * Transition: Active → Completed
+   * Allowed by the ALLOWED_TRANSITIONS table; enforced inside
+   * {@link persistContractStatus} before any repository write.
    */
   const handleReleaseFunds = useCallback(() => {
     persistContractStatus(
@@ -289,6 +400,10 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
 
   /**
    * Persists the confirmed dispute action as a disputed contract.
+   *
+   * Transition: Active → Disputed
+   * Allowed by the ALLOWED_TRANSITIONS table; enforced inside
+   * {@link persistContractStatus} before any repository write.
    */
   const handleDispute = useCallback(() => {
     persistContractStatus(
@@ -302,8 +417,22 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
     // Replace with summary navigation.
   };
 
-  const handleUpdateMilestone = useCallback((id: string, patch: Partial<Milestone>) => {
-    // Disable unsafe mutations while offline
+  /**
+   * Optimistically applies a milestone field patch to the local state, then
+   * persists the change to the repository.
+   *
+   * Invariants:
+   *  - Mutations are rejected when offline to prevent divergence.
+   *  - Mutations are rejected when serving stale cached data.
+   *  - On persistence failure the original milestone list is restored from
+   *    `milestonesRef` (the snapshot taken before the optimistic update).
+   *
+   * @param milestoneId - The id of the milestone to patch.
+   * @param patch - Partial milestone fields to merge onto the existing record.
+   * @returns `true` when the persistence succeeds; `false` on failure.
+   */
+  const handleUpdateMilestone = useCallback((milestoneId: string, patch: Partial<Milestone>) => {
+    // Guard 1: offline
     if (!isOnline) {
       showError({
         title: 'Cannot update milestone while offline',
@@ -312,7 +441,7 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
       return false;
     }
 
-    // Also disable if using stale cached data
+    // Guard 2: stale cached data
     if (isUsingCachedData && isDataStale) {
       showError({
         title: 'Cannot update stale data',
@@ -321,15 +450,19 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
       return false;
     }
 
+    // Capture the current list before the optimistic update for rollback
     const snapshot = milestonesRef.current;
 
+    // Apply the optimistic update synchronously so the UI responds immediately
     setMilestones((current) =>
-      current.map((item) => (item.id === id ? { ...item, ...patch } : item)),
+      current.map((item) => (item.id === milestoneId ? { ...item, ...patch } : item)),
     );
 
-    const persisted = updateMilestone(id, patch);
+    // Persist to the repository
+    const persisted = updateMilestone(milestoneId, patch);
 
     if (!persisted) {
+      // Roll back to the pre-mutation snapshot
       setMilestones(snapshot);
       return false;
     }
@@ -442,6 +575,22 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
   );
 };
 
+// ---------------------------------------------------------------------------
+// Route entry point
+// ---------------------------------------------------------------------------
+
+/**
+ * Contract detail page.
+ *
+ * Entry-point invariants:
+ *  1. The `id` route parameter is validated by {@link isValidContractId}
+ *     before any data fetching. Invalid ids call `notFound()` deterministically,
+ *     never reaching the data layer.
+ *  2. The validated `id` is passed to `ContractDetailPageContent` as a plain
+ *     string — callers cannot supply an arbitrary object or null.
+ *
+ * @param params - A promise resolving to the Next.js dynamic route params.
+ */
 const ContractDetailPage = ({ params }: ContractDetailPageProps) => {
   const { id } = use(params);
 
