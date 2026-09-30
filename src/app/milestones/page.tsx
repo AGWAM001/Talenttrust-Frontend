@@ -26,6 +26,7 @@ import { useOfflineMilestones } from '@/hooks/useOfflineMilestones';
 import { SAMPLE_MILESTONES, SAMPLE_DISMISSED_KEY } from './constants';
 import type { Milestone } from '@/types/domain';
 import { useOptimisticMilestoneMutation } from '@/hooks/useOptimisticMilestoneMutation';
+import { useMilestonesRecovery } from '@/hooks/useMilestonesRecovery';
 
 const UNPAGINATED_LIST_SIZE = 9999;
 
@@ -57,6 +58,7 @@ function getValidSortOption(param: string | null): MilestoneSortOption {
 const MilestonesContent: React.FC = () => {
   const [milestones, setMilestones] = useState<Milestone[]>(SAMPLE_MILESTONES);
   const [isDismissed, setIsDismissed] = useState<boolean>(false);
+  const [recoveryKey, setRecoveryKey] = useState(0);
   const searchParams = useSearchParams();
   const router = useRouter();
   const headingRef = useRef<HTMLHeadingElement | null>(null);
@@ -78,6 +80,11 @@ const MilestonesContent: React.FC = () => {
     milestones,
     setMilestones,
   );
+  const recovery = useMilestonesRecovery({
+    milestones,
+    setMilestones,
+    reconcileFromRepo,
+  });
 
   useEffect(() => {
     setStatusFilter(getValidStatus(searchParams.get('status')));
@@ -120,7 +127,7 @@ const MilestonesContent: React.FC = () => {
       }
       setMilestones(SAMPLE_MILESTONES);
     }
-  }, []);
+  }, [recoveryKey]);
 
   const handleDismissSampleBanner = useCallback(() => {
     try {
@@ -134,6 +141,16 @@ const MilestonesContent: React.FC = () => {
       headingRef.current?.focus();
     }, 0);
   }, []);
+
+  const handleRetryRecovery = useCallback(() => {
+    recovery.retry();
+    setRecoveryKey((key) => key + 1);
+  }, [recovery]);
+
+  const handleResetRecovery = useCallback(() => {
+    recovery.reset();
+    setRecoveryKey((key) => key + 1);
+  }, [recovery]);
 
   const isUsingSampleData = milestones === SAMPLE_MILESTONES;
   const showSampleBanner = isUsingSampleData && !isDismissed;
@@ -171,6 +188,7 @@ const MilestonesContent: React.FC = () => {
   const handleSubmitMilestone = useCallback((milestone: Milestone) => {
     const result = optimisticCreate(milestone);
     if (!result.ok) {
+      recovery.recordFailure('create', result.error);
       showError({
         title: 'Unable to create milestone',
         description: result.error,
@@ -188,6 +206,7 @@ const MilestonesContent: React.FC = () => {
     (id: string, patch: Partial<Milestone>): boolean => {
       const result = optimisticUpdate(id, patch);
       if (result.ok) return true;
+      recovery.recordFailure('update', result.error);
       showError({
         title: 'Unable to update milestone',
         description: result.error,
@@ -202,6 +221,41 @@ const MilestonesContent: React.FC = () => {
       <h1 ref={headingRef} tabIndex={-1} className="text-2xl font-bold mb-6 focus:outline-none">
         Milestones
       </h1>
+
+      {recovery.status === 'failed' && (
+        <div
+          data-testid="milestones-recovery-banner"
+          role="alert"
+          aria-live="assertive"
+          aria-atomic="true"
+          className="mb-6 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-900 shadow-sm dark:border-red-500/20 dark:bg-red-500/5 dark:text-red-200"
+        >
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="font-semibold">Milestones failed to load</p>
+              <p className="mt-1 text-red-700 dark:text-red-300">
+                {recovery.lastError ?? 'An unexpected error occurred while loading your milestones.'}
+              </p>
+            </div>
+            <div className="flex shrink-0 gap-2">
+              <button
+                type="button"
+                onClick={handleRetryRecovery}
+                className="rounded-xl bg-red-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-red-700 focus-visible:outline focus-visible:outline-4 focus-visible:outline-offset-2 focus-visible:outline-red-500"
+              >
+                Retry
+              </button>
+              <button
+                type="button"
+                onClick={handleResetRecovery}
+                className="rounded-xl border border-red-200 bg-white px-3 py-1.5 text-xs font-semibold text-red-700 transition hover:bg-red-50 focus-visible:outline focus-visible:outline-4 focus-visible:outline-offset-2 focus-visible:outline-red-500"
+              >
+                Reset
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {(offline.isFlushing || offline.notice || offline.pendingCount > 0) && (
         <div
