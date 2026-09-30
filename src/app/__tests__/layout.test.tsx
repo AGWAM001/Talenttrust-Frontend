@@ -1,7 +1,7 @@
 import React from 'react';
 import { render, screen } from '@testing-library/react';
 import { axe } from 'jest-axe';
-import RootLayout from '../layout';
+import RootLayout, { resolveMetadataBase } from '../layout';
 
 // WalletProvider and RouteAnnouncer are already mocked in jest.setup.ts.
 // Mock next/navigation for RouteAnnouncer's usePathname call and
@@ -64,4 +64,27 @@ describe('RootLayout — skip-to-content link', () => {
     const results = await axe(wrapper ?? container);
     expect(results).toHaveNoViolations();
   });
+});
+
+describe('RootLayout — metadata URL boundaries', () => {
+  it.each([
+    ['https://talenttrust.example', 'https:'],
+    ['https://talenttrust.example/app/', 'https:'],
+    [undefined, 'http:'],
+    ['', 'http:'],
+  ])('accepts a safe site URL (%s)', (value, protocol) => {
+    expect(resolveMetadataBase(value).protocol).toBe(protocol);
+  });
+
+  it.each(['not a URL', 'javascript:alert(1)', 'https://user:secret@example.com'])(
+    'falls back for unsafe metadata input (%s)',
+    (value) => {
+      const warning = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      expect(resolveMetadataBase(value).toString()).toBe('http://localhost:3000/');
+      expect(warning).toHaveBeenCalledWith(
+        '[metadata] invalid NEXT_PUBLIC_SITE_URL; using the default site URL',
+      );
+      warning.mockRestore();
+    },
+  );
 });
