@@ -70,6 +70,7 @@ Reference documentation for components, hooks, contexts, and library utilities.
 | [dueSoon.md](./lib/dueSoon.md) | Due-soon date helpers |
 | [milestoneStatusTally.md](./lib/milestoneStatusTally.md) | Milestone status count helper |
 | [validate-login.md](./lib/validate-login.md) | Login form validation |
+| [webAppManifest.md](./lib/webAppManifest.md) | Web app manifest contract — canonical icons, validation, bounded fallbacks, immutable output, diagnostics |
 
 ---
 
