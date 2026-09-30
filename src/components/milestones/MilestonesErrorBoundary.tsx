@@ -28,6 +28,7 @@ export interface MilestonesErrorBoundaryProps {
 interface State {
   hasError: boolean;
   retryKey: number;
+  error?: Error | null; // Add this line
 }
 
 /** Public error code used by dashboards and tests without exposing internals. */
