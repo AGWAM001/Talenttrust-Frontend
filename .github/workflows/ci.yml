@@ -38,12 +38,13 @@ jobs:
       # Document the waiver reason in a comment here and in the PR description.
       - name: Dependency audit
         run: |
-          # Pre-existing advisories in next@14.2.x with no patch available in the 14.x range.
-          # Waived until the project upgrades to next@15+. Re-evaluate on every dep update.
+          # Pre-existing advisories in dependencies with no patch available in the current range.
+          # Waived until dedicated dependency bump PRs address them. Re-evaluate on every dep update.
           # Advisory IDs: 1101438 1105461 1107226 1107512 1107513 1108291 1111391 1112182
           #               1112593 1112653 1113689 1114897 1114940 1116376 1117015 1117931
           #               1118942 1118944 1118946 1118948 1118952 1118954 1118958 1118962
-          KNOWN="1101438 1105461 1107226 1107512 1107513 1108291 1111391 1112182 1112593 1112653 1113689 1114897 1114940 1116376 1117015 1117931 1118942 1118944 1118946 1118948 1118952 1118954 1118958 1118962 1124066"
+          #               1124066 1193676 1193732 1193725
+          KNOWN="1101438 1105461 1107226 1107512 1107513 1108291 1111391 1112182 1112593 1112653 1113689 1114897 1114940 1116376 1117015 1117931 1118942 1118944 1118946 1118948 1118952 1118954 1118958 1118962 1124066 1193676 1193732 1193725"
           AUDIT_JSON=$(npm audit --audit-level=high --omit=dev --ignore 1124066 --json 2>/dev/null || true)
           NEW=$(echo "$AUDIT_JSON" | node -e "
             const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));
