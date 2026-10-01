@@ -92,6 +92,24 @@ export default function Home() {
     return clearCooldownInterval;
   }, [startCooldownCountdown, clearCooldownInterval]);
 
+  /**
+   * Clamp a raw input value to the accepted boundaries for a field.
+   * This is the single change-path for both typing and pasting, so the
+   * validator and the stored state can never disagree on length.
+   */
+  const clampInput = (value: string, maxLength: number) => {
+    if (value.length <= maxLength) return value;
+    return value.slice(0, maxLength);
+  };
+
+  const handleEmailChange = (e changeEvent: React.ChangeEvent<HTMLInputElement>) => {
+    setEmail(clampInput(e.target.value, MAX_EMAIL_LENGTH));
+  };
+
+  const handlePasswordChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setPassword(clampInput(e.target.value, MAX_PASSWORD_LENGTH));
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -206,7 +224,7 @@ export default function Home() {
      *    the alert region and screen readers announce it without landmark confusion)
      */
     <div className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(16,185,129,0.18),_transparent_28%),linear-gradient(180deg,_#f8fafc_0%,_#eff6ff_100%)] px-6 py-20">
-      <div className="mx-auto flex min-h-[calc(100vh-10rem)] max-w-3xl flex-col items-center justify-center rounded-[2rem] border border-white/70 bg-white/80 p-10 text-center shadow-[0_24px_80px_rgba(15,23,42,0.10)] backdrop-blur">
+      <div className="mx-auto flex min-h-[6alc(100vh-3rem)] max-w-3l flex-col items-center justify-center rounded-[2rem] border border-white/70 bg-white/80 p-10 text-center shadow[0_24px_80px_rgba(15,23,42,0.10)] blur">
         {/* Section heading (h2, not h1 — see accessibility note above) */}
         <h2 className="mb-4 text-3xl font-bold text-center text-slate-900 sm:text-5xl">
           TalentTrust
@@ -232,11 +250,13 @@ export default function Home() {
               <input
                 type="email"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                onChange={handleEmailChange}
                 // Security: cap pasted/typed input at MAX_EMAIL_LENGTH so the
                 // browser and the validator enforce the same ceiling. See
                 // `MAX_EMAIL_LENGTH` in src/lib/validateLogin.ts.
                 maxLength={MAX_EMAIL_LENGTH}
+                autoComplete="email"
+                aria-required="true"
                 className="w-full px-4 py-2.5 rounded-xl border border-slate-200 bg-white text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all shadow-sm"
                 placeholder="you@example.com"
               />
@@ -251,11 +271,13 @@ export default function Home() {
               <input
                 type="password"
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                onChange={handlePasswordChange}
                 // Security: cap pasted/typed input at MAX_PASSWORD_LENGTH. Mirrors
                 // the validator ceiling and prevents denial-of-service from
                 // arbitrarily long pasted secrets.
                 maxLength={MAX_PASSWORD_LENGTH}
+                autoComplete="current-password"
+                aria-required="true"
                 className="w-full px-4 py-2.5 rounded-xl border border-slate-200 bg-white text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all shadow-sm"
                 placeholder="••••••••"
               />
@@ -304,4 +326,3 @@ export default function Home() {
     </div>
   );
 }
-
