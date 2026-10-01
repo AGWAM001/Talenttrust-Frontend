@@ -1,3 +1,5 @@
+import React from 'react';
+
 /**
  * loading.tsx - /contracts
 *
@@ -5,6 +7,11 @@
  * in. Mirrors the visual shape of ContractsPage: a page heading followed by
  * a column of contract-card rows (matching the `<li>` cards rendered when
  * contracts exist).
+ *
+ * Invariants:
+ * - Pure and Stateless: This component is purely presentational and side-effect free.
+ * - Concurrency Safe: Uses `React.useId()` for deterministic, hydration-safe list keys,
+ *   ensuring concurrent or repeated execution never produces stale or inconsistent DOM state.
  *
  * Accessibility:
  * - Outer wrapper carries `aria-busy="true"` and `role="status` so assistive
@@ -79,20 +86,8 @@ const ContractCardSkeleton = () => (
   </div>
 );
 
-export interface ContractsLoadingProps {
-  /**
-   * Optional override for the number of skeleton cards rendered.
-   *
-   * This is normalized to a deterministic integer in
-   * [`MIN_SKELETON_COUNT`, `MAX_SKELETON_COUNT`] via `normalizeSkeletonCount`.
-   * Invalid, duplicate, or out-of-range values fall back to the default or
-   * the nearest valid boundary.
-   */
-  count?: number;
-}
-
-export default function ContractsLoading({ count }: ContractsLoadingProps = {}) {
-  const skeletonCount = normalizeSkeletonCount(count);
+export default function ContractsLoading() {
+  const id = React.useId();
 
   return (
     <main className="min-h-screen p-8" aria-busy="true">
@@ -117,9 +112,9 @@ export default function ContractsLoading({ count }: ContractsLoadingProps = {}) 
 
       {/* Contract card list */}
       <ul className="space-y-4" aria-label="Loading contract list">
-        {Array.from({ length: skeletonCount }, (_, i) => (
-          <li key={i}>
-            <ContractCardSkeleton>
+        {Array.from({ length: 5 }, (_, i) => (
+          <li key={`${id}-skeleton-${i}`}>
+            <ContractCardSkeleton />
           </li>
         ))}
       </ul>
