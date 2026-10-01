@@ -6,10 +6,11 @@ import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { WalletBulkToolbar } from '../../components/wallet/WalletBulkToolbar';
 import { WalletItemList } from '../../components/wallet/WalletItemList';
 import { listWalletItems, saveWalletItem, updateWalletItem, deleteWalletItems } from '@/lib/repository';
+import { reportError } from '@/lib/errorReporter';
 import { useToast } from '@/components/toast/toast-provider';
 import { reportError } from '@/lib/errorReporter';
 import type { WalletItem } from '@/types/domain';
-import { SAMPLE_WALLET_ITEMS } from './constants';
+import { getSampleWalletItems } from './constants';
 
 /**
  * State invariants for the Wallet page:
@@ -54,30 +55,59 @@ export default function WalletPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isMutating, setIsMutating] = useState<boolean>(false);
   const { showSuccess, showError } = useToast();
-  const isMountedRef = useRef(true);
+  // Guards the one-time repository seed so retries, React StrictMode
+  // double-invocation, or a changing `showError` identity can never seed twice
+  // and leave duplicate or partially-persisted state.
+  const seededRef = useRef(false);
 
-  // Guard against concurrent/re-entrant delete confirmations. The ref is checked
-  // and set synchronously before any state update so a second invocation in
-  // the same tick cannot apply the delete twice.
-  const deleteInFlightRef = useRef<boolean>(false);
+  // Load from repository on mount, seeding starter items only when empty.
+  // The UI is driven strictly by what actually persisted, so a failed write
+  // (e.g. localStorage quota) can never leave phantom items on screen or
+  // silently diverge the rendered list from the store.
+  useEffect(() => {
+    if (seededRef.current) return;
+    seededRef.current = true;
 
-  // ---------------------------------------------------------------------------
-  // Concurrency & Lockstep Synchronization Refs
-  // ---------------------------------------------------------------------------
-  // Synchronous mutex ref preventing duplicate in-flight requests or race conditions.
-  const isMutatingRef = useRef<boolean>(false);
-  // Mutable ref kept in strict lockstep with state so rapid sequential mutations
-  // never build from stale closures.
-  const itemsRef = useRef<WalletItem[]>([]);
-  itemsRef.current = items;
-  // Mount-guard ref preventing duplicate sample seeding under React StrictMode / double mount.
-  const isMountedRef = useRef<boolean>(false);
+    const loaded = listWalletItems();
+    if (loaded.length > 0) {
+      setItems(loaded);
+      return;
+    }
 
-  // Synchronous helper to update both the ref and queued React state in lockstep
-  const commitItems = useCallback((next: WalletItem[]) => {
-    itemsRef.current = next;
-    setItems(next);
-  }, []);
+    const seed = getSampleWalletItems();
+    if (seed.length === 0) {
+      setItems([]);
+      return;
+    }
+
+    const persisted: WalletItem[] = [];
+    let failedCount = 0;
+
+    for (const item of seed) {
+      const ok = saveWalletItem(item);
+      if (ok === false) {
+        failedCount += 1;
+      } else {
+        persisted.push(item);
+      }
+    }
+
+    setItems(persisted);
+
+    if (failedCount > 0) {
+      // Counts only — never log wallet addresses or identifiers.
+      reportError(
+        new Error(`Failed to persist ${failedCount} of ${seed.length} starter wallet items.`),
+        'WalletPage.seed',
+        'warn',
+        { failedCount, totalCount: seed.length },
+      );
+      showError({
+        title: 'Wallet data partially unavailable',
+        description: `Couldn't save ${failedCount} of ${seed.length} starter items. Your existing data is safe.`,
+      });
+    }
+  }, [showError]);
 
   // ---------------------------------------------------------------------------
   // Initial Mount & Seeding (Idempotent and Concurrency Safe)

@@ -724,59 +724,19 @@ export function getWalletItemVersion(id: string): number {
  * Appends a wallet item to the persisted list in an idempotent manner.
  * If an item with the same `id` already exists, it is updated in place.
  *
+ * The write is additive — existing contracts and other records are preserved.
+ * Callers are responsible for ensuring `id` uniqueness; this helper never
+ * mutates the object it receives.
+ *
  * @param item - The `WalletItem` record to persist.
- * @returns `true` when the write succeeds; otherwise `false`.
+ * @returns `true` when the write succeeded; `false` when `localStorage` is
+ *   unavailable (SSR) or the write threw (e.g. quota exceeded). Callers that
+ *   seed multiple items use this flag to keep the UI consistent with what was
+ *   actually persisted and to surface partial-failure diagnostics.
  */
 export function saveWalletItem(item: WalletItem): boolean {
   const store = readStore();
-  const existingIndex = store.walletItems.findIndex((existing) => existing.id === item.id);
-
-  const walletItems =
-    existingIndex === -1
-      ? [...store.walletItems, item]
-      : store.walletItems.map((existing, i) => (i === existingIndex ? item : existing));
-
-  return writeStore({ ...store, walletItems });
-}
-
-/**
- * Replaces an existing wallet item that shares the same `id`, or appends the
- * item when no persisted match exists yet.
- *
- * Provides monotonic version tracking and rejects stale writes with
- * `{ success: false, stale: true }`.
- *
- * @param item - The full `WalletItem` object to insert or replace.
- * @returns An `UpsertResult` indicating success and stale rejection status.
- */
-export function upsertWalletItem(item: WalletItem): UpsertResult {
-  const store = readStore();
-  const existingIndex = store.walletItems.findIndex(
-    (existingItem) => existingItem.id === item.id,
-  );
-
-  if (existingIndex !== -1) {
-    const existing = store.walletItems[existingIndex];
-    const existingVersion = existing.version ?? 0;
-    const incomingVersion = item.version ?? 0;
-
-    if (incomingVersion < existingVersion) {
-      return { success: false, stale: true };
-    }
-  }
-
-  const nextVersion = (item.version ?? 0) + 1;
-  const updatedItem: WalletItem = { ...item, version: nextVersion };
-
-  const walletItems =
-    existingIndex === -1
-      ? [...store.walletItems, updatedItem]
-      : store.walletItems.map((existingItem, index) =>
-          index === existingIndex ? updatedItem : existingItem,
-        );
-
-  const ok = writeStore({ ...store, walletItems });
-  return { success: ok, stale: false };
+  return writeStore({ ...store, walletItems: [...store.walletItems, item] });
 }
 
 /**
