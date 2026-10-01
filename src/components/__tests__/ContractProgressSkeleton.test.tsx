@@ -16,7 +16,7 @@
  */
 
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { ContractProgressSkeleton } from '../ContractProgressSkeleton';
 
@@ -85,7 +85,33 @@ describe('ContractProgressSkeleton', () => {
     });
   });
 
-  describe('Repeated rendering', () => {
+  describe('Failure recovery', () => {
+    it('shows an accessible error and a retry action when loading fails', () => {
+      const onRetry = jest.fn();
+      render(<ContractProgressSkeleton hasError onRetry={onRetry} />);
+
+      expect(screen.getByRole('alert', { name: /escrow progress unavailable/i })).toBeInTheDocument();
+      expect(screen.getByText(/saved contract data has not been changed/i)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+    });
+
+    it('invokes the supplied retry action exactly once', () => {
+      const onRetry = jest.fn();
+      render(<ContractProgressSkeleton hasError onRetry={onRetry} />);
+
+      fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+
+      expect(onRetry).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not show an unusable retry button when no handler is supplied', () => {
+      render(<ContractProgressSkeleton hasError />);
+
+      expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument();
+    });
+  });
+
+  describe('Layout contract', () => {
     it('does not mount a visible heading while loading', () => {
       // The skeleton does not render a heading node — the section landmark carries
       // the same id via aria-labelledby so the live heading can swap in without

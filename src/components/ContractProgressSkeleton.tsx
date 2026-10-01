@@ -18,27 +18,41 @@
  *   renders (e.g. React StrictMode double-invoking), since it holds no mutable
  *   state and performs no side effects.
  */
+interface ContractProgressSkeletonProps {
+  hasError?: boolean;
+  onRetry?: () => void;
+}
 
-/** Stable loading announcement used by the skeleton. */
-export const CONTRACT_PROGRESS_LOADING_LABEL =
-  "Loading escrow progress" as const;
+export const ContractProgressSkeleton = ({
+  hasError = false,
+  onRetry,
+}: ContractProgressSkeletonProps) => {
+  if (hasError) {
+    return (
+      <section
+        role="alert"
+        aria-labelledby="contract-progress-error-title"
+        className="rounded-3xl border border-red-200 bg-red-50 p-6 shadow-sm"
+      >
+        <h2 id="contract-progress-error-title" className="text-lg font-semibold text-red-900">
+          Escrow progress unavailable
+        </h2>
+        <p className="mt-2 text-sm text-red-700">
+          Contract progress could not be loaded. Your saved contract data has not been changed.
+        </p>
+        {onRetry ? (
+          <button
+            type="button"
+            onClick={onRetry}
+            className="mt-4 rounded-lg bg-red-800 px-4 py-2 text-sm font-medium text-white hover:bg-red-900 focus:outline-none focus:ring-2 focus:ring-red-700 focus:ring-offset-2"
+          >
+            Retry
+          </button>
+        ) : null}
+      </section>
+    );
+  }
 
-/**
- * Static decorative blocks used by the skeleton. Kept as a module-level
- * constant so the render output is deterministic and free of any per-render
- * allocations or randomness.
- */
-const SkeletonBlock = ({
-  className,
-  testId,
-}: {
-  className: string;
-  testId?: string;
-}) => (
-  <div className={className} data-testid={testId} aria-hidden="true" />
-);
-
-export const ContractProgressSkeleton = () => {
   return (
     <section
       aria-busy="true"

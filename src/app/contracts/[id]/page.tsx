@@ -166,9 +166,7 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
   const [isUsingCachedData, setIsUsingCachedData] = useState(false);
   const [cachedAt, setCachedAt] = useState<string | undefined>(undefined);
   const [isDataStale, setIsDataStale] = useState(false);
-  const isMountedRef = useRef(true);
-  const loadAttemptRef = useRef(0);
-  const loadAbortRef = useRef<AbortController | null>(null);
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const milestonesRef = useRef(milestones);
   milestonesRef.current = milestones;
   const loadRequestIdRef = useRef(0);
@@ -323,7 +321,7 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
   );
 
   useEffect(() => {
-    isMountedRef.current = true;
+    let isCurrentAttempt = true;
 
     const loadContract = async () => {
       const requestId = ++loadRequestIdRef.current;
@@ -354,7 +352,7 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
         if (!isOnline) {
           const cachedResult = getCachedContractData(id);
           if (cachedResult.success && cachedResult.data) {
-            if (isMountedRef.current && requestId === loadRequestIdRef.current) {
+            if (isCurrentAttempt) {
               setContractData(cachedResult.data);
               setMilestones(mergeContractMilestones(cachedResult.data.milestones, id));
               setIsUsingCachedData(true);
@@ -365,7 +363,7 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
             return;
           }
           // No cache available when offline - show error
-          if (isMountedRef.current && requestId === loadRequestIdRef.current) {
+          if (isCurrentAttempt) {
             setErrorMessage(
               'You are offline and this contract has not been loaded before. Please connect to the internet and try again.',
             );
@@ -395,15 +393,7 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
           }
         }
 
-        if (isAborted()) return;
-
-        if (!data) {
-          throw lastError instanceof Error
-            ? lastError
-            : new Error('Failed to load contract after retries.');
-        }
-
-        if (isMountedRef.current && requestId === loadRequestIdRef.current) {
+        if (isCurrentAttempt) {
           setContractData(data);
           setMilestones(mergeContractMilestones(data.milestones, id));
           setIsUsingCachedData(false);
@@ -418,7 +408,7 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
         // On error, try to fall back to cache
         const cachedResult = getCachedContractData(id);
         if (cachedResult.success && cachedResult.data) {
-          if (isMountedRef.current && requestId === loadRequestIdRef.current) {
+          if (isCurrentAttempt) {
             setContractData(cachedResult.data);
             setMilestones(mergeContractMilestones(cachedResult.data.milestones, id));
             setIsUsingCachedData(true);
@@ -428,7 +418,7 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
               'Unable to load fresh data. Showing cached version which may be outdated.',
             );
           }
-        } else if (isMountedRef.current && requestId === loadRequestIdRef.current) {
+        } else if (isCurrentAttempt) {
           setErrorMessage(
             error instanceof Error
               ? error.message
@@ -436,7 +426,7 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
           );
         }
       } finally {
-        if (isMountedRef.current && requestId === loadRequestIdRef.current) {
+        if (isCurrentAttempt) {
           setIsLoading(false);
         }
       }
@@ -445,10 +435,13 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
     loadContract();
 
     return () => {
-      loadAbortRef.current?.abort();
-      isMountedRef.current = false;
+      isCurrentAttempt = false;
     };
-  }, [id, isOnline]);
+  }, [id, isOnline, loadAttempt]);
+
+  const retryContractLoad = () => {
+    setLoadAttempt((attempt) => attempt + 1);
+  };
 
   /**
    * Placeholder for the future milestone-submission workflow.
@@ -630,6 +623,8 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
                 <ContractProgressSkeleton />
               ) : contractData ? (
                 <ContractProgress milestones={milestones} />
+              ) : errorMessage ? (
+                <ContractProgressSkeleton hasError onRetry={retryContractLoad} />
               ) : null}
             </SafeBoundary>
 
