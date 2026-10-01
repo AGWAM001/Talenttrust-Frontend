@@ -1,22 +1,71 @@
 /**
- * loading.tsx – /contracts
- *
+ * loading.tsx - /contracts
+*
  * App Router Suspense boundary rendered while the contracts list page streams
  * in. Mirrors the visual shape of ContractsPage: a page heading followed by
  * a column of contract-card rows (matching the `<li>` cards rendered when
  * contracts exist).
  *
  * Accessibility:
- * - Outer wrapper carries `aria-busy="true"` and `role="status"` so assistive
+ * - Outer wrapper carries `aria-busy="true"` and `role="status` so assistive
  *   technologies understand the region is in a transient loading state.
  * - The visually-hidden span announces "Loading contracts…" via an
  *   `aria-live="polite"` region on mount.
- * - All shimmer blocks carry `aria-hidden="true"` — they are decorative
+ * - All shimmer blocks carry `aria-hidden="true` — they are decorative
  *   placeholders with no semantic content.
  * - The shimmer animation is suppressed via the project-wide
  *   `prefers-reduced-motion` CSS rule in globals.css plus the
  *   `motion-reduce:animate-none` Tailwind variant belt-and-suspenders guard.
+ *
+ * Validation boundaries (deterministic skeleton count):
+ * - The number of skeleton cards is a derived, bounded value. It is not
+ *   accepted from random input and cannot be negative, naN, or Infinity.
+ * - `DEFAULT_SKELETON_COUNT` is the canonical count used in production.
+ *   Tests may override it via the `count` prop, but the value is always
+ *   coerced to an integer in [`MIN_SKELETON_COUNT`, `MAX_SKELETON_COUNT`].
+ * - Duplicate or out-of-range inputs are normalized to the nearest valid
+ *   boundary, so rendering is always deterministic and side-effect free.
  */
+const SKELETON_CARD_COUNT = 5;
+
+/** Minimum number of skeleton cards rendered. */
+export const MIN_SKELETON_COUNT = 1;
+
+/** Maximum number of skeleton cards rendered. */
+export const MAX_SKELETON_COUNT = 20;
+
+/** Default number of skeleton cards rendered in production. */
+const DEFAULT_SKELETON_COUNT = 5;
+
+/**
+ * Normalize a requested skeleton count into a deterministic, bounded integer.
+ *
+ * Accepted input: any number or undefined.
+ * - `undefined` -> `DEFAULT_SKELETON_COUNT`.
+ * - `NaN`, `Infinity`, `-Infinity`, non-numbers -> `DEFAULT_SKELETON_COUNT`.
+ * - Fractional values -> truncated toward zero.
+ * - Out-of-range values -> clamped to [`MIN_SKELETON_COUNT`, `MAX_SKELETON_COUNT`].
+ *
+ * The result is always an integer in [`MIN_SKELETON_COUNT`, `MAX_SKELETON_COUNT`],
+ * so the rendered output is always deterministic and cannot throw.
+ */
+export function normalizeSkeletonCount(count?: number): number {
+  if (count === undefined || !Number.isFinite(count)) {
+    return DEFAULT_SKELETON_COUNT;
+  }
+
+  const truncated = Math.trunc(count);
+
+  if (truncated < MIN_SKELETON_COUNT) {
+    return MIN_SKELETON_COUNT;
+  }
+
+  if (truncated > MAX_SKELETON_COUNT) {
+    return MAX_SKELETON_COUNT;
+  }
+
+  return truncated;
+}
 
 const ContractCardSkeleton = () => (
   <div
@@ -30,10 +79,24 @@ const ContractCardSkeleton = () => (
   </div>
 );
 
-export default function ContractsLoading() {
+export interface ContractsLoadingProps {
+  /**
+   * Optional override for the number of skeleton cards rendered.
+   *
+   * This is normalized to a deterministic integer in
+   * [`MIN_SKELETON_COUNT`, `MAX_SKELETON_COUNT`] via `normalizeSkeletonCount`.
+   * Invalid, duplicate, or out-of-range values fall back to the default or
+   * the nearest valid boundary.
+   */
+  count?: number;
+}
+
+export default function ContractsLoading({ count }: ContractsLoadingProps = {}) {
+  const skeletonCount = normalizeSkeletonCount(count);
+
   return (
     <main className="min-h-screen p-8" aria-busy="true">
-      {/* Accessible announcement */}
+      {/* Accessible announcement -- exactly one live region (invariant #4) */}
       <span role="status" aria-live="polite" aria-atomic="true" className="sr-only">
         Loading contracts…
       </span>
@@ -54,9 +117,9 @@ export default function ContractsLoading() {
 
       {/* Contract card list */}
       <ul className="space-y-4" aria-label="Loading contract list">
-        {Array.from({ length: 5 }, (_, i) => (
+        {Array.from({ length: skeletonCount }, (_, i) => (
           <li key={i}>
-            <ContractCardSkeleton />
+            <ContractCardSkeleton>
           </li>
         ))}
       </ul>
