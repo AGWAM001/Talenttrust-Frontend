@@ -1,5 +1,11 @@
-import type { Milestone } from '@/types/domain';
+import type { Milestone, MilestoneStatus } from '@/types/domain';
 
+/**
+ * Persistence key for the user's dismissal of the sample milestone banner.
+ *
+ * Invariant: this key is stable across releases. Renaming it would silently
+ * re-surface the sample banner for users who already dismissed it.
+ */
 export const SAMPLE_DISMISSED_KEY = 'talenttrust-milestones-sample-dismissed';
 
 /**
