@@ -53,9 +53,9 @@ describe('GlobalError page', () => {
   it('invokes the pluggable error reporter when rendered', () => {
     const mockReporter = jest.fn();
     setErrorReporter(mockReporter);
-    
+
     render(<GlobalError error={testError} reset={mockReset} />);
-    
+
     expect(mockReporter).toHaveBeenCalledTimes(1);
     expect(mockReporter).toHaveBeenCalledWith(testError, 'Global Error Boundary', undefined, undefined);
   });
