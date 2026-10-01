@@ -12,14 +12,14 @@
   },
   "dependencies": {
     "@stellar/freighter-api": "^6.0.1",
-    "next": "^16.3.7",
+    "next": "^16.3.8",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@jest/core": "^30.4.2",
-    "@next/eslint-plugin-next": "^16.3.3",
+    "@next/eslint-plugin-next": "^16.3.8",
     "@tailwindcss/postcss": "^4.1.12",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^7.0.1",
