@@ -61,6 +61,46 @@ const inFlightStatusMutations = new Set<string>();
 const inFlightMilestoneMutations = new Set<string>();
 
 /**
+ * Validation boundaries for the contract detail route.
+ *
+ * The route param `id` is untrusted input: it arrives from the URL, may be
+ * replayed, duplicated, or crafted adversarially, and is used both as a
+ * lookup key and as a persistence key. These constants define the single
+ * source of truth for what is considered a valid contract id so that every
+ * entry point (initial load, cache lookup, persistence, copy, render)
+ * enforces the same invariants.
+ *
+ * Invariants:
+ * - A contract id is a non-empty string of at most {@link MAX_CONTRACT_ID_LENGTH}
+ *   characters.
+ * - It must match {@link CONTRACT_ID_PATTERN}: alphanumerics, hyphens, and
+ *   underscores only. This prevents path traversal, whitespace smuggling,
+ *   and control characters from reaching the resolver, cache, or repository.
+ * - Validation is pure and side-effect free so it can be reused by tests and
+ *   by both the server-rendered boundary and the client content component.
+ */
+export const MAX_CONTRACT_ID_LENGTH = 128;
+export const CONTRACT_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
+
+/**
+ * Determines whether `id` is a structurally valid contract identifier.
+ *
+ * This is the canonical boundary check. It rejects:
+ * - non-string input (defensive against malformed route params),
+ * - empty or whitespace-only ids,
+ * - ids longer than {@link MAX_CONTRACT_ID_LENGTH},
+ * - ids containing characters outside {@link CONTRACT_ID_PATTERN}.
+ *
+ * @param id - The candidate contract id from the route.
+ * @returns `true` when the id is safe to use as a lookup and persistence key.
+ */
+export function isValidContractIdBoundary(id: unknown): id is string {
+  if (typeof id !== 'string') return false;
+  if (id.length === 0 || id.length > MAX_CONTRACT_ID_LENGTH) return false;
+  return CONTRACT_ID_PATTERN.test(id);
+}
+
+/**
  * Merges the contract's resolved milestones with any milestones persisted in
  * the repository under the same `contractId`, de-duplicating by `id`.
  *
@@ -181,15 +221,11 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
       successTitle: string,
       successDescription: string,
     ) => {
-      // Guard against invalid state transitions before any optimistic update.
-      // The current status is the single source of truth for allowed edges.
-      const currentStatus = contractData?.status;
-      if (currentStatus && !canTransitionContractStatus(currentStatus, nextStatus)) {
-        const message = `Cannot transition contract from ${currentStatus} to ${nextStatus}.`;
-        setErrorMessage(message);
+      // Reject invalid ids before any state transition or persistence attempt.
+      if (!isValidContractIdBoundary(id)) {
         showError({
-          title: 'Invalid status transition',
-          description: message,
+          title: 'Invalid contract',
+          description: 'This contract identifier is not valid and cannot be updated.',
         });
         return;
       }
@@ -253,7 +289,7 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
       });
       setIsPersistingStatus(false);
     },
-    [persistStatus, showError, showSuccess, isOnline, isUsingCachedData, isDataStale, contractData?.status],
+    [id, persistStatus, showError, showSuccess, isOnline, isUsingCachedData, isDataStale],
   );
 
   useEffect(() => {
@@ -264,6 +300,17 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
       try {
         setIsLoading(true);
         setErrorMessage(null);
+
+        // Boundary check: never touch cache, resolver, or repository with an
+        // invalid id. This guards against malformed params that bypass the
+        // server-side notFound() boundary (e.g. programmatic navigation).
+        if (!isValidContractIdBoundary(id)) {
+          if (isMountedRef.current) {
+            setErrorMessage('Invalid contract identifier.');
+            setIsLoading(false);
+          }
+          return;
+        }
 
         // If offline, try to load from cache first
         if (!isOnline) {
@@ -374,13 +421,11 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
   };
 
   const handleUpdateMilestone = useCallback((id: string, patch: Partial<Milestone>) => {
-    // Reject duplicate concurrent milestone mutations for the same contract.
-    // Without this guard, two callers could snapshot the same baseline and
-    // then race on rollback, producing an inconsistent milestone list.
-    if (inFlightMilestoneMutations.has(id)) {
+    // Reject invalid contract id before mutating local or persisted state.
+    if (!isValidContractIdBoundary(id)) {
       showError({
-        title: 'Milestone update already in progress',
-        description: 'Please wait for the current milestone update to finish before retrying.',
+        title: 'Invalid contract',
+        description: 'This contract identifier is not valid and cannot be updated.',
       });
       return false;
     }
@@ -547,7 +592,7 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
 const ContractDetailPage = ({ params }: ContractDetailPageProps) => {
   const { id } = use(params);
 
-  if (!isValidContractId(id)) {
+  if (!isValidContractIdBoundary(id) || !isValidContractId(id)) {
     notFound();
   }
 

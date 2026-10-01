@@ -1,3 +1,4 @@
+import { notFound } from 'next/navigation';
 /**
  * loading.tsx – /contracts/[id]
  *
@@ -28,7 +29,7 @@
  * loading announcements behind.
  */
 
-import type { ReactElement } from 'react';
+import { isValidContractId } from '@/lib/contracts/validation';
 import { ContractSummarySkeleton } from '@/components/ContractSummarySkeleton';
 import { ContractProgressSkeleton } from '@/components/ContractProgressSkeleton';
 import { MilestonesListSkeleton } from '@/components/MilestonesListSkeleton';
@@ -77,7 +78,7 @@ const ActionPanelSkeleton = (): ReactElement => (
 // Route loading export
 // ---------------------------------------------------------------------------
 
-export default function ContractDetailLoading(): ReactElement {
+export default function ContractDetailLoading({ params }: { params: { id: string } }) {
   return (
     <main
       data-testid="contract-detail-loading"
@@ -114,3 +115,4 @@ export default function ContractDetailLoading(): ReactElement {
     </main>
   );
 }
+

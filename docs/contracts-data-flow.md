@@ -87,6 +87,17 @@ The contract detail route owns a small, explicit state machine. The invariants b
 - **Data integrity**: The persisted contract record must retain its `id`, `milestoneCount`, and ownership fields across every transition. Only the `status` field is allowed to change.
 - **Authorization**: Only the contract's authorized parties may initiate Release or Dispute. Unauthorized attempts fail closed with a user-visible error and are logged without exposing sensitive fields.
 
+### Loading Boundary (`src/app/contracts/[id]/loading.tsx`)
+
+The route-level `loading.tsx` suspense fallback is a pure presentational component with no data dependencies. To keep it deterministic and reviewable, it defines explicit validation boundaries for the contract `id` it is rendering for:
+
+- **Accepted input**: `id` is a non-empty string that passes `isValidContractId(id)`. The fallback renders the same skeleton layout as the loaded page (summary, progress, and milestone placeholders) with `aria-busy="true"` and `aria-live="polite"`.
+- **Invalid input**: When `id` is missing, empty, oversized, or contains disallowed characters, the fallback does not attempt to resolve or render contract data. It renders a neutral container with a single `aria-live="polite"` status message so the user is told the route is unavailable without exposing the raw `id`.
+- **Duplicate input**: The fallback is idempotent. Re-rendering with the same `id` produces the same markup and the same accessibility announcement; no data is fetched, no state is written, and no consecutive renders can change the outcome.
+- **Boundary values**: The validation boundaries match `isValidContractId()` exactly (maximum length and allowed character set), so the loading fallback and the page itself agree on which IDs are acceptable. This avoids a flash of loading UI for an ID that will immediately resolve to `notFound()`.
+
+The fallback never reads from `localStorage`, never calls `resolveContractData()`, and never writes to the repository, so it cannot introduce concurrency, retry, or partial-failure hazards.
+
 ### Shared Derived State
 
 - `useContractProgress(milestones)` wraps `calculateContractProgress()`, deriving `completedCount`, `totalCount`, `paidAmount`, `outstandingAmount`, `progressPercent`, and `currency` from the milestone array. Memoized and shared across `ContractProgress` and any consumer that needs escrow math.
