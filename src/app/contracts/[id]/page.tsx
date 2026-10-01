@@ -24,6 +24,8 @@ import {
 } from '@/lib/repository';
 import { cacheContractData, getCachedContractData } from '@/lib/contractCache';
 import { isValidContractId } from '@/lib/validateContractId';
+import { validateStatusTransition } from '@/lib/validateContractStatusTransition';
+import { validateMilestonePatch } from '@/lib/validateMilestonePatch';
 import {
   useOptimisticContractStatus,
   type BuildPersistedContract,
@@ -166,7 +168,14 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
   const [isUsingCachedData, setIsUsingCachedData] = useState(false);
   const [cachedAt, setCachedAt] = useState<string | undefined>(undefined);
   const [isDataStale, setIsDataStale] = useState(false);
-  const [loadAttempt, setLoadAttempt] = useState(0);
+  const isMountedRef = useRef(true);
+  /**
+   * Synchronous duplicate-submission guard for contract status writes.
+   * `isPersistingStatus` state alone re-renders too late to stop a second
+   * invocation dispatched in the same tick (e.g. a double-click racing the
+   * confirm dialog), so the ref closes that gap.
+   */
+  const isPersistingStatusRef = useRef(false);
   const milestonesRef = useRef(milestones);
   milestonesRef.current = milestones;
   const loadRequestIdRef = useRef(0);
@@ -279,8 +288,31 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
         return;
       }
 
-      inFlightStatusMutations.add(id);
+      // Boundary guard: the current status must permit this transition.
+      // Terminal states (Completed/Disputed) reject every lifecycle change so
+      // a release or dispute can never run twice, even if a second request
+      // races in before the UI re-renders with the new status.
+      const transition = validateStatusTransition(
+        contractData?.status,
+        nextStatus,
+      );
+      if (!transition.ok) {
+        showError({
+          title: 'Unable to update contract',
+          description: transition.message,
+        });
+        return;
+      }
+
+      // Duplicate-submission guard: ignore re-entrant calls while a status
+      // write is already in flight. Without this, a double-invocation could
+      // issue two repository writes for one user action.
+      if (isPersistingStatusRef.current) {
+        return;
+      }
+
       setIsPersistingStatus(true);
+      isPersistingStatusRef.current = true;
       setErrorMessage(null);
 
       const persistStatus = persistStatusRef.current;
@@ -303,10 +335,7 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
       } finally {
         inFlightStatusMutations.delete(id);
         setIsPersistingStatus(false);
-      }
-
-      if (mutationId !== statusMutationIdRef.current) {
-        // A newer mutation superseded this one; do not surface stale success.
+        isPersistingStatusRef.current = false;
         return;
       }
 
@@ -316,8 +345,9 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
         description: successDescription,
       });
       setIsPersistingStatus(false);
+      isPersistingStatusRef.current = false;
     },
-    [showError, showSuccess, isOnline, isUsingCachedData, isDataStale],
+    [persistStatus, showError, showSuccess, isOnline, isUsingCachedData, isDataStale, contractData?.status],
   );
 
   useEffect(() => {
@@ -506,14 +536,46 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
       return false;
     }
 
-    // Reject patches that would leave the milestone in an inconsistent shape.
-    // Only known, mutable fields are accepted; unknown keys are ignored.
-    const allowedKeys: Array<keyof Milestone> = ['title', 'description', 'amount', 'status'];
-    const sanitizedPatch: Partial<Milestone> = {};
-    for (const key of allowedKeys) {
-      if (key in patch) {
-        (sanitizedPatch as Record<string, unknown>)[key] = patch[key];
-      }
+    const snapshot = milestonesRef.current;
+
+    // Boundary guard: the milestone must belong to this contract. Rejecting
+    // unknown ids keeps a duplicate/stale submission from silently applying
+    // a patch to (or creating the appearance of) a milestone that is not on
+    // this contract's roster.
+    const targetExists = snapshot.some((item) => item.id === id);
+    if (!targetExists) {
+      showError({
+        title: 'Milestone not found',
+        description: 'This milestone is no longer part of the contract. Please refresh the page.',
+      });
+      return false;
+    }
+
+    // Boundary guard: reject patches that are invalid, empty after
+    // sanitisation, or try to change identity/concurrency fields (id,
+    // contractId, version, timestamps). The repository merges patches
+    // wholesale, so unvalidated keys could re-parent a milestone or defeat
+    // the stale-overwrite guard.
+    const validation = validateMilestonePatch(id, patch);
+    if (!validation.ok) {
+      showError({
+        title: 'Milestone update rejected',
+        description: validation.errors.map((error) => error.message).join(' '),
+      });
+      return false;
+    }
+
+    const safePatch = validation.sanitized;
+
+    setMilestones((current) =>
+      current.map((item) => (item.id === id ? { ...item, ...safePatch } : item)),
+    );
+
+    const persisted = updateMilestone(id, safePatch);
+
+    if (!persisted) {
+      setMilestones(snapshot);
+      return false;
     }
 
     const snapshot = milestonesRef.current;
