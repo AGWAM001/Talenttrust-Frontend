@@ -1,4 +1,10 @@
 import manifest from '../manifest';
+import {
+  DEFAULT_MANIFEST_ICONS,
+  MANIFEST_NAME,
+  getWebAppManifest,
+} from '@/lib/webAppManifest';
+import { setErrorReporter, type ErrorReporter } from '@/lib/errorReporter';
 
 describe('manifest.ts', () => {
   it('should return an object with required top-level fields', () => {
@@ -146,5 +152,54 @@ describe('manifest.ts', () => {
         expect(validTypes).toContain(icon.type);
       }
     });
+  });
+});
+
+/**
+ * Wiring assertions for the manifest contract (`src/lib/webAppManifest.ts`).
+ *
+ * The route must stay a thin consumer: the canonical content, icon ordering,
+ * and immutability guarantees are owned by the contract module, and the route
+ * must not emit diagnostics for the canonical configuration.
+ */
+describe('manifest.ts contract wiring', () => {
+  it('returns the canonical manifest owned by the contract module', () => {
+    expect(manifest()).toEqual(getWebAppManifest());
+    expect(manifest().icons).toEqual([...DEFAULT_MANIFEST_ICONS]);
+  });
+
+  it('returns a fresh, deeply frozen manifest on every call', () => {
+    const first = manifest();
+    const second = manifest();
+
+    expect(first).not.toBe(second);
+    expect(first).toEqual(second);
+    expect(Object.isFrozen(first)).toBe(true);
+    expect(Object.isFrozen(first.icons)).toBe(true);
+    expect(Object.isFrozen(first.icons?.[0])).toBe(true);
+  });
+
+  it('cannot be mutated into a degraded state', () => {
+    const result = manifest();
+
+    try {
+      (result as Record<string, unknown>).name = 'Hacked';
+    } catch {
+      // Frozen objects throw in strict mode — expected.
+    }
+
+    expect(manifest().name).toBe(MANIFEST_NAME);
+  });
+
+  it('does not report anomalies for the canonical configuration', () => {
+    const reporter = jest.fn();
+    setErrorReporter(reporter as unknown as ErrorReporter);
+
+    try {
+      manifest();
+      expect(reporter).not.toHaveBeenCalled();
+    } finally {
+      setErrorReporter(null);
+    }
   });
 });

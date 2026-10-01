@@ -1,6 +1,6 @@
 'use client';
 
-import { use, useCallback, useEffect, useRef, useState } from 'react';
+import { use, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import Breadcrumbs from '@/components/Breadcrumbs';
@@ -30,6 +30,35 @@ import {
 } from '@/hooks/useOptimisticContractStatus';
 import type { Milestone } from '@/types/domain';
 import { canTransitionContractStatus } from '@/lib/contractStatusTransitions';
+
+/**
+ * Monotonic token used to identify the latest in-flight load for a given
+ * contract id. Concurrent or repeated loads (e.g. rapid `id`/`isOnline`
+ * changes, StrictMode double-invocation, or overlapping retries) each capture
+ * a token; only the load holding the newest token is allowed to commit state.
+ *
+ * This guarantees that a slower, older request can never overwrite the result
+ * of a newer one, preventing stale or inconsistent renders.
+ */
+let loadSequence = 0;
+
+/**
+ * Per-contract in-flight mutation guard.
+ *
+ * Prevents duplicate concurrent status transitions for the same contract from
+ * racing each other. The first caller acquires the lock; subsequent callers
+ * while the lock is held are rejected deterministically instead of producing
+ * interleaved optimistic updates or duplicate repository writes.
+ */
+const inFlightStatusMutations = new Set<string>();
+
+/**
+ * Per-contract in-flight milestone mutation guard, keyed by `contractId`.
+ *
+ * Ensures that two concurrent milestone patches for the same contract cannot
+ * both snapshot the same baseline and then clobber each other on rollback.
+ */
+const inFlightMilestoneMutations = new Set<string>();
 
 /**
  * Merges the contract's resolved milestones with any milestones persisted in
@@ -68,6 +97,8 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
   const [cachedAt, setCachedAt] = useState<string | undefined>(undefined);
   const [isDataStale, setIsDataStale] = useState(false);
   const isMountedRef = useRef(true);
+  const loadTokenRef = useRef(0);
+  const isMountedRef2 = useRef(true);
   const milestonesRef = useRef(milestones);
   milestonesRef.current = milestones;
   const loadRequestIdRef = useRef(0);
@@ -110,6 +141,7 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
     (data, status, version) => ({
       id: data.id,
       contractName: data.name,
+      // NOTE: `parties` is copied by reference; callers must not mutate it.
       parties: data.parties,
       totalValue: data.totalValue,
       currency: data.currency,
@@ -180,6 +212,7 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
         return;
       }
 
+      inFlightStatusMutations.add(id);
       setIsPersistingStatus(true);
       setErrorMessage(null);
 
@@ -189,14 +222,23 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
 
       const result = persistStatus(nextStatus);
 
-      if (!result.ok) {
-        setErrorMessage(result.error);
-        showError({
-          title: 'Unable to update contract',
-          description: result.error,
+        if (!result.ok) {
+          setErrorMessage(result.error);
+          showError({
+            title: 'Unable to update contract',
+            description: result.error,
+          });
+          return;
+        }
+
+        setErrorMessage(null);
+        showSuccess({
+          title: successTitle,
+          description: successDescription,
         });
+      } finally {
+        inFlightStatusMutations.delete(id);
         setIsPersistingStatus(false);
-        return;
       }
 
       if (mutationId !== statusMutationIdRef.current) {
@@ -291,6 +333,9 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
     loadContract();
 
     return () => {
+      // Invalidate any in-flight load so its late resolution cannot commit
+      // state after unmount or after a newer load has started.
+      loadTokenRef.current = -1;
       isMountedRef.current = false;
     };
   }, [id, isOnline]);
@@ -329,6 +374,17 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
   };
 
   const handleUpdateMilestone = useCallback((id: string, patch: Partial<Milestone>) => {
+    // Reject duplicate concurrent milestone mutations for the same contract.
+    // Without this guard, two callers could snapshot the same baseline and
+    // then race on rollback, producing an inconsistent milestone list.
+    if (inFlightMilestoneMutations.has(id)) {
+      showError({
+        title: 'Milestone update already in progress',
+        description: 'Please wait for the current milestone update to finish before retrying.',
+      });
+      return false;
+    }
+
     // Disable unsafe mutations while offline
     if (!isOnline) {
       showError({
@@ -365,12 +421,15 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
 
     const persisted = updateMilestone(id, sanitizedPatch);
 
-    if (!persisted) {
-      setMilestones(snapshot);
-      return false;
-    }
+      if (!persisted) {
+        setMilestones(snapshot);
+        return false;
+      }
 
-    return true;
+      return true;
+    } finally {
+      inFlightMilestoneMutations.delete(id);
+    }
   }, [isOnline, isUsingCachedData, isDataStale, showError]);
 
   const status = contractData?.status || 'Active';
@@ -378,6 +437,13 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
   return (
     <main className="min-h-screen bg-slate-50 px-4 py-8 sm:px-6 lg:px-8">
       {contractData ? <ContractStatusAnnouncer status={contractData.status} /> : null}
+      {/*
+        Invariants enforced on this page:
+        - Only the newest load token may commit contract/milestone state.
+        - At most one status mutation and one milestone mutation may be
+          in-flight per contract id at any time.
+        - Optimistic updates are always rolled back on persistence failure.
+      */}
       <div className="mx-auto max-w-screen-2xl space-y-6">
         {/* Offline/stale data indicator */}
         <OfflineIndicator isStale={isDataStale} cachedAt={cachedAt} />

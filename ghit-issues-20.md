@@ -2595,3 +2595,4 @@ The theme component's props and usage are undocumented, leading to inconsistent 
 
 - 💬 **Join the TalentTrust community on Discord:** https://discord.gg/WqnGpcPx
 - ⭐ This is a **GrantFox OSS / Official Campaign** task and **may be rewarded**. When your PR is merged you'll be prompted to rate the project — a **5-star rating** is much appreciated.
+...
