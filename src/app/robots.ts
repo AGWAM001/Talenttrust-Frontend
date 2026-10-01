@@ -1,88 +1,45 @@
 import type { MetadataRoute } from 'next';
+import { createSiteUrlResolver, type SiteUrlResolution } from '@/lib/siteUrl';
 
 /**
- * Resolves the canonical site origin used for robots.txt and sitemap links.
- *
- * Invariants:
- * - The returned value is always a valid, non-empty absolute URL origin
- *   (no trailing slash, no path, no query, no fragment) so that concatenating
- *   `/sitemap.xml` produces a deterministic, well-formed URL.
- * - Only http:/ and https: are accepted; any other protocol is rejected.
- * - The function never throws and never returns an invalid origin: if the
- *   configured value is missing or malformed, it falls back to a safe local
- *   default.
+ * Metadata routes may be invoked concurrently (once per request in dev, once
+ * per build worker in production) and repeatedly across a process lifetime.
+ * The resolver is module-scoped and holds only a bounded, frozen memo keyed by
+ * the raw environment value, so overlapping calls cannot observe a partially
+ * built or hand-mutated result, and a changed NEXT_PUBLIC_SITE_URL is never
+ * served from a previous resolution.
  */
-export const DEFAULT_SITE_URL = 'http://localhost:3000';
-
-const ALLOWED_PROTOCOLS: ReadonlySet<string> = new Set(['http:', 'https:']);
-
-/**
- * Normalizes a configured site URL into a canonical origin.
- *
- * @param raw - Raw configuration value (e.g. from `NEXT_PUBLIC_SITE_URL`).
- * @returns The normalized origin, or `null` if the input is not a valid,
- *          supported absolute URL.
- */
-export function normalizeSiteUrl(raw: unknown): string | null {
-  if (typeof raw !== 'string') {
-    return null;
-  }
-
-  const trimmed = raw.trim();
-  if (trimmed.length === 0) {
-    return null;
-  }
-
-  let parsed: URL;
-  try {
-    parsed = new URL(trimmed);
-  } catch {
-    return null;
-  }
-
-  if (!ALLOWED_PROTOCOLS.has(parsed.protocol)) {
-    return null;
-  }
-
-  if (parsed.hostname.length === 0) {
-    return null;
-  }
-
-  // Canonicalize to an origin only: drop path, query, fragment, and any
-  // default port so the resulting string is stable across equivalent inputs.
-  return parsed.origin;
-}
-
-/**
- * Resolves the effective site origin from the provided environment.
- *
- * @param env - Environment map. Defaults to `process.env` for production
- *             usage; injectable for deterministic testing.
- * @returns A canonical origin URL string.
- */
-export function resolveSiteUrl(
-  env: Readonly<Record<string, string | undefined>> = process.env,
-): string {
-  const normalized = normalizeSiteUrl(env.NEXT_PUBLIC_SITE_URL);
-  return normalized ?? DEFAULT_SITE_URL;
-}
+const resolver = createSiteUrlResolver();
 
 /**
  * Generates robots.txt metadata to instruct search crawlers.
  *
- * The generated object is deterministic for a given environment and always
- * exposes a valid absolute sitemap URL.
+ * The sitemap origin is validated rather than concatenated blindly: an invalid,
+ * over-long, non-HTTP or credential-bearing NEXT_PUBLIC_SITE_URL falls back to
+ * the default origin and is reported through the shared error reporter instead
+ * of being emitted into robots.txt as an attacker-influenced directive. The
+ * return value is a fresh object per call, so a caller mutating the result of
+ * one invocation cannot influence another.
  *
  * @returns Robots metadata rules
  */
 export default function robots(): MetadataRoute.Robots {
-  const siteUrl = resolveSiteUrl();
+  const site: SiteUrlResolution = resolver.resolve(process.env.NEXT_PUBLIC_SITE_URL);
 
   return {
     rules: {
       userAgent: '*',
       allow: '/',
     },
-    sitemap: `${siteUrl}/sitemap.xml`,
+    sitemap: `${site.url}/sitemap.xml`,
   };
+}
+
+/**
+ * Test-only hook: clears memoised resolutions and diagnostic dedupe state so a
+ * suite can observe first-refusal logging again. Not part of the Next.js
+ * metadata route contract and unused by application code.
+ */
+export function __resetRobotsResolverForTests(): void {
+  resolver.reset();
 }

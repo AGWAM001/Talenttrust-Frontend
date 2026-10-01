@@ -34,6 +34,8 @@ export interface WalletItem {
   address?: string;
   status: 'Active' | 'Archived' | 'Pending';
   createdAt: string;
+  /** Monotonically-increasing version counter for stale-overwrite protection. */
+  version?: number;
 }
 
 

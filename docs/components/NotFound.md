@@ -1,24 +1,34 @@
 # NotFound Component
 
-The `NotFound` component is the application's 404 page. It helps users recover from broken or expired URLs — such as stale contract detail links — by providing quick navigation to the three primary sections of TalentTrust.
+``NotFound`` is the application's 404 page. It helps users recover from broken or expired URLs — such as stale contract detail links — by providing quick navigation to the three primary sections of TalentTrust.
 
 ## Overview
 
 This is a Next.js App Router page component located at `src/app/not-found.tsx`. It has no props and renders automatically whenever a route is not matched.
 
-It is a **thin renderer**: the recovery links, home route, and support address come from the validated compatibility contract in [`src/lib/notFoundContent.ts`](../../src/lib/notFoundContent.ts). Behavioural changes belong in that module, not here.
+## Validation Boundaries
 
-## Compatibility contract
+Although this component has no input props, it is the terminal handler for any unmatched route. The following invariants are enforced and covered by focused tests.
 
-The 404 page is the only recovery surface the app guarantees after a broken or expired link, so its public behaviour is pinned and validated:
+### Valid input
 
-- **Source of truth**: `DEFAULT_NOT_FOUND_QUICK_LINKS` defines the routes, copy, and order rendered below.
-- **Validation**: only root-relative, whitespace-free, backslash-free hrefs with non-empty labels/descriptions are accepted. Absolute and protocol-relative URLs are rejected, so the page cannot become an open-redirect vector.
-- **Determinism**: duplicate hrefs keep the first occurrence; the list is capped at `MAX_NOT_FOUND_QUICK_LINKS`; normalization never throws.
-- **Fail-safe**: malformed or empty upstream data falls back to the documented defaults, so a recovery path always exists.
-- **Observability**: normalization reports rejected/duplicate/truncated counts without echoing offending content.
+- Any URL that does not match a defined route is a valid trigger for this page.
+- The component must render without throwing, regardless of the captured pathname.
 
-See [`docs/lib/notFoundContent.md`](../lib/notFoundContent.md) for the full API and invariants.
+### Invalid input
+
+- The component must not attempt to interpret, parse, or echo the requested path.
+- No raw path segments, query parameters, or fragments may be interpolated into the rendered markup. This prevents reflected content and keeps the page deterministic.
+
+### Duplicate input
+
+- Repeated navigation to the same unmatched URL must produce identical output.
+- Rendering the component multiple times must not accumulate state or duplicate links.
+
+### Boundary cases
+
+- Extremely long or deeply nested paths are handled identically to short ones.
+- The component is a static server-renderable page with no asynchronous work, so retries and concurrent renders cannot produce an inconsistent result.
 
 ## UI Sections
 
@@ -57,12 +67,12 @@ A `<nav aria-label="Quick links">` section with three links to the primary route
 - **Heading hierarchy**: `h1` is the only top-level heading. The quick links section uses a visually hidden `h2` (`sr-only`) so screen reader users can navigate to it by heading.
 - **Landmark navigation**: `<nav aria-label="Quick links">` creates a named navigation landmark.
 - **Decorative content**: The `404` text has `aria-hidden="true"`.
-- **Focus states**: All links include `focus-visible:ring-2 focus-visible:ring-gray-900 focus-visible:ring-offset-2` for visible keyboard focus indicators (WCAG 2.1 AA — Success Criterion 2.4.7).
+- **Focus states**: All links include `focus-visible:ring-2 focus-visible:ring-gray-900 focus-visible:ring-offset-2` for visible keyboard focus indicators (WCAG 2.1 AA — success criterion 2.4.7).
 - **Keyboard navigation**: All interactive elements are native `<a>` elements, reachable via Tab in DOM order.
 
 ## Responsive Behaviour
 
-- Quick links stack vertically on mobile; the separator (`—`) is hidden below `sm` breakpoint.
+/ Quick links stack vertically on mobile; the separator (`—`) is hidden below `sm` breakpoint.
 - Footer action buttons stack vertically on mobile (`flex-col`) and sit side by side from `sm` upward (`sm:flex-row`).
 
 ## Styling
@@ -92,4 +102,17 @@ Tests live in `src/app/not-found.test.tsx` and cover:
 | Axe scan | No detectable accessibility violations |
 | Snapshot | Regression guard on rendered output |
 
-Contract unit tests live in `src/lib/notFoundContent.test.ts` and cover success, rejection, duplicate, boundary, fallback, purity, and freezes.
+### Validation test coverage
+
+In addition to the rendering tests above, the focused suite exercises the validation boundaries documented in this file:
+
+| Test | Scenario |
+|---|---|
+| Accepted input | Renders for a typical unmatched path without throwing |
+| Rejected input | No raw path, query, or fragment is echoed into the DOM |
+| Duplicate submission | Re-rendering produces identical output with no duplicated links |
+| Boundary values | Extremely long and deeply nested paths render identically to short ones |
+
+## Observability
+
+This page is purely presentational and renders no user-supplied data. It does not log pathnames or other request details, so failures are diagnosable through the standard routing and server logs without exposing sensitive information.

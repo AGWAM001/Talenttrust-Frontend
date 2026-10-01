@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { reportError } from '../lib/errorReporter';
 
@@ -25,86 +25,110 @@ export interface ErrorProps {
   reset: () => void;
 }
 
-/** Normalized error shape used internally after validation. */
-export interface NormalizedError {
-  error: Error;
-  digest?: string;
-}
+/**
+ * Maximum number of retry attempts before the "Try Again" button is replaced
+ * with a harder recovery path (page reload / go home).
+ *
+ * Invariant: once `retryCount >= MAX_RETRIES`, no further calls to `reset()`
+ * are made — the user is directed to reload or navigate away instead.
+ */
+const MAX_RETRIES = 3;
 
 /**
- * Validates and normalizes the raw error value handed to the boundary.
+ * Route-level error boundary rendered by Next.js App Router when a segment
+ * throws during rendering or in a server action.
  *
- * Accepted input:
- *   - an `Error` instance (with optional string `digest`)
- * Rejected / coerced input:
- *   - null / undefined / non-Error values -> wrapped in a safe fallback Error
- *   - non-string or overly long digest -> digest is dropped
+ * Failure-recovery invariants:
+ *   1. Exactly-once reporting — the `error` object is reported once per distinct
+ *      error identity. A ref tracks the last-reported error to prevent duplicate
+ *      reports when the component re-renders without a new error.
+ *   2. Reset guard — `reset()` is only called when no reset is already in
+ *      flight (`isResetting` ref). Concurrent clicks cannot stack invocations.
+ *   3. Error-in-reset surface — if `reset()` itself throws, the thrown value
+ *      is caught, reported via `reportError`, and surfaced to the user as a
+ *      "recovery failed" message without exposing raw error details.
+ *   4. Retry cap — after `MAX_RETRIES` failed attempts the component stops
+ *      calling `reset()` and presents a permanent recovery path (reload / home)
+ *      to prevent infinite retry loops and unrecoverable frozen states.
+ *   5. Accessible live region — a visually-hidden `aria-live="assertive"` region
+ *      announces the current recovery state to assistive technologies so screen
+ *      reader users know what is happening after each attempt.
+ *   6. No detail leakage — neither the error message nor the stack trace is
+ *      rendered in the visible UI.
  */
-export function normalizeError(input: unknown): NormalizedError {
-  const candidate = input as { digest?: unknown } | null | undefined;
-
-  let error: Error;
-  if (input instanef Error) {
-    error = input;
-  } else if (input == null) {
-    error = new Error('Unknown error');
-  } else if (typeof input === 'string') {
-    error = new Error(input);
-  } else {
-    error = new Error('Non-Error thrown');
-  }
-
-  const rawDigest = candidate && typeof candidate === 'object' ? candidate.digest : undefined;
-  const digest =
-    typeof rawDigest === 'string' &&
-    rawDigest.length > 0 &&
-    rawDigest.length <= MAX_DIGEST_LENGTH
-      ? rawDigest
-      : undefined;
-
-  return digest ? { error, digest } : { error };
-}
-
-/** Returns true only when the value is a callable function. */
-export function isResetFunction(value: unknown): value is () => void {
-  return typeof value === 'function';
-}
-
 export default function GlobalError({ error, reset }: ErrorProps) {
-  const normalized = normalizeError(error);
-  const reportedRef = useRef<unknown>(null);
-  const resetInFlightVRef = useRef(false);
+  /**
+   * Tracks how many `reset()` calls have been attempted. Used to cap retries at
+   * `MAX_RETRIES` and to decide which recovery UI to present.
+   */
+  const [retryCount, setRetryCount] = useState(0);
+
+  /**
+   * Holds the user-visible recovery status message announced to assistive
+   * technology via the `aria-live` region. Empty means no active announcement.
+   */
+  const [liveMessage, setLiveMessage] = useState('');
+
+  /**
+   * Set to a non-null string when `reset()` itself throws, surfacing a
+   * "recovery failed" message. Cleared on the next retry attempt.
+   */
+  const [resetError, setResetError] = useState<string | null>(null);
+
+  /**
+   * Synchronous guard: true while a `reset()` call is in flight.
+   * Using a ref (not state) ensures the guard is checked and set atomically
+   * within the same event handler without an intermediate re-render.
+   */
+  const isResettingRef = useRef(false);
+
+  /**
+   * Tracks the last error identity that was reported so we never fire
+   * `reportError` more than once for the same error object.
+   */
+  const lastReportedErrorRef = useRef<Error | null>(null);
 
   useEffect(() => {
-    // Guard against duplicate reporting for the same error object across
-    // React re-renders (e.g. strict mode double-invocation or parent re-renders).
-    if (reportedRef.current === normalized.error) {
-      return;
+    if (error !== lastReportedErrorRef.current) {
+      lastReportedErrorRef.current = error;
+      reportError(error, 'Error Boundary');
     }
-    reportedRef.current = normalized.error;
+  }, [error]);
 
-    try {
-      reportError(normalized.error, 'Error Boundary', normalized.digest);
-    } catch {
-      // Error reporting must never break the boundary itself.
-    }
-  }, [normalized.error, normalized.digest]);
+  /**
+   * Handles "Try Again":
+   *
+   *   1. No-ops if already resetting (concurrent-click guard).
+   *   2. No-ops if the retry cap has been reached.
+   *   3. Clears any previous reset error.
+   *   4. Announces "Retrying…" before calling `reset()`.
+   *   5. Catches any synchronous throw from `reset()`, reports it, and shows
+   *      a safe "recovery failed" message without leaking error details.
+   *   6. Increments `retryCount` unconditionally so the cap is enforced even
+   *      when `reset()` throws.
+   */
+  const handleRetry = () => {
+    if (isResettingRef.current) return;
+    if (retryCount >= MAX_RETRIES) return;
 
-  const handleReset = () => {
-    if (resetInFlightRef.current) {
-      return;
-    }
-    if (!isResetFunction(reset)) {
-      return;
-    }
-    resetInFlightRef.current = true;
+    isResettingRef.current = true;
+    setResetError(null);
+    setLiveMessage('Retrying, please wait…');
+
     try {
       reset();
-    } catch {
-      // If reset throws, allow a retry on the next click rather than
-      // locking the UI in a permanently unresettable state.
+      // If reset() returns without throwing, Next.js will unmount this component
+      // on successful recovery. If the underlying segment still errors the
+      // component will be re-rendered with a new error prop, resetting this state.
+    } catch (err) {
+      reportError(err, 'Error Boundary reset', 'error', { retryCount });
+      setResetError(
+        'Recovery failed. Please try again or reload the page.',
+      );
+      setLiveMessage('Recovery failed. Please try reloading the page.');
     } finally {
-      resetInFlightRef.current = false;
+      isResettingRef.current = false;
+      setRetryCount((c) => c + 1);
     }
   };
 
@@ -144,18 +168,39 @@ export default function GlobalError({ error, reset }: ErrorProps) {
 
   return (
     <main className="min-h-screen flex flex-col items-center justify-center p-8 bg-[var(--background)]">
-      <div className="max-w-md wfull text-center space-y-6">
+      {/*
+       * Visually-hidden assertive live region.
+       * Announces retry state changes to screen reader users immediately.
+       * aria-atomic ensures the full message is read rather than just the diff.
+       */}
+      <div
+        role="status"
+        aria-live="assertive"
+        aria-atomic="true"
+        className="sr-only"
+      >
+        {liveMessage}
+      </div>
+
+      <div className="max-w-md w-full text-center space-y-6">
         <div className="text-6xl" aria-hidden="true">⚠️</div>
+
         <h1 className="text-2xl font-bold text-gray-900">Unexpected Error</h1>
+
         <p className="text-gray-600">
-          Something went wrong on our end. Please try again or contact support if
-          the problem persists.
+          {retriesExhausted
+            ? 'We were unable to recover after several attempts. Please reload the page or go home.'
+            : 'Something went wrong on our end. Please try again or contact support if the problem persists.'}
         </p>
-        <div className="flex flex-col sm:flex-row gap-3 justify-center">
-          <button
-            type="button"
-            onClick={handleReset}
-            className="px-5 py-2 rounded-lg bg-gray-900 text-white font-medium hover:bg-gray-700 transition-colors"
+
+        {/*
+         * resetError is only set when reset() itself threw. It shows a safe,
+         * generic message — never the raw error details.
+         */}
+        {resetError && (
+          <p
+            role="alert"
+            className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700"
           >
             {isResetting ? 'Retrying...' : 'Try Again'}
           </button>
@@ -172,6 +217,19 @@ export default function GlobalError({ error, reset }: ErrorProps) {
             Contact Support
           </a>
         </div>
+
+        {retriesExhausted && (
+          <p className="text-xs text-gray-400">
+            If the problem persists, please{' '}
+            <a
+              href="mailto:support@talenttrust.io"
+              className="underline hover:text-gray-600"
+            >
+              contact support
+            </a>
+            .
+          </p>
+        )}
       </div>
     </main>
   );

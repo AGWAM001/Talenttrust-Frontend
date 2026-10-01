@@ -1,4 +1,9 @@
 import type { MetadataRoute } from 'next';
+import {
+  buildSitemapEntries,
+  resolveSitemapLastModified,
+  resolveSiteUrl,
+} from '@/lib/siteMetadata';
 
 export const SITEMAP_PATHS = [
   '/contracts',
@@ -75,32 +80,18 @@ export function normalizePath(path: string): string {
 /**
  * Generates a dynamic sitemap.xml listing all public static routes.
  *
- * Invariants:
- * - The returned list is deterministic for a given input: exactly one entry for
- *   the site root followed by one entry per unique public path, in a fixed order.
- * - Duplicate paths are collapsed so consumers never see duplicate <URL> entries.
- * - All URLs share the same normalized origin and a single consistent lastModified
- *   timestamp, avoiding non-deterministic output within a single generation.
+ * The advertised route set is a compatibility contract and lives in
+ * `PUBLIC_SITEMAP_PATHS`; this route only renders it, so configuration that is
+ * malformed, duplicated or absent cannot silently change which URLs crawlers
+ * are told about.
+ *
+ * @returns Sitemap entries with lastModified date
  */
 export default function sitemap(): MetadataRoute.Sitemap {
   const siteUrl = resolveSiteUrl(process.env.NEXT_PUBLIC_SITE_URL);
-  const lastModified = new Date();
+  const lastModified = resolveSitemapLastModified(
+    process.env.NEXT_PUBLIC_SITEMAP_LAST_MODIFIED,
+  );
 
-  const paths = Array.from(new Set<String>(SITEMAP_PATHS));
-
-  const entries: MetadataRoute.Sitemap = [
-    {
-      url: buildSitemapUrl(siteUrl, '/'),
-      lastModified,
-    },
-  ];
-
-  for (const path of paths) {
-    entries.push({
-      url: buildSitemapUrl(siteUrl, path),
-      lastModified,
-    });
-  }
-
-  return entries;
+  return buildSitemapEntries(siteUrl, lastModified);
 }

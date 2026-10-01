@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useTransition } from 'react';
 import Link from 'next/link';
 import { reportError } from '../lib/errorReporter';
 
@@ -33,36 +33,21 @@ function getErrorKey(error: Error & { digest?: string }): string {
 }
 
 export default function GlobalError({ error, reset }: GlobalErrorProps) {
-  const lastReportedKeyRef = useRef<string | null>(null);
-  const resetConsumedRef = useRef<boolean>(false);
+  const [isPending, startTransition] = useTransition();
+  const reportedErrorRef = useRef<Error | null>(null);
 
   useEffect(() => {
-    const key = getErrorKey(error);
-    if (lastReportedKeyRef.current === key) {
-      return;
-    }
-    lastReportedKeyRef.current = key;
-    // Reset the consumed flag when a new error arrives so the user can
-    // attempt recovery again.
-    resetConsumedRef.current = false;
-    try {
+    if (reportedErrorRef.current !== error) {
       reportError(error, 'Global Error Boundary');
-    } catch {
-      // Never let reporting failures break the fallback UI.
+      reportedErrorRef.current = error;
     }
   }, [error]);
 
   const handleReset = () => {
-    if (resetConsumedRef.current) {
-      return;
-    }
-    resetConsumedRef.current = true;
-    try {
+    if (isPending) return;
+    startTransition(() => {
       reset();
-    } catch {
-      // If reset throws, allow a retry on the next click.
-      resetConsumedRef.current = false;
-    }
+    });
   };
 
   return (
@@ -82,9 +67,11 @@ export default function GlobalError({ error, reset }: GlobalErrorProps) {
           <div className="flex flex-col sm:flex-row gap-3 justify-center">
             <button
               onClick={handleReset}
-              className="px-5 py-2 rounded-lg bg-gray-900 text-white font-medium hover:bg-gray-700 transition-colors"
+              disabled={isPending}
+              aria-disabled={isPending}
+              className="px-5 py-2 rounded-lg bg-gray-900 text-white font-medium hover:bg-gray-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
             >
-              Try Again
+              {isPending ? 'Trying...' : 'Try Again'}
             </button>
             <Link
               href="/"

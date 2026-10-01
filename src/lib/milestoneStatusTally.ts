@@ -7,17 +7,30 @@ export interface StatusTally {
   count: number;
 }
 
+/**
+ * Canonical set of status values that the tally may report.
+ * Used to guard against unknown/stale status values at the boundary.
+ */
 const KNOWN_STATUSES: ReadonlySet<StatusType> = new Set(STATUS_ORDER);
 
+function isKnownStatus(value: unknown): value is StatusType {
+  return typeof value === 'string' && KNOWN_STATUSES.has(value as StatusType);
+}
+
 /**
- * Invariants enforced by this tally:
- * - Deterministic: output order always follows STATUS_ORDER.
- * - Total: every known status is counted exactly once; unknown statuses are
- *   ignored rather than corrupting the tally (defensive against malformed
- *   or untrusted input).
- * - Non-negative: counts are derived from a fresh accumulator, so repeated
- *   or concurrent calls cannot leak state between invocations.
- * - Pure: no mutation of the input array or its elements.
+ * Compute a deterministic tally of milestone statuses.
+ *
+ * Invariants:
+ - The result is a pure function of the input array; repeated or concurrent
+ *   calls with the same input always produce the same output (no shared mutable
+ *   state, no time-dependent behavior).
+ * - Output order is deterministic and follows STATUS_ORDER, independent of input
+ *   ordering.
+ * - Only known status values are counted; unknown/stale values are ignored rather
+ *   than corrupting the tally or throwing. This keeps the function totally
+ *   safe under concurrent execution and partial failure of upstream data.
+ * - Zero-count statuses are omitted from the output to preserve the existing
+ *   public contract.
  */
 export function milestoneStatusTally(
   milestones: readonly { status: StatusType }[],
@@ -28,21 +41,24 @@ export function milestoneStatusTally(
     Disputed: 0,
     Pending: 0,
     Paid: 0,
+    // Present so the map satisfies `Record<StatusType, number>`; Archived is
+    // intentionally excluded from STATUS_ORDER and therefore never emitted.
+    Archived: 0,
   };
 
+  // Invariant: tolerate malformed/empty input without throwing. Non-array
+  // inputs and entries with unknown or missing statuses are ignored so that
+  // callers relying on the previous public contract keep working.
   if (!Array.isArray(milestones)) {
     return [];
   }
 
   for (const m of milestones) {
-    if (m == null) {
-      continue;
-    }
+    if (m == null) continue;
     const status = m.status;
-    if (!KNOWN_STATUSES.has(status)) {
-      continue;
-    }
-    counts[status]++;
+    if (typeof status !== 'string') continue;
+    if (!Object.prototype.hasOwnProperty.call(counts, status)) continue;
+    counts[status as StatusType]++;
   }
 
   return STATUS_ORDER

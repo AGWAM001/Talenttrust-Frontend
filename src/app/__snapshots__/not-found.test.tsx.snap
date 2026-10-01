@@ -26,6 +26,18 @@ exports[`NotFound page matches snapshot 1`] = `
       >
         This page doesn't exist or the link may have expired. Here are a few places to get back on track.
       </p>
+      <p
+        class="text-sm text-gray-500"
+      >
+        We couldn't find
+         
+        <code
+          class="px-1 py-0.5 rounded bg-gray-100 text-gray-700 break-all"
+        >
+          /contracts/missing-id
+        </code>
+        .
+      </p>
     </div>
     <nav
       aria-label="Quick links"
@@ -109,6 +121,12 @@ exports[`NotFound page matches snapshot 1`] = `
     <div
       class="flex flex-col sm:flex-row gap-3 justify-center"
     >
+      <button
+        class="px-5 py-2 rounded-lg border border-gray-300 text-gray-700 font-medium hover:bg-gray-100 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 focus-visible:ring-offset-2"
+        type="button"
+      >
+        Go Back
+      </button>
       <a
         class="px-5 py-2 rounded-lg bg-gray-900 text-white font-medium hover:bg-gray-700 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 focus-visible:ring-offset-2"
         href="/"

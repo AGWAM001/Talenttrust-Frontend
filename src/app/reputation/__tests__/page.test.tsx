@@ -1,7 +1,15 @@
 import React, { Component, type ReactNode, type ErrorInfo } from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { ReputationPageContent } from '../ReputationPageContent';
+import ReputationPage from '../page';
 import ReputationLoading from '../loading';
+import { listReputationEvents } from '@/lib/repository';
+
+jest.mock('@/lib/repository', () => ({
+  listReputationEvents: jest.fn(),
+}));
+
+const mockedListReputationEvents = jest.mocked(listReputationEvents);
 
 // Toggle to make the mock throw (used by error-state tests).
 // Prefix with `mock` so Jest's babel transform allows it in the mock factory.
@@ -20,6 +28,7 @@ jest.mock('../../../components/ReputationProfile', () => {
         <div data-testid="reputation-level">{props.level ?? (props.score === 50 ? 'Expert' : 'Community Member')}</div>
         <div data-testid="reputation-name">{props.name}</div>
         <div data-testid="reputation-history-count">{props.history?.length ?? 0}</div>
+        <div data-testid="reputation-max-score">{props.maxScore ?? 'default'}</div>
         {props.history && props.history.length > 0 && (
           <ul data-testid="reputation-history">
             {props.history.map((event: any) => (
@@ -41,6 +50,7 @@ jest.mock('../../../components/ReputationSummaryCard', () => {
       <div data-testid="reputation-summary-card">
         <div data-testid="summary-card-name">{props.name}</div>
         <div data-testid="summary-card-score">{props.score ?? 'N/A'}</div>
+        <div data-testid="summary-card-max-score">{props.maxScore ?? 'default'}</div>
       </div>
     );
   };
@@ -238,6 +248,35 @@ describe('ReputationPageContent', () => {
   });
 
   describe('Edge cases', () => {
+    it('treats a non-finite score as invalid reputation data', () => {
+      render(<ReputationPageContent reputationData={{ score: Infinity }} />);
+
+      expect(screen.getByTestId('empty-state')).toBeInTheDocument();
+      expect(screen.queryByTestId('reputation-profile')).not.toBeInTheDocument();
+    });
+
+    it('preserves a valid custom score maximum for summary and profile', () => {
+      render(
+        <ReputationPageContent
+          reputationData={{ score: 7.5, maxScore: 10 }}
+        />,
+      );
+
+      expect(screen.getByTestId('summary-card-max-score')).toHaveTextContent('10');
+      expect(screen.getByTestId('reputation-max-score')).toHaveTextContent('10');
+    });
+
+    it('uses the default score maximum for invalid custom bounds', () => {
+      render(
+        <ReputationPageContent
+          reputationData={{ score: 1, maxScore: 0 }}
+        />,
+      );
+
+      expect(screen.getByTestId('summary-card-max-score')).toHaveTextContent('default');
+      expect(screen.getByTestId('reputation-max-score')).toHaveTextContent('default');
+    });
+
     it('handles zero score as valid reputation', () => {
       const data = { score: 0, history: [] };
       render(<ReputationPageContent reputationData={data} />);
@@ -267,22 +306,15 @@ describe('ReputationPageContent', () => {
       expect(screen.getByTestId('reputation-name')).toHaveTextContent('CustomName');
     });
 
-    it('keeps repeated independent renders isolated', () => {
-      const firstRender = render(
-        <ReputationPageContent reputationData={{ score: 12 }} userName="Ada" />,
-      );
-      const secondRender = render(
-        <ReputationPageContent reputationData={{ score: 84 }} userName="Grace" />,
-      );
+    it('uses the protected content boundary for route-loaded reputation data', async () => {
+      mockedListReputationEvents.mockReturnValue([]);
+      mockShouldThrowInProfile = true;
+      const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
 
-      expect(firstRender.container.querySelector('[data-testid="reputation-score"]'))
-        .toHaveTextContent('12');
-      expect(firstRender.container.querySelector('[data-testid="reputation-name"]'))
-        .toHaveTextContent('Ada');
-      expect(secondRender.container.querySelector('[data-testid="reputation-score"]'))
-        .toHaveTextContent('84');
-      expect(secondRender.container.querySelector('[data-testid="reputation-name"]'))
-        .toHaveTextContent('Grace');
+      render(<ReputationPage />);
+
+      expect(await screen.findByText('This section failed to load.')).toBeInTheDocument();
+      consoleSpy.mockRestore();
     });
   });
 

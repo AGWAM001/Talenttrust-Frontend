@@ -17,6 +17,8 @@ interface ResolverOptions {
   simulateDelay?: number;
 }
 
+const inFlightResolutions = new Map<string, Promise<ContractData>>();
+
 /**
  * Simulates async contract data resolution.
  * Deterministic for testing; in production, replace with real API call.
@@ -24,6 +26,31 @@ interface ResolverOptions {
 export async function resolveContractData(
   id: string,
   options: ResolverOptions = {}
+): Promise<ContractData> {
+  const key = JSON.stringify([
+    id,
+    options.simulateError ?? false,
+    options.simulateDelay ?? 0,
+  ]);
+  const existing = inFlightResolutions.get(key);
+  if (existing) return existing;
+
+  const resolution = resolveContractDataOnce(id, options);
+  inFlightResolutions.set(key, resolution);
+
+  try {
+    return await resolution;
+  } finally {
+    // Do not let an older completion remove a newer retry for the same key.
+    if (inFlightResolutions.get(key) === resolution) {
+      inFlightResolutions.delete(key);
+    }
+  }
+}
+
+async function resolveContractDataOnce(
+  id: string,
+  options: ResolverOptions,
 ): Promise<ContractData> {
   const { simulateError = false, simulateDelay = 0 } = options;
 

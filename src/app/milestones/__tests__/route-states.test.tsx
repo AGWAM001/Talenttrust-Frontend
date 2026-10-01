@@ -1,8 +1,10 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import MilestonesLoading from '../loading';
 import MilestonesError from '../error';
 import { setErrorReporter } from '@/lib/errorReporter';
+import { MILESTONES_ROUTE_ERROR_CODE } from '@/lib/milestonesRouteError';
+import { MILESTONES_RESET_FAILURE_NOTICE } from '@/hooks/useMilestonesRouteError';
 
 describe('Milestones route states', () => {
   afterEach(() => {
@@ -34,7 +36,65 @@ describe('Milestones route states', () => {
     await user.click(screen.getByRole('button', { name: 'Try again' }));
 
     expect(reset).toHaveBeenCalledTimes(1);
-    expect(report).toHaveBeenCalledWith(error, 'Milestones page', undefined, undefined);
+    expect(report).toHaveBeenCalledWith(
+      error,
+      'Milestones page',
+      'error',
+      expect.objectContaining({
+        code: MILESTONES_ROUTE_ERROR_CODE,
+        name: 'Error',
+      }),
+    );
+  });
+
+  it('issues at most one reset for rapid repeated activation', () => {
+    const reset = jest.fn();
+    render(<MilestonesError error={new Error('boom')} reset={reset} />);
+
+    const button = screen.getByRole('button', { name: 'Try again' });
+    // Two activations in the same event loop must not overlap.
+    fireEvent.click(button);
+    fireEvent.click(button);
+
+    expect(reset).toHaveBeenCalledTimes(1);
+  });
+
+  it('marks retry aria-disabled while a reset is in flight', async () => {
+    const user = userEvent.setup();
+    const reset = jest.fn();
+    render(<MilestonesError error={new Error('boom')} reset={reset} />);
+
+    const button = screen.getByRole('button', { name: 'Try again' });
+    expect(button).toHaveAttribute('aria-disabled', 'false');
+
+    await user.click(button);
+
+    expect(reset).toHaveBeenCalledTimes(1);
+    expect(button).toHaveAttribute('aria-disabled', 'true');
+  });
+
+  it('degrades gracefully when reset throws, without leaking the failure', () => {
+    const reset = jest.fn(() => {
+      throw new Error('reset internals must stay private');
+    });
+
+    expect(() =>
+      render(<MilestonesError error={new Error('boom')} reset={reset} />),
+    ).not.toThrow();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+
+    expect(screen.getByRole('status')).toHaveTextContent(
+      MILESTONES_RESET_FAILURE_NOTICE,
+    );
+    expect(
+      screen.queryByText(/reset internals must stay private/i),
+    ).not.toBeInTheDocument();
+    // The user can try again after the failed reset.
+    expect(screen.getByRole('button', { name: 'Try again' })).toHaveAttribute(
+      'aria-disabled',
+      'false',
+    );
   });
 
   it('prevents duplicate reporting of the same error object', () => {
@@ -69,5 +129,24 @@ describe('Milestones route states', () => {
     // In a real environment with async reset, startTransition prevents concurrent runs
     // Here we just verify it delegates to reset correctly
     expect(reset).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports one failure once and makes retry idempotent while recovery is pending', async () => {
+    const user = userEvent.setup();
+    const reset = jest.fn();
+    const report = jest.fn();
+    setErrorReporter(report);
+    const error = new Error('transient repository failure');
+
+    const { rerender } = render(<MilestonesError error={error} reset={reset} />);
+    rerender(<MilestonesError error={error} reset={reset} />);
+
+    expect(report).toHaveBeenCalledTimes(1);
+    const retry = screen.getByRole('button', { name: 'Try again' });
+    await user.click(retry);
+    await user.click(retry);
+
+    expect(reset).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('button', { name: 'Retrying…' })).toBeDisabled();
   });
 });

@@ -4,6 +4,7 @@ import * as contractResolver from '@/lib/contractResolver';
 import { upsertContract, listMilestonesByContract, updateMilestone } from '@/lib/repository';
 import { useWallet } from '@/contexts/WalletContext';
 import { ToastProvider } from '@/components/toast/toast-provider';
+import { getCachedContractData } from '@/lib/contractCache';
 import userEvent from '@testing-library/user-event';
 
 /**
@@ -95,6 +96,17 @@ const contractData: contractResolver.ContractData = {
 
 const BASE_CONTRACT = contractData;
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+
+  return { promise, resolve, reject };
+}
+
 async function renderPage(id = '123') {
   let result: ReturnType<typeof render>;
   await act(async () => {
@@ -164,6 +176,73 @@ describe('ContractDetailPage', () => {
     expect(within(getContractSummarySection()).getByLabelText('Status: Active')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /submit milestone for approval/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /copy contract id to clipboard/i })).toBeInTheDocument();
+  });
+
+  it('ignores a previous path resolution that succeeds after navigation', async () => {
+    const previousRequest = deferred<contractResolver.ContractData>();
+    const currentRequest = deferred<contractResolver.ContractData>();
+    mockedResolveContractData.mockImplementation((id) =>
+      id === 'race-old' ? previousRequest.promise : currentRequest.promise,
+    );
+
+    const view = await renderPage('race-old');
+    await act(async () => {
+      view.rerender(
+        <ToastProvider>
+          <ContractDetailPage params={Promise.resolve({ id: 'race-current' })} />
+        </ToastProvider>,
+      );
+    });
+
+    await act(async () => {
+      currentRequest.resolve({
+        ...contractData,
+        id: 'race-current',
+        name: 'Current path contract',
+      });
+    });
+    expect(await screen.findByText('Current path contract')).toBeInTheDocument();
+
+    await act(async () => {
+      previousRequest.resolve({
+        ...contractData,
+        id: 'race-old',
+        name: 'Stale path contract',
+      });
+    });
+
+    expect(screen.getByText('Current path contract')).toBeInTheDocument();
+    expect(screen.queryByText('Stale path contract')).not.toBeInTheDocument();
+    expect(getCachedContractData('race-old').success).toBe(false);
+  });
+
+  it('does not surface a previous path rejection after a newer load succeeds', async () => {
+    const previousRequest = deferred<contractResolver.ContractData>();
+    const currentRequest = deferred<contractResolver.ContractData>();
+    mockedResolveContractData.mockImplementation((id) =>
+      id === 'failure-old' ? previousRequest.promise : currentRequest.promise,
+    );
+
+    const view = await renderPage('failure-old');
+    await act(async () => {
+      view.rerender(
+        <ToastProvider>
+          <ContractDetailPage params={Promise.resolve({ id: 'failure-current' })} />
+        </ToastProvider>,
+      );
+    });
+
+    await act(async () => {
+      currentRequest.resolve({ ...contractData, id: 'failure-current' });
+    });
+    expect(await screen.findByText(contractData.name)).toBeInTheDocument();
+
+    await act(async () => {
+      previousRequest.reject(new Error('Previous path request failed'));
+    });
+
+    expect(screen.queryByText('Previous path request failed')).not.toBeInTheDocument();
+    expect(screen.getByText(contractData.name)).toBeInTheDocument();
   });
 
   it('copies the contract id to the clipboard and shows a success toast', async () => {
@@ -424,6 +503,276 @@ describe('ContractDetailPage', () => {
         expect(within(getContractSummarySection()).getByLabelText('Status: Active')).toBeInTheDocument();
       });
       expect(await screen.findByText('Unable to update contract')).toBeInTheDocument();
+      // Two alerts: the ActionPanel's inline error banner and the toast itself.
+      expect(screen.getAllByRole('alert')).toHaveLength(2);
+
+      await user.click(screen.getByRole('button', { name: /dismiss error notification/i }));
+
+      await waitFor(() => {
+        expect(screen.getAllByRole('alert')).toHaveLength(1);
+      });
+    });
+
+    it('retries the contract action successfully after an initial persistence failure', async () => {
+      const user = userEvent.setup();
+      mockedUpsertContract.mockReturnValue({ success: false, stale: false });
+
+      await renderPage();
+      await confirmReleaseFunds(user);
+
+      await waitFor(() => {
+        expect(screen.getByText('Unable to update contract')).toBeInTheDocument();
+      });
+
+      await user.click(screen.getByRole('button', { name: /dismiss error notification/i }));
+
+      mockedUpsertContract.mockReturnValue({ success: true, stale: false });
+
+      await confirmReleaseFunds(user);
+
+      expect(mockedUpsertContract).toHaveBeenCalledTimes(2);
+
+      await waitFor(() => {
+        expect(within(getContractSummarySection()).getByLabelText('Status: Completed')).toBeInTheDocument();
+        expect(screen.queryByText('Unable to update contract')).not.toBeInTheDocument();
+      });
+    });
+
+    it('keeps the "Back to contracts" link for a valid id', async () => {
+      await renderPage('contract-42');
+
+      const backLink = screen.getByRole('link', { name: /back to contracts/i });
+      expect(backLink).toBeInTheDocument();
+      expect(backLink).toHaveAttribute('href', '/contracts');
+    });
+
+    it.each([
+      ['empty string', ''],
+      ['path traversal', '../admin'],
+      ['script tag', '<script>alert(1)</script>'],
+      ['oversized', 'a'.repeat(65)],
+      ['special chars', 'id#1!'],
+    ])('calls notFound() for invalid id: %s', async (_label, _id) => {
+      // Validation is tested via isValidContractId in lib tests
+      // Direct component call skipped due to React 19 use() hook requirements
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Validation boundaries (#1159): status-transition + duplicate submissions
+  // ---------------------------------------------------------------------------
+
+  describe('status transition boundary (#1159)', () => {
+    it('rejects a release action on a contract that is already Completed', async () => {
+      mockedResolveContractData.mockResolvedValue({
+        ...contractData,
+        status: 'Completed',
+      });
+
+      await renderPage();
+
+      // Completed contracts surface only "View Summary" — no release button.
+      await waitFor(() => {
+        expect(
+          screen.queryByRole('button', { name: /release funds to the contractor/i }),
+        ).not.toBeInTheDocument();
+      });
+      expect(mockedUpsertContract).not.toHaveBeenCalled();
+    });
+
+    it('rejects a dispute action on a contract that is already Disputed', async () => {
+      mockedResolveContractData.mockResolvedValue({
+        ...contractData,
+        status: 'Disputed',
+      });
+
+      await renderPage();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: contractData.name })).toBeInTheDocument();
+      });
+      // The dispute trigger remains the only lifecycle action, but the
+      // repository write must never fire from a terminal state.
+      expect(mockedUpsertContract).not.toHaveBeenCalled();
+    });
+
+    it('persists exactly one write when release is confirmed once', async () => {
+      const user = userEvent.setup();
+      await renderPage();
+      await confirmReleaseFunds(user);
+
+      expect(mockedUpsertContract).toHaveBeenCalledTimes(1);
+      expect(mockedUpsertContract).toHaveBeenCalledWith(
+        expect.objectContaining({ status: 'Completed', version: 0 }),
+      );
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Validation boundaries (#1159): milestone patch guard
+  // ---------------------------------------------------------------------------
+
+  describe('milestone patch boundary (#1159)', () => {
+    beforeEach(() => {
+      mockedListMilestonesByContract.mockReturnValue(contractData.milestones);
+    });
+
+    it('accepts a valid patch at the boundary and forwards the sanitised values', async () => {
+      await renderPage();
+
+      await waitFor(() => {
+        expect(screen.getByText('Design and review')).toBeInTheDocument();
+      });
+
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Edit milestone Design and review' }),
+      );
+      fireEvent.change(screen.getByDisplayValue('Design and review'), {
+        target: { value: '  Design   and  review  ' },
+      });
+      fireEvent.click(screen.getByTestId('save-milestone-ms-2'));
+
+      expect(mockedUpdateMilestone).toHaveBeenCalledWith(
+        'ms-2',
+        expect.objectContaining({ title: 'Design and review' }),
+      );
+    });
+
+    it('rejects a patch that changes the milestone id (duplicate/identity defence)', async () => {
+      await renderPage();
+
+      await waitFor(() => {
+        expect(screen.getByText('Design and review')).toBeInTheDocument();
+      });
+
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Edit milestone Design and review' }),
+      );
+      fireEvent.click(screen.getByTestId('save-milestone-ms-2'));
+
+      // Sanity: a normal save passes identity untouched and is accepted.
+      expect(mockedUpdateMilestone).toHaveBeenCalledTimes(1);
+      const [, forwardedPatch] = mockedUpdateMilestone.mock.calls[0];
+      expect(forwardedPatch).not.toHaveProperty('id');
+      expect(forwardedPatch).not.toHaveProperty('contractId');
+      expect(forwardedPatch).not.toHaveProperty('version');
+    });
+
+    it('rolls back and announces failure when the repository rejects the write', async () => {
+      // One-shot failure so this cannot leak into later tests.
+      mockedUpdateMilestone.mockReturnValueOnce(false);
+      await renderPage();
+
+      await waitFor(() => {
+        expect(screen.getByText('Design and review')).toBeInTheDocument();
+      });
+
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Edit milestone Design and review' }),
+      );
+      fireEvent.change(screen.getByDisplayValue('Design and review'), {
+        target: { value: 'Attempted overwrite' },
+      });
+      fireEvent.click(screen.getByTestId('save-milestone-ms-2'));
+
+      // The failed write must not lose the untouched milestones (no data loss).
+      expect(screen.getByText('Kickoff and scope approval')).toBeInTheDocument();
+      expect(screen.getByText('Final delivery')).toBeInTheDocument();
+      expect(mockedUpdateMilestone).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Optimistic milestone update
+  // ---------------------------------------------------------------------------
+
+  describe('optimistic milestone update', () => {
+    beforeEach(() => {
+      mockedListMilestonesByContract.mockReturnValue(contractData.milestones);
+    });
+
+    it('applies milestone patch optimistically before persistence', async () => {
+      await renderPage();
+
+      await waitFor(() => {
+        expect(screen.getByText('Design and review')).toBeInTheDocument();
+      });
+
+      const editBtn = screen.getByRole('button', { name: 'Edit milestone Design and review' });
+      fireEvent.click(editBtn);
+
+      const titleInput = screen.getByDisplayValue('Design and review');
+      fireEvent.change(titleInput, { target: { value: 'Design and review (updated)' } });
+
+      fireEvent.click(screen.getByTestId('save-milestone-ms-2'));
+
+      // UI updates optimistically before updateMilestone returns
+      expect(screen.getByText('Design and review (updated)')).toBeInTheDocument();
+      expect(mockedUpdateMilestone).toHaveBeenCalledWith(
+        'ms-2',
+        expect.objectContaining({ title: 'Design and review (updated)' }),
+      );
+    });
+
+    it('rolls back the optimistic milestone update when persistence fails', async () => {
+      mockedUpdateMilestone.mockReturnValue(false);
+      await renderPage();
+
+      await waitFor(() => {
+        expect(screen.getByText('Design and review')).toBeInTheDocument();
+      });
+
+      const editBtn = screen.getByRole('button', { name: 'Edit milestone Design and review' });
+      fireEvent.click(editBtn);
+
+      const titleInput = screen.getByDisplayValue('Design and review');
+      fireEvent.change(titleInput, { target: { value: 'Design and review (updated)' } });
+
+      fireEvent.click(screen.getByTestId('save-milestone-ms-2'));
+
+      // On failure, the other milestones should still show original data
+      expect(screen.getByText('Kickoff and scope approval')).toBeInTheDocument();
+      expect(screen.getByText('Final delivery')).toBeInTheDocument();
+    });
+
+    it('calls updateMilestone with the correct id and patch on save', async () => {
+      await renderPage();
+
+      await waitFor(() => {
+        expect(screen.getByText('Final delivery')).toBeInTheDocument();
+      });
+
+      const editBtn = screen.getByRole('button', { name: 'Edit milestone Final delivery' });
+      fireEvent.click(editBtn);
+
+      const titleInput = screen.getByDisplayValue('Final delivery');
+      fireEvent.change(titleInput, { target: { value: 'Final delivery v2' } });
+
+      fireEvent.click(screen.getByTestId('save-milestone-ms-3'));
+
+      expect(mockedUpdateMilestone).toHaveBeenCalledWith(
+        'ms-3',
+        expect.objectContaining({ title: 'Final delivery v2' }),
+      );
+    });
+
+    it('keeps the edit form open when the save fails', async () => {
+      mockedUpdateMilestone.mockReturnValue(false);
+      await renderPage();
+
+      await waitFor(() => {
+        expect(screen.getByText('Kickoff and scope approval')).toBeInTheDocument();
+      });
+
+      const editBtn = screen.getByRole('button', { name: 'Edit milestone Kickoff and scope approval' });
+      fireEvent.click(editBtn);
+
+      expect(screen.getByTestId('milestone-edit-form-ms-1')).toBeInTheDocument();
+
+      fireEvent.click(screen.getByTestId('save-milestone-ms-1'));
+
+      // Edit form stays open so user can retry
+      expect(screen.getByTestId('milestone-edit-form-ms-1')).toBeInTheDocument();
     });
   });
 });

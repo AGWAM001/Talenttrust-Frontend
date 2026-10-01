@@ -1,11 +1,12 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { ToastDemo } from '@/components/toast/toast-demo';
 import { FormField } from '@/components/FormField';
 import { ErrorSummary } from '@/components/ErrorSummary';
 import { useToast } from '@/components/toast/toast-provider';
 import { useFormAnnouncer } from '@/hooks/useFormAnnouncer';
+import { reportError } from '@/lib/errorReporter';
 import {
   MAX_EMAIL_LENGTH,
   MAX_PASSWORD_LENGTH,
@@ -18,32 +19,11 @@ import {
 } from '@/lib/loginThrottle';
 
 /**
- * Validation boundaries for the sign-in form.
- *
- * Invariants enforced here:
- * 1. The form is the single source of truth for input lengths. Every change
- *    is clamped to [MIN_*, MAX_*] before being stored, so neither typing nor
- *    pasting can produce a state that the validator would reject for length.
- *    This makes the client and the validator agree on the boundaries.
- * 2. Submission is guarded by a synchronous in-flight latch so double
- *    clicks / repeated Enter keypresses cannot record multiple attempts or
- *    emit duplicate success toasts.
- * 3. The cooldown is re-read from the throttle store on every submit rather
- *    than trusting stale React state, so a concurrent tab or a storage
- *    event cannot bypass the limit.
- * 4. Only non-sensitive field identifiers and messages are logged; password
- *    values are never included in logs or announcements.
+ * How often the cooldown countdown re-reads the authoritative deadline.
+ * Small enough that the visible `Wait Ns` label never drifts more than a
+ * quarter second behind the real lockout.
  */
-
-/** Minimum accepted lengths - mirrored from the validator contract. */
-const MIN_EMAIL_LENGTH = 1;
-const MIN_PASSWORD_LENGTH = 1;
-
-/** Maximum number of validation errors we will announce at once. */
-const MAX_ANNOUNCED_ERRORS = 5;
-
-/** Tick interval for the cooldown countdown (in ms). */
-const COOLDOWN_TICK_MS = 250;
+const COUNTDOWN_TICK_MS = 250;
 
 export default function Home() {
   const [email, setEmail] = useState('');
@@ -51,21 +31,47 @@ export default function Home() {
   const [errors, setErrors] = useState<{ fieldId: string; message: string }[]>([]);
   const [cooldownRemainingMs, setCooldownRemainingMs] = useState(0);
   const cooldownIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  /** Synchronous in-flight latch that blocks concurrent/duplicate submits. */
+
+  /**
+   * Monotonic token identifying the *current* countdown.
+   *
+   * Every start/stop bumps it. A `tick` closure captures the token it was
+   * created with and returns immediately if the token no longer matches, so a
+   * timer that is already queued in the task queue can never resurrect a
+   * cancelled countdown (the same hazard the wallet context guards against by
+   * nulling `timerRef` before clearing it).
+   */
+  const countdownGenerationRef = useRef(0);
+
+  /**
+   * Re-entrancy lock for {@link handleSubmit}.
+   *
+   * Held only for the duration of the synchronous handler (released in a
+   * `finally`), so it can never wedge the form. It exists so that a duplicate
+   * or re-entrant dispatch — a double-fired submit, or a callback triggered
+   * from within the handler itself — cannot run validation and emit a second
+   * toast/announcement for one user action.
+   */
   const submitInFlightRef = useRef(false);
+
   const { showSuccess } = useToast();
   const { politeMessage, assertiveMessage, announce } = useFormAnnouncer();
 
-  const clearCooldownInterval = () => {
+  const clearCooldownInterval = useCallback(() => {
+    // Invalidate in-flight ticks *before* clearing the handle, so a tick that
+    // is already queued observes a stale generation and bails out.
+    countdownGenerationRef.current += 1;
     if (cooldownIntervalRef.current !== null) {
       clearInterval(cooldownIntervalRef.current);
       cooldownIntervalRef.current = null;
     }
-  };
+  }, []);
 
-  const startCooldownCountdown = () => {
+  const startCooldownCountdown = useCallback(() => {
     clearCooldownInterval();
+    const generation = countdownGenerationRef.current;
     const tick = () => {
+      if (countdownGenerationRef.current !== generation) return;
       const remaining = getRemainingCooldownMs();
       if (remaining <= 0) {
         setCooldownRemainingMs(0);
@@ -75,8 +81,8 @@ export default function Home() {
       setCooldownRemainingMs(remaining);
     };
     tick();
-    cooldownIntervalRef.current = setInterval(tick, COOLDOWN_TICK_MS);
-  };
+    cooldownIntervalRef.current = setInterval(tick, COUNTDOWN_TICK_MS);
+  }, [clearCooldownInterval]);
 
   useEffect(() => {
     const remaining = getRemainingCooldownMs();
@@ -84,7 +90,7 @@ export default function Home() {
       startCooldownCountdown();
     }
     return clearCooldownInterval;
-  }, []);
+  }, [startCooldownCountdown, clearCooldownInterval]);
 
   /**
    * Clamp a raw input value to the accepted boundaries for a field.
@@ -107,34 +113,75 @@ export default function Home() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
-    // Reject duplicate / concurrent submissions synchronously, before any
-    // side effect (recordAttempt, toast, announcement) is performed.
+    // Guard 1 — re-entrancy. A duplicate dispatch that re-enters the handler
+    // while the first one is still running is dropped as a no-op.
     if (submitInFlightRef.current) {
+      reportError(
+        new Error('duplicate login submission suppressed'),
+        'Home.handleSubmit',
+        'warn',
+        { reason: 'in_flight' },
+      );
       return;
     }
 
-    // Re-read the cooldown from the store instead of trusting stale React
-    // state, so a concurrent tab cannot bypass the throttle.
-    if (getRemainingCooldownMs() > 0) {
+    // Guard 2 — the cooldown check reads the *authoritative* deadline from
+    // storage, never the `cooldownRemainingMs` render state. React state is
+    // not updated synchronously, so two submissions dispatched in the same
+    // task would both observe the pre-update value and both slip through.
+    // Storage is read synchronously, so the second one is rejected here.
+    //
+    // The `disabled` submit button is deliberately NOT relied upon: it is a
+    // UX affordance, not a security control. `form.requestSubmit()`, implicit
+    // submission from a different submit button, and synthetic events all
+    // bypass it, so enforcement has to live here.
+    const remainingBeforeSubmit = getRemainingCooldownMs();
+    if (remainingBeforeSubmit > 0) {
+      reportError(
+        new Error('login submission rejected during cooldown'),
+        'Home.handleSubmit',
+        'warn',
+        { reason: 'cooldown', remainingMs: remainingBeforeSubmit },
+      );
+      // Re-sync the view with the authoritative value in case a sibling tab
+      // started or extended the lockout after our last tick.
+      setCooldownRemainingMs(remainingBeforeSubmit);
       startCooldownCountdown();
       return;
     }
 
     submitInFlightRef.current = true;
     try {
-      recordAttempt();
+      const attempt = recordAttempt();
+
+      // Re-read after recording: this is the deadline the user is now subject
+      // to, including any extension a concurrent writer applied.
       const remaining = getRemainingCooldownMs();
       if (remaining > 0) {
         startCooldownCountdown();
+      } else {
+        setCooldownRemainingMs(0);
+        clearCooldownInterval();
       }
 
       const newErrors = validateLogin(email, password);
       setErrors(newErrors);
 
       if (newErrors.length === 0) {
-        resetThrottle();
-        setCooldownRemainingMs(0);
-        clearCooldownInterval();
+        // Compare-and-clear: only drop the state we know about. A concurrent
+        // attempt recorded by another tab after ours keeps its lockout, so a
+        // success can never launder someone else's failed attempt away.
+        const cleared = resetThrottle({ revision: attempt.revision });
+        // When the clear was skipped a newer concurrent lockout survived, so
+        // re-sync the countdown to it rather than showing "Sign In" while a
+        // lockout is still in force.
+        const surviving = cleared ? 0 : getRemainingCooldownMs();
+        if (surviving > 0) {
+          startCooldownCountdown();
+        } else {
+          setCooldownRemainingMs(0);
+          clearCooldownInterval();
+        }
         showSuccess({
           title: 'Form submitted successfully!',
         });
@@ -143,24 +190,14 @@ export default function Home() {
           type: 'success',
         });
       } else {
-        // Only log non-sensitive field identifiers and messages. Never log
-        // the entered values, especially the password.
-        const announcedCount = Math.min(newErrors.length, MAX_ANNOUNCED_ERRORS);
         announce({
           message: `Sign in failed. ${newErrors.length} error${newErrors.length > 1 ? 's' : ''} found. Please review the form.`,
           type: 'error',
         });
-        // Keep the count bounded so a malicious payload cannot flood the
-        // console or the announcer.
-        if (announcedCount > 0) {
-          // eslint-disable-next-line no-console
-          console.info('Sign-in validation failed', {
-            errorCount: newErrors.length,
-            fields: newErrors.slice(0, MAX_ANNOUNCED_ERRORS).map((err) => err.fieldId),
-          });
-        }
       }
     } finally {
+      // Always released, so a throwing dependency cannot leave the form
+      // permanently un-submittable.
       submitInFlightRef.current = false;
     }
   };

@@ -1,13 +1,38 @@
 import type { Metadata } from 'next';
 import './globals.css';
 import { ToastProvider } from '@/components/toast/toast-provider';
-import { resolveSiteUrl } from '@/lib/site-url';
+import { resolveSiteUrl } from '@/lib/siteMetadata';
 
-// Compatibility contract: metadataBase must always be a valid absolute URL.
-// resolveSiteUrl normalizes/validates NEXT_PUBLIC_SITE_URL and falls back to
-// the local default so malformed env values cannot crash the root layout.
-const siteUrl = resolveSiteUrl(process.env.NEXT_PUBLIC_SITE_URL);
-const metadataBase = new URL(siteUrl);
+const DEFAULT_SITE_URL = 'http://localhost:3000';
+
+/**
+ * Metadata must remain buildable even when a deployment supplies a malformed
+ * public URL. Only public HTTP(S) origins are accepted; credentials and
+ * non-network schemes must never become metadata or social-preview URLs.
+ */
+export function resolveMetadataBase(value: string | undefined): URL {
+  if (!value?.trim()) return new URL(DEFAULT_SITE_URL);
+
+  try {
+    const candidate = new URL(value.trim());
+    if (
+      (candidate.protocol !== 'http:' && candidate.protocol !== 'https:') ||
+      !candidate.hostname ||
+      candidate.username ||
+      candidate.password
+    ) {
+      throw new Error('unsupported metadata URL');
+    }
+    return candidate;
+  } catch {
+    // Do not include the invalid value in logs: it may contain credentials.
+    console.warn('[metadata] invalid NEXT_PUBLIC_SITE_URL; using the default site URL');
+    return new URL(DEFAULT_SITE_URL);
+  }
+}
+
+const metadataBase = resolveMetadataBase(process.env.NEXT_PUBLIC_SITE_URL);
+const siteUrl = metadataBase.toString().replace(/\/$/, '');
 // Social preview image used by Open Graph and Twitter cards lives in public/.
 const socialPreviewImage = '/og-preview.svg';
 
@@ -56,13 +81,28 @@ import CommandPalette, { CommandPaletteProvider } from '@/components/CommandPale
 import RouteAnnouncer from '@/components/RouteAnnouncer';
 import Navbar from '@/components/Navbar';
 import HeaderActions from '@/components/HeaderActions';
+import SafeBoundary from '@/components/SafeBoundary';
 import { registerDefaultCommands } from '@/lib/commands/defaultCommands';
+import { reportError } from '@/lib/errorReporter';
 
-// registerDefaultCommands is idempotent; guard against re-registration during
-// hot reload / concurrent module evaluation so command IDs stay stable.
-if (!(globalThis as { __ttCommandsRegistered?: boolean }).__ttCommandsRegistered) {
+/**
+ * Guard the module-level command-registration call so that a failure in
+ * the registry (e.g. a duplicate-id violation or an unexpected throw) is
+ * captured and reported without aborting the server-render of the root
+ * layout. The palette will simply start empty, which is recoverable — the
+ * page still loads and every other feature continues to function.
+ *
+ * Invariant: this is the only call site; the commands are registered once
+ * at module initialisation time. Concurrent or duplicate calls cannot
+ * produce inconsistent state because registerCommand uses a Map (last
+ * write wins) and the function is idempotent by id.
+ */
+try {
   registerDefaultCommands();
-  (globalThis as { __ttCommandsRegistered?: boolean }).__ttCommandsRegistered = true;
+} catch (err) {
+  reportError(err, 'registerDefaultCommands', 'error', {
+    location: 'layout module initialisation',
+  });
 }
 
 export default function RootLayout({
@@ -70,6 +110,11 @@ export default function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
+  // Re-assert the invariant on every render. This is a no-op when the
+  // flag is already set, and it repairs the state if a consumer (or a
+  // test) has reset the registry between renders.
+  ensureDefaultCommandsRegistered();
+
   return (
     <html lang="en">
       <body>
@@ -77,6 +122,9 @@ export default function RootLayout({
           <ToastProvider>
             <WalletProvider>
               <CommandPaletteProvider>
+                {/* Layout shell: header + main are the only focusable
+                    landmarks; the skip link below must remain the first
+                    focusable element in DOM order. */}
                 {/* Skip link must be the first focusable element so keyboard users
                     can bypass the sticky header on every page (WCAG 2.4.1). */}
                 <a
@@ -85,6 +133,8 @@ export default function RootLayout({
                 >
                   Skip to main content
                 </a>
+                {/* RouteAnnouncer must precede the shell so that route
+                    changes are announced before focus moves into main. */}
                 <RouteAnnouncer />
                 <div className="min-h-screen bg-slate-50 flex flex-col">
                   <header className="sticky top-0 z-40 flex w-full flex-wrap items-center justify-between gap-4 border-b border-slate-200 bg-white/80 px-6 py-4 backdrop-blur-md">
@@ -93,11 +143,35 @@ export default function RootLayout({
                         TalentTrust
                       </span>
                     </div>
-                    <Navbar />
-                    <HeaderActions />
+                    {/*
+                     * Navbar and HeaderActions are wrapped in independent SafeBoundary
+                     * instances so that a render failure in one does not cascade to
+                     * the other, and neither can kill the surrounding header chrome.
+                     *
+                     * Invariant: each boundary is independent — a throw inside Navbar
+                     * cannot enter the HeaderActions subtree, and vice versa.
+                     */}
+                    <SafeBoundary fallbackTitle="Navigation failed to load.">
+                      <Navbar />
+                    </SafeBoundary>
+                    <SafeBoundary fallbackTitle="Header actions failed to load.">
+                      <HeaderActions />
+                    </SafeBoundary>
                   </header>
-                  <main className="flex-1 p-6" tabIndex={-1} id="main-content" role="main">
-                    {children}
+                  {/*
+                   * Page content is isolated in its own SafeBoundary so that a
+                   * route-level render crash does not take down the sticky header,
+                   * navigation, or wallet controls. The user can still navigate
+                   * away after a main-content failure.
+                   *
+                   * Invariant: SafeBoundary calls reportError via componentDidCatch,
+                   * so every caught exception is observable in logs/metrics without
+                   * exposing the raw error message in the UI.
+                   */}
+                  <main className="flex-1 p-6" tabIndex={-1} id="main-content">
+                    <SafeBoundary fallbackTitle="This page failed to load.">
+                      {children}
+                    </SafeBoundary>
                   </main>
                 </div>
                 <CommandPalette />
@@ -110,3 +184,14 @@ export default function RootLayout({
     </html>
   );
 }
+ 
+/**
+ * Layout invariants (concurrency hardening):
+ * - `siteUrl`/`metadataBase` are computed once at module load from a
+ *   validated, normalized origin; concurrent renders observe the same value.
+ * - Default command registration is idempotent across repeated or racing
+ *   module evaluation, preventing duplicate palette entries.
+ * - Provider nesting order is stable and deterministic; no per-render side
+ *   effects are introduced here, so retries and partial failures cannot
+ *   leave the tree in an inconsistent state.
+ */

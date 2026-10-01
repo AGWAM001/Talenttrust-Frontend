@@ -1,162 +1,263 @@
-'use client';
+"use client";
 
-/**
- * UseContract
- *
- * A deterministic, concurrency-safe hook for loading a single contract by id.
- *
- * Invariants:
- * -  Only the latest request for the current id may write state (stale responses
- *    are discarded).
- * -  Repeated or concurrent calls for the same id coalesce into one network
- *    request via the shared deduper.
- * -  Unmount aborts the caller-scoped view but never corrupts the shared
- *    in-flight promise for other consumers.
- * -  Retry is idempotent: a retry always issues a fresh request and never
- *    reuses a stale result.
- */
-
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
-  Contract,
   ContractsApiError,
   fetchContract,
-  FetchContractOptions,
-} from '@/lib/contractsApi';
+  type Contract,
+} from "../lib/contractsApi";
+import { reportError } from "../lib/errorReporting";
+
+export type ContractLoadStatus = "idle" | "loading" | "success" | "error" | "not-found";
 
 export interface UseContractResult {
+  status: ContractLoadStatus;
   contract: Contract | null;
-  isLoading: boolean;
   error: ContractsApiError | null;
-  /** True when the current id is missing or malformed. */
-  isInvalidId: boolean;
-  /** Trigger a fresh fetch, bypassing any in-flight coalescing. */
-  refresh: () => Promise<void>;
+  /** True while a retry is in flight after a failure. */
+  isRetrying: boolean;
+  /** Number of completed attempts for the current id. */
+  attempts: number;
+  /** Manual retry. No-op if not in an error state. */
+  retry: () => void;
+  /** Refetch from scratch. */
+  refresh: () => void;
 }
 
 export interface UseContractOptions {
-  /** Optional request timeout in milliseconds. */
-  timeoutMs?: number;
-  /** Optional base URL override (tests). */
-  baseUrl?: string;
+  /** Number of automatic retries for retryable failures. */
+  retries?: number;
+  /** Base retry delay in ms. */
+  retryDelayMs?: number;
+  /** Disable automatic fetching (useful for tests). */
+  enabled?: boolean;
+  /** Injectable fetch for testing. */
+  fetchImpl?: typeof fetch;
+  /** Injectable sleep for testing. */
+  sleep?: (ms: number) => Promise<void>;
+  /** Correlation id for observability. */
+  correlationId?: string;
+  /** Optional callback invoked on every failure (including auto-retries). */
+  onError?: (error: ContractsApiError, attempt: number) => void;
 }
 
-const isValidId = (id: unknown): boolean =>
-  typeof id === 'string' && id.trim().length > 0 && /^[A-Za-z0-9_.:-]+$/.test(id);
+interface InternalState {
+  status: ContractLoadStatus;
+  contract: Contract | null;
+  error: ContractsApiError | null;
+  attempts: number;
+  isRetrying: boolean;
+  /** Monotonically increasing token that identifies the current load. */
+  requestId: number;
+}
 
+const INITIAL_STATE: InternalState = {
+  status: "idle",
+  contract: null,
+  error: null,
+  attempts: 0,
+  isRetrying: false,
+  requestId: 0,
+};
+
+function toApiError(error: unknown): ContractsApiError {
+  if (error instanceof ContractsApiError) return error;
+  if (error instanceof Error) {
+    return new ContractsApiError(error.message, "network", {
+      retryable: true,
+      cause: error,
+    });
+  }
+  return new ContractsApiError("Unknown contract load failure", "network", {
+    retryable: true,
+  });
+}
+
+/**
+ * Loads a contract by id with deterministic failure recovery.
+ *
+ * Invariants:
+ *  - At most one in-flight request per id; stale responses are dropped.
+ *  - A successful load clears any prior error and resets attempts.
+ *  - A failure keeps the last known good contract in memory (no silent data loss).
+  *  - Manual retry is a no-op while a request is in flight.
+ *  - Unmount aborts the in-flight request and ignores its result.
+ */
 export function useContract(
   id: string | undefined | null,
   options: UseContractOptions = {},
 ): UseContractResult {
-  const { timeoutMs, baseUrl } = options;
+  const {
+    retries,
+    retryDelayMs,
+    enabled = true,
+    fetchImpl,
+    sleep,
+    correlationId,
+    onError,
+  } = options;
 
-  const normalizedId = typeof id === 'string' ? id.trim() : '';
-  const validId = isValidId(normalizedId);
+  const [state, setState] = useState<InternalState>(INITIAL_STATE);
 
-  const [state, setState] = useState<{
-    contract: Contract | null;
-    isLoading: boolean;
-    error: ContractsApiError | null;
-  }>({ contract: null, isLoading: false, error: null });
+  // Track the latest request token and active controller outside of React state
+  // so that async callbacks can compare against the current value without stale closures.
+  const requestIdRef = useRef(0);
+  const controllerRef = useRef({
+    current: null as AbortController | null,
+  });
+  const mountedRef = useRef(true);
+  const onErrorRef = useRef(onError);
 
-  // Monotonic token guarantees only the latest request can commit state.
-  const requestTokenRef = useRef<number>(0);
-  const abortRef = useRef<AbortController | null>(null);
-  const mountedRef = useRef<true>(true);
+  useEffect(() => {
+    onErrorRef.current = onError;
+  }, [onError]);
 
   useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
-      // Abort only this caller's view; the shared in-flight request survives.
-      abortRef.current?.abort();
-      abortRef.current = null;
+      controllerRef.current?.abort();
+      controllerRef.current = null;
     };
   }, []);
 
-  const load = useCallback(
-    async (force: boolean) => {
-      if (!validId) {
-        // Invalid inputs must never issue a request or leak stale state.
-        requestTokenRef.current += 1;
-        abortRef.current?.abort();
-        abortRef.current = null;
-        if (mountedRef.current) {
-          setState({ contract: null, isLoading: false, error: null });
-        }
-        return;
-      }
+  const normalizedId = typeof id === "string" ? id.trim() : "";
 
-      const token = ++requestTokenRef.current;
-      abortRef.current?.abort();
-      const controller = new AbortController();
-      abortRef.current = controller;
+  const load = useCallback(() => {
+    if (!enabled) {
+      return;
+    }
 
-      if (mountedRef.current) {
-        setState((prev) => ({
-          // Preserve the last known contract while reloading to avoid flicker.
-          contract: prev.contract,
-          isLoading: true,
-          error: null,
-        }));
-      }
+    // Invalid id: fail fast without hitting the network.
+    if (!normalizedId) {
+      const error = new ContractsApiError(
+        "Contract id is required",
+        "http",
+        { status: 400, retryable: false },
+      );
+      setState({
+        status: "error",
+        contract: null,
+        error: error,
+        attempts: 0,
+        isRetrying: false,
+        requestId: ++requestIdRef.current,
+      });
+      reportError(error, {
+        operation: "useContract.load",
+        correlationId,
+        metadata: { reason: "invalid-id" },
+      }, "warning");
+      return;
+    }
 
-      const requestOptions: FetchContractOptions = {
-        signal: controller.signal,
-        timeoutMs,
-        baseUrl,
-        force,
-      };
+    // Abort any previous in-flight request before starting a new one.
+    controllerRef.current?.abort();
+    const controller =
+      typeof AbortController !== "undefined" ? new AbortController() : null;
+    controllerRef.current = controller;
 
+    const requestId = ++requestIdRef.current;
+    const isCurrent = () =>
+      mountedRef.current && requestIdRef.current === requestId;
+
+    setState((prev) => ({
+      // Preserve the last known good contract so the UI can keep showing it
+      // while a refresh is in flight or fails.
+      contract: prev.contract,
+      status: "loading",
+      error: null,
+      attempts: 0,
+      isRetrying: false,
+      requestId: requestId,
+    }));
+
+    void (buildLoader());
+
+    async function buildLoader(): Promise<void> {
       try {
-        const contract = await fetchContract(normalizedId, requestOptions);
-        if (!mountedRef.current || token !== requestTokenRef.current) {
-          // Stale response: discard without touching state.
-          return;
-        }
-        setState({ contract, isLoading: false, error: null });
-      } catch (error) {
-        if (!mountedRef.current || token !== requestTokenRef.current) {
-          return;
-        }
-        const apiError =
-          error instanceof ContractsApiError
-            ? error
-            : new ContractsApiError('Unable to load contract.', 'ER_UNKNOWN');
-        // Aborted requests are expected during unmount/renavigation and must not
-        // surface as user-visible errors.
-        if (apiError.code === 'ER_ABORTED') {
-          return;
-        }
-        setState({ contract: null, isLoading: false, error: apiError });
-      } finally {
-        if (abortRef.current === controller) {
-          abortRef.current = null;
-        }
+        const contract = await fetchContract(normalizedId, {
+          signal: controller?.signal,
+          retries,
+          retryDelayMs,
+          fetchImpl,
+          sleep,
+          correlationId,
+        });
+
+        if (!isCurrent()) return;
+
+        setState((prev) => ({
+          contract,
+          status: "success",
+          error: null,
+          attempts: prev.attempts + 1,
+          isRetrying: false,
+          requestId,
+        }));
+      } catch (cause) {
+        if (!isCurrent()) return;
+
+        const error = toApiError(cause);
+
+        // Aborted requests are expected during unmount or id switches and must
+        // not be surfaced as a failure to the user.
+        if (error.kind === "aborted") return;
+
+        const nextStatus: ContractLoadStatus =
+          error.kind === "not-found" ? "not-found" : "error";
+
+        setState((prev) => ({
+          // Keep the last known good contract on failure to avoid silent data
+          // loss in the UI.
+          contract: prev.contract,
+          status: nextStatus,
+          error,
+          attempts: prev.attempts + 1,
+          isRetrying: false,
+          requestId,
+        }));
+
+        onErrorRef.current?.(error, state.attempts + 1);
       }
-    },
-    [normalizedId, validId, timeoutMs, baseUrl],
-  );
+    }
+  }, [
+    enabled,
+    normalizedId,
+    retries,
+    retryDelayMs,
+    fetchImpl,
+    sleep,
+    correlationId,
+  ]);
 
   useEffect(() => {
-    void load(false);
-    // Intentionally do not abort on dependency change here; `load` already
-    // assumes ownership of the previous caller signal and bumps the token.
+    if (!enabled) return;
+    load();
+  }, [enabled, load]);
+
+  const retry = useCallback(() => {
+    if (state.status !== "error" && state.status !== "not-found") return;
+    if (state.isRetrying) return;
+    setState((prev) => ({ ...prev, isRetrying: true }));
+    load();
+  }, [load, state.status, state.isRetrying]);
+
+  const refresh = useCallback(() => {
+    load();
   }, [load]);
 
-  const refresh = useCallback(async () => {
-    await load(true);
-  }, [load]);
-
-  return useMemo(
+  return useMemo<UseContractResult>(
     () => ({
+      status: state.status,
       contract: state.contract,
-      isLoading: state.isLoading,
       error: state.error,
-      isInvalidId: !validId,
+      isRetrying: state.isRetrying,
+      attempts: state.attempts,
+      retry,
       refresh,
     }),
-    [state.contract, state.isLoading, state.error, validId, refresh],
+    [state, retry, refresh],
   );
 }
