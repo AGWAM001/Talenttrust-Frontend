@@ -169,13 +169,7 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
   const [cachedAt, setCachedAt] = useState<string | undefined>(undefined);
   const [isDataStale, setIsDataStale] = useState(false);
   const isMountedRef = useRef(true);
-  /**
-   * Synchronous duplicate-submission guard for contract status writes.
-   * `isPersistingStatus` state alone re-renders too late to stop a second
-   * invocation dispatched in the same tick (e.g. a double-click racing the
-   * confirm dialog), so the ref closes that gap.
-   */
-  const isPersistingStatusRef = useRef(false);
+  const loadRequestIdRef = useRef(0);
   const milestonesRef = useRef(milestones);
   milestonesRef.current = milestones;
   const loadRequestIdRef = useRef(0);
@@ -355,6 +349,7 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
 
     const loadContract = async () => {
       const requestId = ++loadRequestIdRef.current;
+
       try {
         setIsLoading(true);
         setErrorMessage(null);
@@ -382,7 +377,11 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
         if (!isOnline) {
           const cachedResult = getCachedContractData(id);
           if (cachedResult.success && cachedResult.data) {
-            if (isCurrentAttempt) {
+            if (requestId !== loadRequestIdRef.current || !isMountedRef.current) {
+              return;
+            }
+
+            if (isMountedRef.current) {
               setContractData(cachedResult.data);
               setMilestones(mergeContractMilestones(cachedResult.data.milestones, id));
               setIsUsingCachedData(true);
@@ -393,7 +392,7 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
             return;
           }
           // No cache available when offline - show error
-          if (isCurrentAttempt) {
+          if (requestId === loadRequestIdRef.current && isMountedRef.current) {
             setErrorMessage(
               'You are offline and this contract has not been loaded before. Please connect to the internet and try again.',
             );
@@ -423,7 +422,11 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
           }
         }
 
-        if (isCurrentAttempt) {
+        if (requestId !== loadRequestIdRef.current || !isMountedRef.current) {
+          return;
+        }
+
+        if (isMountedRef.current) {
           setContractData(data);
           setMilestones(mergeContractMilestones(data.milestones, id));
           setIsUsingCachedData(false);
@@ -434,7 +437,10 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
           cacheContractData(id, data);
         }
       } catch (error) {
-        if (loadAbortRef.current?.signal.aborted) return;
+        if (requestId !== loadRequestIdRef.current || !isMountedRef.current) {
+          return;
+        }
+
         // On error, try to fall back to cache
         const cachedResult = getCachedContractData(id);
         if (cachedResult.success && cachedResult.data) {
@@ -456,7 +462,7 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
           );
         }
       } finally {
-        if (isCurrentAttempt) {
+        if (requestId === loadRequestIdRef.current && isMountedRef.current) {
           setIsLoading(false);
         }
       }
@@ -465,7 +471,8 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
     loadContract();
 
     return () => {
-      isCurrentAttempt = false;
+      isMountedRef.current = false;
+      loadRequestIdRef.current += 1;
     };
   }, [id, isOnline, loadAttempt]);
 
