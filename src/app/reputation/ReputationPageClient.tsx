@@ -76,60 +76,46 @@ export default function ReputationPageClient({
 }: ReputationPageClientProps) {
   const mainRef = useRef<HTMLElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
-  // Tracks whether this component actually assumed focus. Only when true
-  // does cleanup restore focus, preventing focus theft from elements the
-  // user or another component legitimately focused after mount.
-  const didFocusRef = useRef(false);
+  const focusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const focusRequestIdRef = useRef(0);
 
   useEffect(() => {
-    // Store the previously focused element when the page mounts.
-    // Guard against environments with no document (SSR / test runners).
-    if (typeof document !== 'undefined') {
-      const active = document.activeElement;
-      previousFocusRef.current = active instanceof HTMLElement ? active : null;
+    // Store the previously focused element when the page mounts. This value is
+    // intentionally kept as a ref so a stale timer cannot race with a later
+    // mount or re-render and restore focus to the wrong target.
+    previousFocusRef.current = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+
+    // Only the latest focus request should be allowed to complete. StrictMode
+    // double-invocation and rapid re-renders can otherwise queue multiple timers
+    // that race each other over the same page instance.
+    const requestId = ++focusRequestIdRef.current;
+
+    if (focusTimerRef.current !== null) {
+      clearTimeout(focusTimerRef.current);
+      focusTimerRef.current = null;
     }
 
-    // Focus the main content area after a small delay to ensure DOM is ready.
-    // The delay is cleared on unmount so a navigation away before the
-    // timer fires cannot leak a focus call into a detached tree.
-    const timer = setTimeout(() => {
-      if (typeof document === 'undefined') {
+    focusTimerRef.current = setTimeout(() => {
+      if (requestId !== focusRequestIdRef.current) {
         return;
       }
+
       const main = document.querySelector('main') || mainRef.current;
-      if (main && typeof main.focus === 'function') {
-        // Only assume focus if nothing else has already claimed it. This
-        // keeps the effect idlempotent when another component focuses a
-        // meaningful target during the delay window.
-        const active = document.activeElement;
-        if (active && active !== document.body && active !== main) {
-          return;
-        }
+      if (main && document.activeElement !== main) {
         main.focus();
-        didFocusRef.current = true;
       }
-    }, delay);
+
+      focusTimerRef.current = null;
+    }, 100);
 
     return () => {
-      clearTimeout(timer);
-      // Restore focus only if we assumed it and the main element still
-      // holds it. Otherwise leave focus where the user or another component
-      // put it. This avoids focus theft on unmount and keeps the
-      // transition deterministic.
-      if (!didFocusRef.current) {
-        return;
+      if (focusTimerRef.current !== null) {
+        clearTimeout(focusTimerRef.current);
+        focusTimerRef.current = null;
       }
-      if (typeof document === 'undefined') {
-        return;
-      }
-      const main = document.querySelector('main') || mainRef.current;
-      if (!main || document.activeElement !== main) {
-        return;
-      }
-      const previous = previousFocusRef.current;
-      if (previous && previous.isConnected && typeof previous.focus === 'function') {
-        previous.focus();
-      }
+      // Note: Focus restoration is handled by RouteAnnouncer on navigation away.
     };
   }, [focusSelector, focusDelayMs]);
 
