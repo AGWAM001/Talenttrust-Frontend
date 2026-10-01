@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { useMilestonesRouteError } from '@/hooks/useMilestonesRouteError';
 
@@ -9,33 +10,68 @@ type MilestonesErrorProps = {
 };
 
 /**
- * Route-level error boundary for the `/milestones` segment.
+ * State invariants for the milestones error boundary:
  *
- * Invariants owned here (and enforced by `useMilestonesRouteError`):
- * - Each distinct failure is reported exactly once, with sanitized metadata.
- * - `reset` is single-flight: repeated/clashing retries cannot issue overlapping
- *   resets, and the retry affordance re-arms so a persistent failure stays
- *   recoverable.
- * - A throwing `reset` degrades to a safe, user-visible notice instead of
- *   crashing the boundary a second time.
- * - The UI never renders the error message, stack, or digest.
+ * 1. Reporting is idempotent per error identity. The same error object
+ *    (or the same digest) must not be reported more than once, even if
+ *    React re-renders or Strict Mode double-invokes effects. This prevents
+ *    duplicate telemetry and alert fatigue.
+ * 2. Reset is guarded against concurrent/repeated invocation. A double
+ *    click or a rapid retry must not dispatch multiple resets that could
+ *    corrupt the parent state transition.
+ * 3. Reporting must never throw. A failure in the observability path must
+ *    not cause the error boundary itself to crash or block recovery.
+ * 4. No sensitive data is rendered to the user; only a stable digest is
+ *    exposed for correlation with server logs.
  */
+
+function getErrorIdentity(error: Error & { digest?: string }): string {
+  if (typeof error.digest === 'string' && error.digest.length > 0) {
+    return `digest:${error.digest}`;
+  }
+
+  // Fall back to a stable identity derived from the error object itself
+  // so re-renders of the same instance do not re-report.
+  return 'object:' + (error.name || 'Error') + ':' + (error.message || '');
+}
+
 export default function MilestonesError({ error, reset }: MilestonesErrorProps) {
-  // `error` is typed as an Error, but a boundary must survive anything at
-  // runtime — reading `.digest` off a non-object would otherwise re-crash it.
-  const digest = (error as { digest?: unknown } | null | undefined)?.digest;
-  const { isRetryDisabled, recoveryNotice, handleRetry } = useMilestonesRouteError(
-    error,
-    reset,
-    digest,
-  );
+  const lastReportedId = useRef<string | null>(null);
+  const isResetting = useRef<boolean>(false);
+
+  useEffect(() => {
+    const identity = getErrorIdentity(error);
+
+    // Invariant 1: report at most once per error identity.
+    if (lastReportedId.current === identity) {
+      return;
+    }
+    lastReportedId.current = identity;
+
+    // Invariant 3: reporting must not throw.
+    try {
+      reportError(error, 'Milestones page');
+    } catch {
+      // Swallow observability failures so recovery remains available.
+    }
+  }, [error]);
 
   const handleReset = () => {
-    if (isPending) return;
-    startTransition(() => {
+    // Invariant 2: guard against concurrent/repeated resets.
+    if (isResetting.current) {
+      return;
+    }
+    isResetting.current = true;
+
+    try {
       reset();
-    });
+    } finally {
+      // Allow a future reset if this one did not unmount the boundary.
+      isResetting.current = false;
+    }
   };
+
+  const digest = typeof error.digest === 'string' && error.digest.length > 0 ? error.digest : null;
 
   return (
     <main className="min-h-screen p-8" aria-labelledby="milestones-error-title">
@@ -46,16 +82,16 @@ export default function MilestonesError({ error, reset }: MilestonesErrorProps) 
         <p className="mt-3 text-slate-600">
           Please try again. Contact support if the problem continues.
         </p>
+        {digest ? (
+          <p className="mt-2 text-xs text-slate-400" data-testid="milestones-error-digest">
+            Reference: {digest}
+          </p>
+        ) : null}
         <div className="mt-6 flex flex-col justify-center gap-3 sm:flex-row">
           <button
             type="button"
-            data-testid="milestones-error-retry"
-            onClick={handleRetry}
-            aria-disabled={isRetryDisabled}
-            aria-describedby={
-              recoveryNotice ? 'milestones-error-recovery-notice' : undefined
-            }
-            className="rounded-xl bg-blue-600 px-4 py-2 font-semibold text-white hover:bg-blue-700 focus-visible:outline focus-visible:outline-4 focus-visible:outline-offset-2 focus-visible:outline-blue-500 aria-disabled:cursor-not-allowed aria-disabled:opacity-60"
+            onClick={handleReset}
+            className="rounded-xl bg-blue-600 px-4 py-2 font-semibold text-white hover:bg-blue-700 focus-visible:outline focus-visible:outline-4 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
           >
             {isPending ? 'Trying...' : 'Try again'}
           </button>

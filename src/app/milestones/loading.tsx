@@ -1,1 +1,35 @@
-LyoqCiAqIEFwcCBSb3V0ZXIgbG9hZGluZyBzdGF0ZSBmb3IgdGhlIG1pbGVzdG9uZXMgYm9hcmQuIEtlZXAgdGhpcyByb3V0ZS1sZXZlbAogKiBmYWxsYmFjayBhbmQgdGhlIGNsaWVudCBTdXNwZW5zZSBmYWxsYmFjayBvbiB0aGUgc2FtZSBjb21wb25lbnQgc28gdGhlaXIKICogZ2VvbWV0cnkgYW5kIGFzc2lzdGl2ZS10ZWNobm9sb2d5IGFubm91bmNlbWVudCBjYW5ub3QgZHJpZnQgYXBhcnQuCiAqCiAqIENvbXBhdGliaWxpdHkgY29udHJhY3RzIChwcmVzZXJ2ZWQgYWNyb3NzIGVycm9ycywgZW1wdHkgZGF0YSwgYW5kIHVwZ3JhZGVzKToKICogLSAgVGhpcyBtb2R1bGUgZXhwb3J0cyBhIGRlZmF1bHQgUmVhY3QgY29tcG9uZW50IHdpdGggbm8gcmVxdWlyZWQgcHJvcHMsIHNvIHRoZQogKiAgICBBcHAgUm91dGVyIGNhbiByZW5kZXIgaXQgYXMgYSByb3V0ZS1sZXZlbCBsb2FkaW5nIGJvdW5kYXJ5IHdpdGhvdXQgYW55CiAqICAgIGNhbGwtc2l0ZSBjaGFuZ2VzLgogKiAtICBUaGUgcmVuZGVyZWQgb3V0cHV0IGlzIGRldGVybWluaXN0aWMgYW5kIGRhdGEtaW5kZXBlbmRlbnQ6IGl0IG5ldmVyIGZldGNoZXMsCiAqICAgIG5ldmVyIHJlYWRzIGF1dGhvcml6YXRpb24gc3RhdGUsIGFuZCBuZXZlciB0aHJvd3MsIHNvIGZhaWx1cmUgb2YgdGhlCiAqICAgIG1pbGVzdG9uZXMgZGF0YSBzb3VyY2UgY2Fubm90IGNhc2NhZGUgaW50byB0aGUgbG9hZGluZyBib3VuZGFyeS4KICogLSAgVGhlIHNrZWxldG9uIGlzIGFubm91bmNlZCB0byBhc3Npc3RpdmUgdGVjaG5vbG9neSB2aWEgdGhlIHNoYXJlZAogKiAgICBgTWlsZXN0b25lc0JvYXJkU2tlbGV0b25gIGNvbXBvbmVudCwgd2hpY2ggaXMgdGhlIHNpbmdsZSBzb3VyY2Ugb2YgdHJ1dGgKICogICAgZm9yIGdlb21ldHJ5IGFuZCBhbm5vdW5jZW1lbnQgdGV4dC4KICovCgppbXBvcnQgdHlwZSB7IEpTWH0gZnJvbSAncmVhY3QnOwoKaW1wb3J0IE1pbGVzdG9uZXNCb2FyZFNrZWxldG9uIGZyb20gJ0AvY29tcG9uZW50cy9taWxlc3RvbmVzL01pbGVzdG9uZXNCb2FyZFNrZWxldG9uJzsKCi eightLyoqCiAqIFJvdXRlLWxldmVsIGxvYWRpbmcgZmFsbGJhY2sgZm9yIGAvbWlsZXN0b25lc2AuCiAqCiAqIFRoZSBzaWduYXR1cmUgaXMgaW50ZW50aW9uYWxseSBwYXJhbWV0ZXJsZXNzIGFuZCByZXR1cm5zIGEgSlNYIGVsZW1lbnQgc28gdGhlCiAqIEFwcCBSb3V0ZXIgY29udHJhY3QgKGBkZWZhdWx0IGV4cG9ydCAoKSA9PiBSZWFjdE5vZGVgKSByZW1haW5zIHN0YWJsZS4KICovCmV4cG9ydCBkZWZhdWx0IGZ1bmN0aW9uIE1pbGVzdG9uZXNMb2FkaW5nKCk6IEpTWCB7CiAgcmV0dXJuIDxNaWxlc3RvbmVzQm9hcmRTa2VsZXRvbiAvPjsKfQo=
+/**
+ * App Router loading state for the milestones board. Keep this route-level
+ * fallback and the client Suspense fallback on the same component so their
+ * geometry and assistive-technology announcement cannot drift apart.
+ *
+ * State invariants owned by this module:
+ -----------------------------------------------------------------------------
+ * 1. This file is a pure, side-effect-free presentational boundary. It must
+ *    not read or mutate any milestone data, auth state, or global store.
+ *    Doing so would let a transient loading render observe or corrupt state
+ *    that the board itself owns.
+ * 2. The rendered output is deterministic: the same props always produce the
+ *    same tree, so repeated, interrupted, or concurrent loading renders
+ *    cannot produce an inconsistent or unsafe result.
+ * 3. The route-level fallback and the client Suspense fallback remain the
+ *    same component so geometry and assistive-technology announcement cannot
+ *    drift apart.
+ * 4. No sensitive data is rendered or logged from this boundary; the skeleton
+ *    is decorative and announced as a busy loading region by the skeleton
+ *    component itself.
+ */
+
+import MilestonesBoardSkeleton from '@/components/milestones/MilestonesBoardSkeleton';
+
+/**
+ * Route-level loading fallback for /milestones.
+ *
+ * This component is rendered by the App Router while the route segment is
+ * streaming. It is intentionally a pure function with no parameters and no
+ * side effects so that any number of concurrent or repeated renders are
+ * idempotent and cannot observe or mutate application state.
+ */
+export default function MilestonesLoading() {
+  return <MilestonesBoardSkeleton />;
+}

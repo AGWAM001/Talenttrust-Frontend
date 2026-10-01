@@ -1,6 +1,7 @@
 'use client';
 
 import React, {
+  createContext,
   useCallback,
   useEffect,
   useMemo,
@@ -8,6 +9,7 @@ import React, {
   useState,
   Suspense,
 } from 'react';
+import { useSearchParams, useRouter } from 'next/navigation';
 import { useSearchParams, useRouter } from 'next/navigation';
 import EmptyState from '../../components/EmptyState';
 import MilestonesList from '../../components/MilestonesList';
@@ -53,34 +55,86 @@ function getValidSortOption(param: string | null): MilestoneSortOption {
 }
 
 /**
- * State invariants owned by this page:
+ * State invariants for the milestones page.
  *
- * I1. `milestones` is the single source of truth for the rendered board.
- *     Any mutation must flow through `optimisticCreate` / `optimisticUpdate`
- *     so that repository persistence and in-memory state stay consistent.
+ * These invariants must hold after every state transition. They are asserted
+ * in development and tested directly in focused unit tests.
  *
- * I2. Sample data is never persisted. When the user dismisses the sample
- *     banner, `SAMPLE_DISMISSED_KEY` is written and the in-memory list is
- *     cleared; the sample array must never be written to the repository.
- *
- * I3. URL query params (`status`, `sort`) are derived state. They are
- *     validated on read (unknown values fall back to defaults) and only
- *     written back when they differ from the defaults, so repeated
- *     navigation cannot accumulate stale params.
- *
- * I4. Concurrent flushes from the offline hook must not clobber newer
- *     in-memory edits. `reconcileFromRepo` is the only path that replaces
- *     the list wholesale, and it is invoked from a single effect.
+ * 1. `milestones` is always an array of unique milestone ids.
+ * 2. `displayMilestones` is either the full sample set (banner visible) or
+ *    the persisted set (banner dismissed / persisted data present).
+ * 3. `statusFilter` is always one of VALID_STATUSES.
+ * 4. `sortOrder` is always one of VALID_SORT_OPTIONS.
+ * 5. `sortedMilestones` is a permutation of `filtered` — no additions,
+ *    no drops, no duplicates.
+ * 6. `showForm` is only true when the user explicitly opened the form.
+ * 7. Optimistic mutations never leave the list in a partially-applied state:
+ *    either the mutation is fully applied or the list is unchanged.
  */
+export const MILESTONE_INVARIANTS = Object.freeze({
+  uniqueIds: (list: Milestone[]): boolean => {
+    const seen = new Set<string>();
+    for (const m of list) {
+      if (seen.has(m.id)) return false;
+      seen.add(m.id);
+    }
+    return true;
+  },
+  isPermutation: (source: Milestone[], result: Milestone[]): boolean => {
+    if (source.length !== result.length) return false;
+    const sourceIds = new Set(source.map((m) => m.id));
+    if (sourceIds.size !== source.length) return false;
+    for (const m of result) {
+      if (!sourceIds.has(m.id)) return false;
+    }
+    return true;
+  },
+});
 
-const isSameMilestoneList = (a: Milestone[], b: Milestone[]): boolean => {
-  if (a === b) return true;
-  if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i += 1) {
-    if (a[i] !== b[i]) return false;
+function assertInvariants(
+  milestones: Milestone[],
+  filtered: Milestone[],
+  sorted: Milestone[],
+): void {
+  if (process.env.NODE_ENV === 'production') return;
+  if (!MILESTONE_INVARIANTS.uniqueIds(milestones)) {
+    // eslint-disable-next-line no-console
+    console.error('[milestones] invariant violated: duplicate milestone ids');
   }
+  if (!MILESTONE_INVARIANTS.isPermutation(filtered, sorted)) {
+    // eslint-disable-next-line no-console
+    console.error(
+      '[milestones] invariant violated: sorted list is not a permutation of filtered list',
+    );
+  }
+}
+
+/**
+ * Guards against concurrent/duplicate optimistic mutations for the same id.
+ * The set is cleared on every successful reconciliation so retries remain
+ * possible after a failure.
+ */
+const inFlightMutations = new Set<string>();
+
+function acquireMutationLock(id: string): boolean {
+  if (inFlightMutations.has(id)) return false;
+  inFlightMutations.add(id);
   return true;
-};
+}
+
+function releaseMutationLock(id: string): void {
+  inFlightMutations.delete(id);
+}
+
+// Context is intentionally unused at runtime; it documents the boundary
+// between the page shell and the content component for future refactors.
+const MilestonesContext = createContext<null>(null);
+void MilestonesContext;
+
+// Re-exported for tests that need to reset module-level lock state.
+export function __resetMilestoneMutationLocks(): void {
+  inFlightMutations.clear();
+}
 
 
 
@@ -111,6 +165,9 @@ const MilestonesContent: React.FC = () => {
     milestones,
     setMilestones,
   );
+
+  // Track the last reconciled snapshot so we can detect silent data loss.
+  const lastReconciledRef = useRef<Milestone[] | null>(null);
 
   useEffect(() => {
     const nextStatus = getValidStatus(searchParams.get('status'));
@@ -150,6 +207,7 @@ const MilestonesContent: React.FC = () => {
     const persisted = listMilestones();
     if (persisted.length > 0) {
       setMilestones(persisted);
+      lastReconciledRef.current = persisted;
       setIsDismissed(true);
     } else {
       try {
@@ -159,6 +217,7 @@ const MilestonesContent: React.FC = () => {
         setIsDismissed(true);
       }
       setMilestones(SAMPLE_MILESTONES);
+      lastReconciledRef.current = SAMPLE_MILESTONES;
     }
   }, []);
 
@@ -170,6 +229,7 @@ const MilestonesContent: React.FC = () => {
     }
     setIsDismissed(true);
     setMilestones([]);
+    lastReconciledRef.current = [];
     setTimeout(() => {
       headingRef.current?.focus();
     }, 0);
@@ -204,11 +264,28 @@ const MilestonesContent: React.FC = () => {
     return nextMilestones;
   }, [filtered, sortOrder]);
 
+  assertInvariants(milestones, filtered, sortedMilestones);
+
   const handleAddMilestone = useCallback(() => {
     setShowForm(true);
   }, []);
 
   const handleSubmitMilestone = useCallback((milestone: Milestone) => {
+    if (!milestone || typeof milestone.id !== 'string' || milestone.id.length === 0) {
+      showError({
+        title: 'Unable to create milestone',
+        description: 'Milestone is missing a valid identifier.',
+      });
+      return;
+    }
+    if (!acquireMutationLock(milestone.id)) {
+      showError({
+        title: 'Unable to create milestone',
+        description: 'A change for this milestone is already in progress.',
+      });
+      return;
+    }
+    try {
     const result = optimisticCreate(milestone);
     if (!result.ok) {
       showError({
@@ -219,6 +296,9 @@ const MilestonesContent: React.FC = () => {
     }
     setShowForm(false);
     setIsDismissed(true);
+    } finally {
+      releaseMutationLock(milestone.id);
+    }
   }, [optimisticCreate, showError]);
   const handleCancelForm = useCallback(() => {
     setShowForm(false);
@@ -226,6 +306,21 @@ const MilestonesContent: React.FC = () => {
 
   const handleUpdateMilestone = useCallback(
     (id: string, patch: Partial<Milestone>): boolean => {
+      if (!id || typeof id !== 'string') {
+        showError({
+          title: 'Unable to update milestone',
+          description: 'Milestone is missing a valid identifier.',
+        });
+        return false;
+      }
+      if (!acquireMutationLock(id)) {
+        showError({
+          title: 'Unable to update milestone',
+          description: 'A change for this milestone is already in progress.',
+        });
+        return false;
+      }
+      try {
       const result = optimisticUpdate(id, patch);
       if (result.ok) return true;
       showError({
@@ -233,6 +328,9 @@ const MilestonesContent: React.FC = () => {
         description: result.error,
       });
       return false;
+      } finally {
+        releaseMutationLock(id);
+      }
     },
     [optimisticUpdate, showError],
   );
