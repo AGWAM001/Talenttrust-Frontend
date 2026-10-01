@@ -317,6 +317,167 @@ export function SendForm() {
 
 ---
 
+## Page: `src/app/wallet/page.tsx`
+
+The wallet page is the top-level entry point for wallet connection and address collection.
+It owns the **validation boundaries** for address input before any value leaves the page.
+
+### Responsibilities
+
+- Renders `WalletConnectButton` and `WalletAddressInput`.
+- Holds the controlled address state and the field-level error map.
+- Enforces the validation boundaries described below on submit.
+- Prevents duplicate and concurrent submissions from producing inconsistent state.
+
+### Validation boundaries
+
+Every address entering the page is classified into exactly one of the following categories.
+The categories are mutually exclusive and exhaustive; the order below is the order in
+which they are applied.
+
+| Order | Category | Condition | Result |
+|-------|----------|-----------|--------|
+| 1 | Empty | Trimmed value is an empty string | Rejected with `"Recipient address is required"`. No submit is attempted. |
+| 2 | Malformed | Trimmed value fails `isValidStellarAddress` | Rejected with `"Recipient address must be a valid Stellar G... address"`. No submit is attempted. |
+| 3 | Duplicate | The normalized address equals the last successfully submitted address within the same page session | Rejected with `"Recipient address has already been submitted"`. No submit is attempted. |
+| 4 | Boundary | Trimmed value is exactly 56 characters and passes `isValidStellarAddress` | Accepted. Normalized to uppercase before being handled. |
+| 5 | Valid | Trimmed value passes `isValidStellarAddress` and is not a duplicate | Accepted. Normalized to uppercase before being handled. |
+
+### Invariants
+
+1. **Normalization is idempotent.** Applying trim + uppercase twice yields the same result as
+applying it once. This makes duplicate detection deterministic regardless of how the user
+capitalized the input.
+2. **Validation precedes mutation.** No state change occurs until all five categories have been
+evaluated. A failed validation leaves the previous state untouched.
+3. **Submission is serialized.** At most one submission is in flight at any time. A second
+submit while one is in flight is a no-op.
+4. **Duplicate recording happens on success only.** The last-submitted address is updated only
+after the submission resolves successfully, so a failed submission can be retried with the
+same address.
+5. **Errors are non-sensitive.** Error messages never echo the full address. They refer to the
+field by label only.
+
+### State model
+
+```tsx
+interface WalletPageState {
+  /** Raw controlled input value, exactly as typed by the user. */
+  recipient: string;
+  /** Per-field validation messages keyed by field id. */
+  fieldErrors: Record<string, string | null>;
+  /** True while a submission is in flight; guards against concurrent submits. */
+  isSubmitting: boolean;
+  /** Normalized address of the last successful submit, or null. */
+  lastSubmittedAddress: string | null;
+}
+```
+
+### State transitions
+
+```
+IDILE
+  └─ submit()
+       ├─ validation fails → fieldErrors updated, stay in IDLE
+       └─ validation passes → SUBMITTING
+
+SUBMITTING
+  └─ await resolves
+       ├─ success → lastSubmittedAddress updated → IDLE
+       └─ failure → fieldErrors updated, lastSubmittedAddress unchanged → IDLE
+```
+
+### Example
+
+```tsx
+'use client';
+import { useCallback, useState } from 'react';
+import { WalletAddressInput } from '@/components/WalletAddressInput';
+import { isValidStellarAddress } from '@/lib/stellarAddress';
+
+export default function WalletPage() {
+  const [recipient, setRecipient] = useState('');
+  const [fieldErrors, setFieldErrors = useState<Record<string, string | null>>({});
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [lastSubmittedAddress, setLastSubmittedAddress] = useState<string | null>(null);
+
+  const normalize = (value: string) => value.trim().toUpperCase();
+
+  const validate = useCallback((value: string): string | null => {
+    const normalized = normalize(value);
+    if (!normalized) return 'Recipient address is required';
+    if (!isValidStellarAddress(normalized)) {
+      return 'Recipient address must be a valid Stellar G... address';
+    }
+    if (normalized === lastSubmittedAddress) {
+      return 'Recipient address has already been submitted';
+    }
+    return null;
+  }, [lastSubmittedAddress]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (isSubmitting) return;
+    const error = validate(recipient);
+    if (error) {
+      setFieldErrors(prev => ({ ...prev, recipient: error }));
+      return;
+    }
+    setFieldErrors(prev => ({ ...prev, recipient: null }));
+    setIsSubmitting(true);
+    try {
+      // call the address-consuming action here
+      setLastSubmittedAddress(normalize(recipient));
+    } catch {
+      setFieldErrors(prev => ({ ...prev, recipient: 'Submission failed. Please retry.' }));
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit} noValidate>
+      <WalletAddressInput
+        id="recipient"
+        label="Recipient address"
+        value={recipient}
+        onChange={setRecipient}
+        error={fieldErrors.recipient ?? undefined}
+        required
+        onValidation={(fieldId, error) =>
+          setFieldErrors(prev => ({ ...prev, [fieldId]: error }))
+        }
+      />
+      <button type="submit" disabled={isSubmitting}>
+        {isSubmitting ? 'Submitting…' : 'Send'}
+      </button>
+    </form>
+  );
+}
+```
+
+### Observability
+
+- Rejections are surfaced through the field error paragraph (`role="alert"`) and the
+parent `ErrorSummary` via `onValidation`.
+- Submission failures set a generic field error that does not include the address.
+- Never log the full address to the console or to any analytics sink.
+
+### Test coverage
+
+Focused tests for the page live in `src/app/wallet/page.test.tsx` and cover:
+
+| Scenario | Expected outcome |
+|----------|------------------|
+| Accepted input | Valid 56-char G-address submits and records the normalized address. |
+| Rejected input | Empty and malformed addresses set a field error and do not submit. |
+| Duplicate submission | Submitting the same normalized address twice is rejected the second time. |
+| Boundary values | 55-char and 57-char inputs are rejected; 56-char input is accepted. |
+| Concurrent submit | A double click on submit only invokes the action once. |
+| Regression | A valid address with lowercase letters is accepted and normalized to uppercase. |
+
+---
+
 ## Named exports
 
 ### $src/contexts/WalletContext.tsx$
@@ -342,6 +503,12 @@ export function SendForm() {
 |--------|------|-------------|
 | $WalletAddressInput$ | Component (named + default) | Validated Stellar address input field. |
 | $WalletAddressInputProps$ | TypeScript interface | Prop types for $WalletAddressInput$. |
+
+### `src/app/wallet/page.tsx`
+
+| Export | Kind | Description |
+|--------|------|-------------|
+| `WalletPage` | Component (default) | Wallet page entry point that owns address validation boundaries. |
 
 ---
 

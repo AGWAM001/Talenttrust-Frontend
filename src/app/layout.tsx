@@ -1,9 +1,12 @@
 import type { Metadata } from 'next';
 import './globals.css';
 import { ToastProvider } from '@/components/toast/toast-provider';
+import { resolveSiteUrl } from '@/lib/site-url';
 
-const siteUrl =
-  process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
+// Compatibility contract: metadataBase must always be a valid absolute URL.
+// resolveSiteUrl normalizes/validates NEXT_PUBLIC_SITE_URL and falls back to
+// the local default so malformed env values cannot crash the root layout.
+const siteUrl = resolveSiteUrl(process.env.NEXT_PUBLIC_SITE_URL);
 const metadataBase = new URL(siteUrl);
 // Social preview image used by Open Graph and Twitter cards lives in public/.
 const socialPreviewImage = '/og-preview.svg';
@@ -55,7 +58,12 @@ import Navbar from '@/components/Navbar';
 import HeaderActions from '@/components/HeaderActions';
 import { registerDefaultCommands } from '@/lib/commands/defaultCommands';
 
-registerDefaultCommands();
+// registerDefaultCommands is idempotent; guard against re-registration during
+// hot reload / concurrent module evaluation so command IDs stay stable.
+if (!(globalThis as { __ttCommandsRegistered?: boolean }).__ttCommandsRegistered) {
+  registerDefaultCommands();
+  (globalThis as { __ttCommandsRegistered?: boolean }).__ttCommandsRegistered = true;
+}
 
 export default function RootLayout({
   children,
@@ -65,7 +73,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body>
-        <PreferencesProvider>
+        <PreferencesProvider initialPreferences={undefined}>
           <ToastProvider>
             <WalletProvider>
               <CommandPaletteProvider>
@@ -88,7 +96,7 @@ export default function RootLayout({
                     <Navbar />
                     <HeaderActions />
                   </header>
-                  <main className="flex-1 p-6" tabIndex={-1} id="main-content">
+                  <main className="flex-1 p-6" tabIndex={-1} id="main-content" role="main">
                     {children}
                   </main>
                 </div>

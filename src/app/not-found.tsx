@@ -1,24 +1,24 @@
 import Link from 'next/link';
+import {
+  getNotFoundQuickLinks,
+  NOT_FOUND_HOME_HREF,
+  NOT_FOUND_SUPPORT_HREF,
+} from '@/lib/notFoundContent';
 
-const quickLinks = [
-  {
-    href: '/contracts',
-    label: 'View Contracts',
-    description: 'Pick up where you left off',
-  },
-  {
-    href: '/milestones',
-    label: 'Track Milestones',
-    description: 'See your project checkpoints',
-  },
-  {
-    href: '/reputation',
-    label: 'My Reputation',
-    description: 'Check your work history',
-  },
-];
-
+/**
+ * Compatibility contract: the 404 recovery links, home route, and support
+ * address are owned by `src/lib/notFoundContent.ts` and validated there.
+ *
+ * Keep this page a thin renderer. Behavioural changes (routes, copy, ordering,
+ * fallbacks) belong in the contract module and must keep
+ * `src/lib/notFoundContent.test.ts` and the rendered snapshot green. Changing
+ * `getNotFoundQuickLinks()` to read from the contract is what guarantees the
+ * page still renders a safe recovery path after malformed/empty upstream data
+ * or an upgrade.
+ */
 export default function NotFound() {
+  const quickLinks = getNotFoundQuickLinks();
+
   return (
     <main className="min-h-screen flex flex-col items-center justify-center p-8 bg-[var(--background)]">
       <div className="max-w-md w-full text-center space-y-8">
@@ -54,13 +54,13 @@ export default function NotFound() {
 
         <div className="flex flex-col sm:flex-row gap-3 justify-center">
           <Link
-            href="/"
+            href={NOT_FOUND_HOME_HREF}
             className="px-5 py-2 rounded-lg bg-gray-900 text-white font-medium hover:bg-gray-700 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 focus-visible:ring-offset-2"
           >
             Go Home
           </Link>
           <a
-            href="mailto:support@talenttrust.io"
+            href={NOT_FOUND_SUPPORT_HREF}
             className="px-5 py-2 rounded-lg border border-gray-300 text-gray-700 font-medium hover:bg-gray-100 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 focus-visible:ring-offset-2"
           >
             Contact Support

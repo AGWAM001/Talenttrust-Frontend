@@ -64,6 +64,8 @@ export default function WalletPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [targetDeleteIds, setTargetDeleteIds] = useState<string[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const { showSuccess, showError } = useToast();
   const isMountedRef = useRef(true);
@@ -210,8 +212,68 @@ export default function WalletPage() {
       return;
     }
 
+    // Deterministic recovery: optimistic update with rollback on failure
+    const previousItems = [...items];
+    const previousSelectedIds = new Set(selectedIds);
+
+    // Optimistically update UI
+    const optimisticItems = items.filter((item) => !targetDeleteIds.includes(item.id));
+    const optimisticSelectedIds = new Set(selectedIds);
+    targetDeleteIds.forEach((id) => optimisticSelectedIds.delete(id));
+
+    setItems(optimisticItems);
+    setSelectedIds(optimisticSelectedIds);
+
+    try {
+      const ok = deleteWalletItems(targetDeleteIds);
+      if (ok) {
+        // Verify deletion by re-reading from repository
+        const verified = listWalletItems();
+        const expectedCount = previousItems.length - targetDeleteIds.length;
+        
+        if (verified.length === expectedCount) {
+          showSuccess({
+            title: 'Items deleted',
+            description: `Successfully deleted ${targetDeleteIds.length} ${
+              targetDeleteIds.length === 1 ? 'item' : 'items'
+            }.`,
+          });
+        } else {
+          // Repository state inconsistent - rollback and notify
+          console.error('[WalletPage] Delete verification failed: count mismatch');
+          setItems(previousItems);
+          setSelectedIds(previousSelectedIds);
+          showError({
+            title: 'Delete verification failed',
+            description: 'Could not verify deletion. Please refresh the page.',
+          });
+        }
+      } else {
+        // Delete failed - rollback optimistic update
+        console.error('[WalletPage] Delete operation failed');
+        setItems(previousItems);
+        setSelectedIds(previousSelectedIds);
+        showError({
+          title: 'Delete failed',
+          description: 'Failed to remove selected wallet items. Please try again.',
+        });
+      }
+    } catch (err) {
+      // Exception during delete - rollback optimistic update
+      console.error('[WalletPage] Exception during delete:', err);
+      setItems(previousItems);
+      setSelectedIds(previousSelectedIds);
     const snapshot = items;
     const selectionSnapshot = new Set(selectedIds);
+
+    const validation = validateBulkIds(deleteIds, knownIds);
+    if (!validation.ok) {
+      showError({ title: 'Delete rejected', description: validation.reason });
+      setIsDeleteModalOpen(false);
+      setTargetDeleteIds([]);
+      return;
+    }
+    const safeDeleteIds = validation.value;
 
     setItems((prev) => prev.filter((item) => !deleteIds.includes(item.id)));
     setSelectedIds(prev => {
@@ -300,7 +362,7 @@ export default function WalletPage() {
       setEditingId(null);
       showSuccess({
         title: 'Item updated',
-        description: `"${updated.name}" has been updated successfully.`,
+        description: `"${validation.value.name}" has been updated successfully.`,
       });
     } else {
       setItems(snapshot);
@@ -340,16 +402,26 @@ export default function WalletPage() {
         </div>
       </div>
 
-      {items.length > 0 && (
+      {loadError && (
+        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-4 dark:border-red-800 dark:bg-red-900/20">
+          <p className="text-sm text-red-800 dark:text-red-200">{loadError}</p>
+        </div>
+      )}
+
+      {isLoading ? (
+        <div className="flex items-center justify-center py-12">
+          <p className="text-sm text-slate-500 dark:text-slate-400">Loading wallet items...</p>
+        </div>
+      ) : items.length > 0 ? (
         <WalletBulkToolbar
           selectedCount={selectedIds.size}
           onClearSelection={handleClearSelection}
           onExport={handleExportSelected}
           onDelete={handleRequestBulkDelete}
         />
-      )}
+      ) : null}
 
-      {items.length === 0 ? (
+      {isLoading ? null : items.length === 0 ? (
         <EmptyState
           illustration="contracts"
           title="No wallet items"
