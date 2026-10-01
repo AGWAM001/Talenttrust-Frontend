@@ -4,7 +4,23 @@ import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { reportError } from '../lib/errorReporter';
 
-interface ErrorProps {
+/**
+ * Validation boundaries for the root error boundary.
+ *
+ * Invariants:
+ * 1. The component never throws during render, even when `error` or `reset`
+ *    are malformed (null, undefined, non-function, non-Error values).
+ * 2. A given error object is reported at most once per mount, even if React
+ *    re-renders the boundary with the same error reference.
+ * 3. The reset callback is invoked at most once per click and failures in
+ *    the callback are contained so the UI remains usable.
+ * 4. No error message, stack trace, or digest is ever rendered to the DOM.
+ */
+
+/** Maximum length of a digest value we consider valid. */
+const MAX_DIGEST_LENGTH = 256;
+
+export interface ErrorProps {
   error: Error & { digest?: string };
   reset: () => void;
 }
