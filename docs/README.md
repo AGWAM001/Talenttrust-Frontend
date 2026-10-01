@@ -69,6 +69,7 @@ Reference documentation for components, hooks, contexts, and library utilities.
 | [currencyMismatch.md](./lib/currencyMismatch.md) | Currency mismatch detection helper |
 | [dueSoon.md](./lib/dueSoon.md) | Due-soon date helpers |
 | [milestoneStatusTally.md](./lib/milestoneStatusTally.md) | Milestone status count helper |
+| [notFoundContent.md](./lib/notFoundContent.md) | 404 recovery-link compatibility contract |
 | [validate-login.md](./lib/validate-login.md) | Login form validation |
 
 ---
