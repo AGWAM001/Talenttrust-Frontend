@@ -27,7 +27,7 @@ All invariants below are enforced in `src/app/reputation/ReputationPageClient.ts
 ### State 1: No Reputation
 **Condition:** No reputation score exists (null, undefined, negative, `NaN`, or non-finite)
 
-**Render:**
+Render:
 ```
 EmptyState with illustration="reputation"
 - Title: "No reputation yet"
@@ -35,7 +35,7 @@ EmptyState with illustration="reputation"
 - No ReputationProfile rendered
 S```
 
-**Example:**
+Example:
 ```jsx
 // User has no reputation data
 render(<ReputationPage />);
@@ -48,7 +48,7 @@ render(<ReputationPage />);
 
 **Condition:** Score exists, but history is empty
 
-**Render:**
+Render:
 ```
 ReputationProfile with partial-state UI
 - Shows reputation score
@@ -58,12 +58,12 @@ ReputationProfile with partial-state UI
 - No history items rendered
 ```
 
-**Behavior:**
+Behavior:
 - Triggers `showPartial` branch inside ReputationProfile
 - Displays amber-colored notification: "Partial reputation data"
 - Indicates history is hidden until verified actions are available
 
-**Example:**
+Example:
 ```jsx
 // User has score but no history yet
 <ReputationProfile 
@@ -81,7 +81,7 @@ ReputationProfile with partial-state UI
 
 **Condition:** Score exists and history contains events
 
-**Render:**
+Render:
 ```
 ReputationProfile with complete profile
 - Shows reputation score
@@ -92,7 +92,7 @@ ReputationProfile with complete profile
 - Each history event renders with type, summary, and date
 ```
 
-**Example:**
+Example:
 ```jsx
 // User has complete reputation data
 <ReputationProfile 

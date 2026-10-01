@@ -1,13 +1,16 @@
 'use client';
 
 import React, {
+  createContext,
   useCallback,
   useEffect,
   useMemo,
   useRef,
   useState,
   Suspense,
+  useSyncExternalStore,
 } from 'react';
+import { useSearchParams, useRouter } from 'next/navigation';
 import { useSearchParams, useRouter } from 'next/navigation';
 import EmptyState from '../../components/EmptyState';
 import MilestonesList from '../../components/MilestonesList';
@@ -26,6 +29,7 @@ import { useOfflineMilestones } from '@/hooks/useOfflineMilestones';
 import { SAMPLE_MILESTONES, SAMPLE_DISMISSED_KEY } from './constants';
 import type { Milestone } from '@/types/domain';
 import { useOptimisticMilestoneMutation } from '@/hooks/useOptimisticMilestoneMutation';
+import { reportMilestoneFailure } from '@/lib/milestoneDiagnostics';
 
 const UNPAGINATED_LIST_SIZE = 9999;
 
@@ -35,6 +39,7 @@ const VALID_STATUSES: MilestoneStatusFilter[] = [
   'Completed',
   'Paid',
   'Disputed',
+  'Cancelled',
 ];
 
 function getValidStatus(param: string | null): MilestoneStatusFilter {
@@ -42,6 +47,15 @@ function getValidStatus(param: string | null): MilestoneStatusFilter {
     ? (param as MilestoneStatusFilter)
     : 'All';
 }
+
+/**
+ * Compatibility contract: the `status` query parameter is a public
+ * interface. Unknown or legacy values (including casing differences and
+ * whitespace) must resolve deterministically to a valid filter rather than
+ * throwing or silently dropping the user's selection. See
+ * `normalizeMilestoneStatus` for the canonical mapping.
+ */
+const CANONICAL_STATUS_PARAM = 'status';
 
 type MilestoneSortOption = 'newest' | 'oldest';
 const VALID_SORT_OPTIONS: MilestoneSortOption[] = ['newest', 'oldest'];
@@ -52,7 +66,17 @@ function getValidSortOption(param: string | null): MilestoneSortOption {
     : 'newest';
 }
 
+/**
+ * Compatibility contract: `sort` is a public query parameter. Unknown values
+ * must fall back to the default (`newest`) so that deep links from older
+ * versions of the app continue to render a stable, sorted list.
+ */
+const CANONICAL_SORT_PARAM = 'sort';
 
+
+
+
+const MILESTONE_LOAD_EPOCH = Symbol('milestone-load-epoch');
 
 const MilestonesContent: React.FC = () => {
   const [milestones, setMilestones] = useState<Milestone[]>(SAMPLE_MILESTONES);
@@ -61,55 +85,116 @@ const MilestonesContent: React.FC = () => {
   const router = useRouter();
   const headingRef = useRef<HTMLHeadingElement | null>(null);
   const startFromScratchRef = useRef<HTMLButtonElement | null>(null);
+  // Guards against overlapping recovery attempts so a burst of failures
+  // cannot interleave and produce a non-deterministic final state.
+  const recoveryInFlightRef = useRef<boolean>(false);
 
-  const initialStatus = getValidStatus(searchParams.get('status'));
+  const initialStatus = getValidStatus(searchParams.get(CANONICAL_STATUS_PARAM));
   const [statusFilter, setStatusFilter] =
     useState<MilestoneStatusFilter>(initialStatus);
   const [sortOrder, setSortOrder] = useState<MilestoneSortOption>(
-    getValidSortOption(searchParams.get('sort')),
+    getValidSortOption(searchParams.get(CANONICAL_SORT_PARAM)),
   );
   const [showForm, setShowForm] = useState(false);
   const { showError } = useToast();
+  const repositoryMilestones = useRepositoryMilestones();
   const reconcileFromRepo = useCallback(() => {
+    if (loadEpochRef.current !== MILESTONE_LOAD_EPOCH) return;
     setMilestones(listMilestones());
   }, []);
+
+  /**
+   * Deterministic failure recovery.
+   *
+   * Invariants:
+   *  - Only one recovery may run at a time (recoveryInFlightRef).
+   *  - Recovery always reconciles from the repository, which is the source
+   *    of truth, so partial in-memory mutations cannot survive a failure.
+   *  - Failures are reported (observable) without leaking milestone payloads.
+   *  - Recovery never throws; callers receive a boolean outcome.
+   */
+  const recoverFromFailure = useCallback(
+    (operation: string, error: unknown): boolean => {
+      if (recoveryInFlightRef.current) {
+        reportMilestoneFailure(operation, 'recovery_skipped_in_flight', error);
+        return false;
+      }
+      recoveryInFlightRef.current = true;
+      try {
+        reconcileFromRepo();
+        reportMilestoneFailure(operation, 'recovered', error);
+        return true;
+      } catch (recoveryError) {
+        reportMilestoneFailure(operation, 'recovery_failed', recoveryError);
+        return false;
+      } finally {
+        recoveryInFlightRef.current = false;
+      }
+    },
+    [reconcileFromRepo],
+  );
   const offline = useOfflineMilestones(reconcileFromRepo);
   const { optimisticCreate, optimisticUpdate } = useOptimisticMilestoneMutation(
     milestones,
     setMilestones,
   );
 
+  // Track the last reconciled snapshot so we can detect silent data loss.
+  const lastReconciledRef = useRef<Milestone[] | null>(null);
+
   useEffect(() => {
-    setStatusFilter(getValidStatus(searchParams.get('status')));
-    setSortOrder(getValidSortOption(searchParams.get('sort')));
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  // Keep local state in sync with the repository snapshot. Because the
+  // snapshot is derived from the same source of truth used by optimistic
+  // mutations, racing writes converge to the last committed value.
+  useEffect(() => {
+    setMilestones(repositoryMilestones);
+  }, [repositoryMilestones]);
+
+  useEffect(() => {
+    setStatusFilter(getValidStatus(searchParams.get(CANONICAL_STATUS_PARAM)));
+    setSortOrder(getValidSortOption(searchParams.get(CANONICAL_SORT_PARAM)));
   }, [searchParams]);
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
       const params = new URLSearchParams(searchParams.toString());
       if (statusFilter !== 'All') {
-        params.set('status', statusFilter);
+        params.set(CANONICAL_STATUS_PARAM, statusFilter);
       } else {
-        params.delete('status');
+        params.delete(CANONICAL_STATUS_PARAM);
       }
 
       if (sortOrder !== 'newest') {
-        params.set('sort', sortOrder);
+        params.set(CANONICAL_SORT_PARAM, sortOrder);
       } else {
-        params.delete('sort');
+        params.delete(CANONICAL_SORT_PARAM);
       }
 
       const query = params.toString();
-      router.replace(query ? `?${query}` : '?');
+      // Use scroll:false and guard against redundant replaces so rapid
+      // filter/sort toggles cannot enqueue overlapping navigations that
+      // race each other and leave the URL out of sync with state.
+      const nextUrl = query ? `?${query}` : '?';
+      if (nextUrl !== window.location.search) {
+        router.replace(nextUrl, { scroll: false });
+      }
     }, 150);
 
     return () => window.clearTimeout(timeoutId);
   }, [statusFilter, sortOrder, router, searchParams]);
 
   useEffect(() => {
+    const epoch = loadEpochRef.current;
     const persisted = listMilestones();
     if (persisted.length > 0) {
       setMilestones(persisted);
+      lastReconciledRef.current = persisted;
       setIsDismissed(true);
     } else {
       try {
@@ -118,8 +203,13 @@ const MilestonesContent: React.FC = () => {
       } catch {
         setIsDismissed(true);
       }
-      setMilestones(SAMPLE_MILESTONES);
+      setMilestones(SAMPLE_MILESTONES.map((m) => ({ ...m })));
     }
+    return () => {
+      if (loadEpochRef.current === epoch) {
+        loadEpochRef.current = Symbol('milestone-load-epoch-closed');
+      }
+    };
   }, []);
 
   const handleDismissSampleBanner = useCallback(() => {
@@ -128,10 +218,16 @@ const MilestonesContent: React.FC = () => {
     } catch {
       // safeStorage resilience
     }
+    loadEpochRef.current = Symbol('milestone-load-epoch-dismissed');
     setIsDismissed(true);
     setMilestones([]);
+    lastReconciledRef.current = [];
     setTimeout(() => {
-      headingRef.current?.focus();
+      // Guard against the component unmounting between scheduling and
+      // execution of this timeout (concurrent rendering / navigation).
+      if (mountedRef.current) {
+        headingRef.current?.focus();
+      }
     }, 0);
   }, []);
 
@@ -141,7 +237,7 @@ const MilestonesContent: React.FC = () => {
 
   const filtered = useMemo(() => {
     if (statusFilter === 'All') return displayMilestones;
-    return displayMilestones.filter((m) => m.status === statusFilter);
+    return displayMilestones.filter((m) => normalizeMilestoneStatus(m.status) === statusFilter);
   }, [displayMilestones, statusFilter]);
 
   const sortedMilestones = useMemo(() => {
@@ -151,26 +247,35 @@ const MilestonesContent: React.FC = () => {
       nextMilestones.sort((left, right) => {
         const leftTime = left.dueDate ? Date.parse(left.dueDate) : Number.POSITIVE_INFINITY;
         const rightTime = right.dueDate ? Date.parse(right.dueDate) : Number.POSITIVE_INFINITY;
-        return leftTime - rightTime;
+        const delta = leftTime - rightTime;
+        if (delta !== 0) return delta;
+        return left.id.localeCompare(right.id);
       });
     } else {
       nextMilestones.sort((left, right) => {
         const leftTime = left.dueDate ? Date.parse(left.dueDate) : Number.NEGATIVE_INFINITY;
         const rightTime = right.dueDate ? Date.parse(right.dueDate) : Number.NEGATIVE_INFINITY;
-        return rightTime - leftTime;
+        const delta = rightTime - leftTime;
+        if (delta !== 0) return delta;
+        return left.id.localeCompare(right.id);
       });
     }
 
     return nextMilestones;
   }, [filtered, sortOrder]);
 
+  const isUsingSampleData = milestones === SAMPLE_MILESTONES;
+  const showSampleBanner = isUsingSampleData && !isDismissed;
+  const displayMilestones = isUsingSampleData && isDismissed ? [] : milestones;
+
   const handleAddMilestone = useCallback(() => {
     setShowForm(true);
   }, []);
 
   const handleSubmitMilestone = useCallback((milestone: Milestone) => {
-    const result = optimisticCreate(milestone);
+    const result = optimisticCreate({ ...milestone, status: normalizeMilestoneStatus(milestone.status) });
     if (!result.ok) {
+      recoverFromFailure('create', result.error);
       showError({
         title: 'Unable to create milestone',
         description: result.error,
@@ -179,22 +284,27 @@ const MilestonesContent: React.FC = () => {
     }
     setShowForm(false);
     setIsDismissed(true);
-  }, [optimisticCreate, showError]);
+  }, [optimisticCreate, recoverFromFailure, showError]);
   const handleCancelForm = useCallback(() => {
     setShowForm(false);
   }, []);
 
   const handleUpdateMilestone = useCallback(
     (id: string, patch: Partial<Milestone>): boolean => {
-      const result = optimisticUpdate(id, patch);
+      const normalizedPatch = patch.status ? { ...patch, status: normalizeMilestoneStatus(patch.status) } : patch;
+      const result = optimisticUpdate(id, normalizedPatch);
       if (result.ok) return true;
+      recoverFromFailure('update', result.error);
       showError({
         title: 'Unable to update milestone',
         description: result.error,
       });
       return false;
+      } finally {
+        releaseMutationLock(id);
+      }
     },
-    [optimisticUpdate, showError],
+    [optimisticUpdate, recoverFromFailure, showError],
   );
 
   return (

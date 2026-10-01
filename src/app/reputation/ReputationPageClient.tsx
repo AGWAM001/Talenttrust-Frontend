@@ -7,7 +7,34 @@ import type { Reputation } from '@/types/domain';
 export type ReputationPageClientProps = {
   reputationData?: Reputation | null;
   userName?: string;
+  /**
+   * Optional override for the focus target selector. Defaults to the first
+   * <main> element in the document, falling back to the component's own ref.
+   */
+  focusSelector?: string;
+  /**
+   * Optional delay (in ms) before focusing the main content. Defaults to 100.
+   *"​
+   */
+  focusDelayMs?: number;
 };
+
+export const DEFAULT_FOCUS_SELECTOR = 'main';
+export const DEFAULT_FOCUS_DELAY_MS = 100;
+
+function isFocusable(el: HTMLElement | null): el is HTMLElement {
+  if (!el) return false;
+  if (el.hasAttribute('tabindex')) return true;
+  const tag = el.tagName.toLowerCase();
+  return (
+    tag === 'a' ||
+    tag === 'button' ||
+    tag === 'input' ||
+    tag === 'select' ||
+    tag === 'textarea' ||
+    tag === 'iframe'
+  );
+}
 
 /**
  * Client wrapper for the reputation page that manages focus on mount.
@@ -44,6 +71,8 @@ export type ReputationPageClientProps = {
 export default function ReputationPageClient({
   reputationData,
   userName = 'User',
+  focusSelector = DEFAULT_FOCUS_SELECTOR,
+  focusDelayMs = DEFAULT_FOCUS_DELAY_MS,
 }: ReputationPageClientProps) {
   const mainRef = useRef<HTMLElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
@@ -79,7 +108,7 @@ export default function ReputationPageClient({
         main.focus();
         didFocusRef.current = true;
       }
-    }, 100);
+    }, delay);
 
     return () => {
       clearTimeout(timer);
@@ -102,7 +131,7 @@ export default function ReputationPageClient({
         previous.focus();
       }
     };
-  }, []);
+  }, [focusSelector, focusDelayMs]);
 
   return (
     <main ref={mainRef} className="min-h-screen p-8" tabIndex={-1}>
