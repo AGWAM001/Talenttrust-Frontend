@@ -29,4 +29,33 @@ describe('robots.ts', () => {
 
     expect(result.sitemap).toBe('https://talenttrust.app/sitemap.xml');
   });
+
+  it('normalizes trailing slashes and preserves a configured base path', () => {
+    process.env.NEXT_PUBLIC_SITE_URL = 'https://talenttrust.app/portal///';
+
+    expect(robots().sitemap).toBe(
+      'https://talenttrust.app/portal/sitemap.xml',
+    );
+  });
+
+  it.each([
+    'not a URL',
+    '/relative/path',
+    'ftp://talenttrust.app',
+    'https://user:password@talenttrust.app',
+    'https://talenttrust.app?preview=true',
+    'https://talenttrust.app#section',
+  ])('rejects invalid NEXT_PUBLIC_SITE_URL values: %s', (siteUrl) => {
+    process.env.NEXT_PUBLIC_SITE_URL = siteUrl;
+
+    expect(() => robots()).toThrow(
+      'NEXT_PUBLIC_SITE_URL must be an absolute HTTP(S) URL without credentials, query, or fragment.',
+    );
+  });
+
+  it('returns the same sitemap URL for repeated calls with the same configuration', () => {
+    process.env.NEXT_PUBLIC_SITE_URL = 'https://talenttrust.app';
+
+    expect(robots().sitemap).toBe(robots().sitemap);
+  });
 });
