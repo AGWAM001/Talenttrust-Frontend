@@ -1,10 +1,20 @@
 import type { MetadataRoute } from 'next';
+import {
+  buildWebAppManifest,
+  reportWebAppManifestAnomalies,
+} from '@/lib/webAppManifest';
 
 /**
  * Web app manifest for TalentTrust.
  *
- * Provides PWA installability and consistent branding when the app is
- * added to a device home screen.
+ * Provides PWA installability and consistent branding when the app is added to
+ * a device home screen.
+ *
+ * Contract: the manifest content, validation, icon invariants, and diagnostics
+ * are owned by `src/lib/webAppManifest.ts`. Keep this route a thin consumer —
+ * behavioural changes (icon set, branding, fallbacks) belong in the contract
+ * module and must keep `src/lib/webAppManifest.test.ts` and
+ * `src/app/__tests__/manifest.test.ts` green.
  *
  * Validation boundaries (deterministic and reviewable):
  *   - The manifest is a pure data contract. It must never throw, never
