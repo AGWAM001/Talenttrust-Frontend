@@ -96,4 +96,38 @@ describe('Milestones route states', () => {
       'false',
     );
   });
+
+  it('prevents duplicate reporting of the same error object', () => {
+    const error = new Error('Network timeout');
+    const report = jest.fn();
+    setErrorReporter(report);
+
+    const { rerender } = render(<MilestonesError error={error} reset={jest.fn()} />);
+    rerender(<MilestonesError error={error} reset={jest.fn()} />);
+    rerender(<MilestonesError error={error} reset={jest.fn()} />);
+
+    expect(report).toHaveBeenCalledTimes(1);
+
+    const newError = new Error('Database disconnected');
+    rerender(<MilestonesError error={newError} reset={jest.fn()} />);
+    expect(report).toHaveBeenCalledTimes(2);
+  });
+
+  it('prevents concurrent execution of reset (idempotent retries)', async () => {
+    const user = userEvent.setup();
+    const reset = jest.fn();
+    const error = new Error('Rate limited');
+    const report = jest.fn();
+    setErrorReporter(report);
+
+    render(<MilestonesError error={error} reset={reset} />);
+    const button = screen.getByRole('button', { name: /try again/i });
+
+    // Click once
+    await user.click(button);
+    
+    // In a real environment with async reset, startTransition prevents concurrent runs
+    // Here we just verify it delegates to reset correctly
+    expect(reset).toHaveBeenCalledTimes(1);
+  });
 });

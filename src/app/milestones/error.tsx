@@ -30,6 +30,13 @@ export default function MilestonesError({ error, reset }: MilestonesErrorProps) 
     digest,
   );
 
+  const handleReset = () => {
+    if (isPending) return;
+    startTransition(() => {
+      reset();
+    });
+  };
+
   return (
     <main className="min-h-screen p-8" aria-labelledby="milestones-error-title">
       <section className="mx-auto max-w-md rounded-3xl border border-slate-200 bg-white p-6 text-center shadow-sm">
@@ -50,7 +57,7 @@ export default function MilestonesError({ error, reset }: MilestonesErrorProps) 
             }
             className="rounded-xl bg-blue-600 px-4 py-2 font-semibold text-white hover:bg-blue-700 focus-visible:outline focus-visible:outline-4 focus-visible:outline-offset-2 focus-visible:outline-blue-500 aria-disabled:cursor-not-allowed aria-disabled:opacity-60"
           >
-            Try again
+            {isPending ? 'Trying...' : 'Try again'}
           </button>
           <Link
             href="/"
