@@ -217,19 +217,6 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
   const [isUsingCachedData, setIsUsingCachedData] = useState(false);
   const [cachedAt, setCachedAt] = useState<string | undefined>(undefined);
   const [isDataStale, setIsDataStale] = useState(false);
-
-  /**
-   * isMountedRef prevents state updates after unmount. It is set to `false` in
-   * the useEffect cleanup so that an in-flight `resolveContractData` promise that
-   * resolves after navigation away cannot write stale data into an unmounted tree.
-   */
-  const isMountedRef = useRef(true);
-  /**
-   * milestonesRef is kept in sync with the `milestones` state slice. It lets
-   * `handleUpdateMilestone` capture the _latest_ milestone list inside the
-   * rollback closure without being listed as a dependency of the `useCallback`
-   * (which would recreate the callback on every render).
-   */
   const milestonesRef = useRef(milestones);
   milestonesRef.current = milestones;
 
@@ -433,7 +420,7 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
    * re-fires cannot produce an inconsistent state update.
    */
   useEffect(() => {
-    let isCurrentAttempt = true;
+    let isCurrentRequest = true;
 
     const loadContract = async () => {
       const requestId = ++loadRequestIdRef.current;
@@ -465,11 +452,7 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
         if (!isOnline) {
           const cachedResult = getCachedContractData(id);
           if (cachedResult.success && cachedResult.data) {
-            if (requestId !== loadRequestIdRef.current || !isMountedRef.current) {
-              return;
-            }
-
-            if (isMountedRef.current) {
+            if (isCurrentRequest) {
               setContractData(cachedResult.data);
               setMilestones(mergeContractMilestones(cachedResult.data.milestones, id));
               setIsUsingCachedData(true);
@@ -479,8 +462,8 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
             }
             return;
           }
-          // No cache available when offline — show a clear informative message
-          if (isMountedRef.current) {
+          // No cache available when offline - show error
+          if (isCurrentRequest) {
             setErrorMessage(
               'You are offline and this contract has not been loaded before. Please connect to the internet and try again.',
             );
@@ -492,7 +475,7 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
         // Online — fetch fresh data from the network
         const data = await resolveContractData(id);
 
-        if (isMountedRef.current) {
+        if (isCurrentRequest) {
           setContractData(data);
           setMilestones(mergeContractMilestones(data.milestones, id));
           setIsUsingCachedData(false);
@@ -503,10 +486,12 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
           cacheContractData(id, data);
         }
       } catch (error) {
-        // On network error, fall back to the cache (may be stale)
+        if (!isCurrentRequest) return;
+
+        // On error, try to fall back to cache
         const cachedResult = getCachedContractData(id);
         if (cachedResult.success && cachedResult.data) {
-          if (isCurrentAttempt) {
+          if (isCurrentRequest) {
             setContractData(cachedResult.data);
             setMilestones(mergeContractMilestones(cachedResult.data.milestones, id));
             setIsUsingCachedData(true);
@@ -516,8 +501,7 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
               'Unable to load fresh data. Showing cached version which may be outdated.',
             );
           }
-        } else if (isMountedRef.current) {
-          // Expose a safe, non-sensitive error message only
+        } else if (isCurrentRequest) {
           setErrorMessage(
             error instanceof Error
               ? error.message
@@ -525,7 +509,7 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
           );
         }
       } finally {
-        if (requestId === loadRequestIdRef.current && isMountedRef.current) {
+        if (isCurrentRequest) {
           setIsLoading(false);
         }
       }
@@ -534,8 +518,8 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
     loadContract();
 
     return () => {
-      isMountedRef.current = false;
-      loadRequestIdRef.current += 1;
+      // A completion may update UI/cache only while its path and online state are active.
+      isCurrentRequest = false;
     };
   }, [id, isOnline, loadAttempt]);
 
@@ -807,7 +791,7 @@ const ContractDetailPage = ({ params }: ContractDetailPageProps) => {
     notFound();
   }
 
-  return <ContractDetailPageContent id={id} />;
+  return <ContractDetailPageContent key={id} id={id} />;
 };
 
 export default ContractDetailPage;
