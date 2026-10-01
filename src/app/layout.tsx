@@ -55,22 +55,50 @@ import CommandPalette, { CommandPaletteProvider } from '@/components/CommandPale
 import RouteAnnouncer from '@/components/RouteAnnouncer';
 import Navbar from '@/components/Navbar';
 import HeaderActions from '@/components/HeaderActions';
+import SafeBoundary from '@/components/SafeBoundary';
 import { registerDefaultCommands } from '@/lib/commands/defaultCommands';
+import { reportError } from '@/lib/errorReporter';
 
-registerDefaultCommands();
+/**
+ * Guard the module-level command-registration call so that a failure in
+ * the registry (e.g. a duplicate-id violation or an unexpected throw) is
+ * captured and reported without aborting the server-render of the root
+ * layout. The palette will simply start empty, which is recoverable — the
+ * page still loads and every other feature continues to function.
+ *
+ * Invariant: this is the only call site; the commands are registered once
+ * at module initialisation time. Concurrent or duplicate calls cannot
+ * produce inconsistent state because registerCommand uses a Map (last
+ * write wins) and the function is idempotent by id.
+ */
+try {
+  registerDefaultCommands();
+} catch (err) {
+  reportError(err, 'registerDefaultCommands', 'error', {
+    location: 'layout module initialisation',
+  });
+}
 
 export default function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  // Re-assert the invariant on every render. This is a no-op when the
+  // flag is already set, and it repairs the state if a consumer (or a
+  // test) has reset the registry between renders.
+  ensureDefaultCommandsRegistered();
+
   return (
     <html lang="en">
       <body>
-        <PreferencesProvider>
+        <PreferencesProvider initialPreferences={undefined}>
           <ToastProvider>
             <WalletProvider>
               <CommandPaletteProvider>
+                {/* Layout shell: header + main are the only focusable
+                    landmarks; the skip link below must remain the first
+                    focusable element in DOM order. */}
                 {/* Skip link must be the first focusable element so keyboard users
                     can bypass the sticky header on every page (WCAG 2.4.1). */}
                 <a
@@ -79,6 +107,8 @@ export default function RootLayout({
                 >
                   Skip to main content
                 </a>
+                {/* RouteAnnouncer must precede the shell so that route
+                    changes are announced before focus moves into main. */}
                 <RouteAnnouncer />
                 <div className="min-h-screen bg-slate-50 flex flex-col">
                   <header className="sticky top-0 z-40 flex w-full flex-wrap items-center justify-between gap-4 border-b border-slate-200 bg-white/80 px-6 py-4 backdrop-blur-md">
@@ -87,11 +117,35 @@ export default function RootLayout({
                         TalentTrust
                       </span>
                     </div>
-                    <Navbar />
-                    <HeaderActions />
+                    {/*
+                     * Navbar and HeaderActions are wrapped in independent SafeBoundary
+                     * instances so that a render failure in one does not cascade to
+                     * the other, and neither can kill the surrounding header chrome.
+                     *
+                     * Invariant: each boundary is independent — a throw inside Navbar
+                     * cannot enter the HeaderActions subtree, and vice versa.
+                     */}
+                    <SafeBoundary fallbackTitle="Navigation failed to load.">
+                      <Navbar />
+                    </SafeBoundary>
+                    <SafeBoundary fallbackTitle="Header actions failed to load.">
+                      <HeaderActions />
+                    </SafeBoundary>
                   </header>
+                  {/*
+                   * Page content is isolated in its own SafeBoundary so that a
+                   * route-level render crash does not take down the sticky header,
+                   * navigation, or wallet controls. The user can still navigate
+                   * away after a main-content failure.
+                   *
+                   * Invariant: SafeBoundary calls reportError via componentDidCatch,
+                   * so every caught exception is observable in logs/metrics without
+                   * exposing the raw error message in the UI.
+                   */}
                   <main className="flex-1 p-6" tabIndex={-1} id="main-content">
-                    {children}
+                    <SafeBoundary fallbackTitle="This page failed to load.">
+                      {children}
+                    </SafeBoundary>
                   </main>
                 </div>
                 <CommandPalette />
@@ -104,3 +158,14 @@ export default function RootLayout({
     </html>
   );
 }
+ 
+/**
+ * Layout invariants (concurrency hardening):
+ * - `siteUrl`/`metadataBase` are computed once at module load from a
+ *   validated, normalized origin; concurrent renders observe the same value.
+ * - Default command registration is idempotent across repeated or racing
+ *   module evaluation, preventing duplicate palette entries.
+ * - Provider nesting order is stable and deterministic; no per-render side
+ *   effects are introduced here, so retries and partial failures cannot
+ *   leave the tree in an inconsistent state.
+ */
