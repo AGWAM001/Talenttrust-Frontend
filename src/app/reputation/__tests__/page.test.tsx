@@ -1,6 +1,9 @@
 import React, { Component, type ReactNode, type ErrorInfo } from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
-import { ReputationPageContent } from '../ReputationPageContent';
+import {
+  normalizeReputationPageInput,
+  ReputationPageContent,
+} from '../ReputationPageContent';
 import ReputationLoading from '../loading';
 
 // Toggle to make the mock throw (used by error-state tests).
@@ -234,6 +237,96 @@ describe('ReputationPageContent', () => {
       render(<ReputationPageContent reputationData={data} />);
 
       expect(screen.getByTestId('reputation-history-count')).toHaveTextContent('0');
+    });
+  });
+
+  describe('Validation boundaries', () => {
+    it('accepts finite non-negative boundary scores', () => {
+      expect(normalizeReputationPageInput({ score: 0 }, undefined).reputationData).toEqual({
+        score: 0,
+        level: undefined,
+        history: [],
+      });
+      expect(
+        normalizeReputationPageInput({ score: Number.MAX_VALUE }, undefined).reputationData,
+      ).toEqual({
+        score: Number.MAX_VALUE,
+        level: undefined,
+        history: [],
+      });
+    });
+
+    it.each([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, -1])(
+      'rejects invalid score %p without rendering profile data',
+      (score) => {
+        const result = normalizeReputationPageInput({ score }, undefined);
+        expect(result.reputationData).toBeNull();
+        render(<ReputationPageContent reputationData={{ score } as any} />);
+        expect(screen.getByTestId('empty-state')).toBeInTheDocument();
+        expect(screen.queryByTestId('reputation-profile')).not.toBeInTheDocument();
+      },
+    );
+
+    it('rejects malformed history instead of silently dropping it', () => {
+      const result = normalizeReputationPageInput(
+        { score: 10, history: [{ id: 'valid' }, { id: 'invalid' }] } as any,
+        undefined,
+      );
+      expect(result.reputationData).toBeNull();
+    });
+
+    it('rejects duplicate history IDs deterministically', () => {
+      const duplicateHistory = [
+        { id: 'same', type: 'Review', summary: 'First', date: '2026-04-24' },
+        { id: 'same', type: 'Review', summary: 'Second', date: '2026-04-23' },
+      ];
+      const result = normalizeReputationPageInput(
+        { score: 10, history: duplicateHistory },
+        undefined,
+      );
+      expect(result.reputationData).toBeNull();
+      render(<ReputationPageContent reputationData={{ score: 10, history: duplicateHistory }} />);
+      expect(screen.getByTestId('empty-state')).toBeInTheDocument();
+      expect(screen.queryByTestId('history-event-same')).not.toBeInTheDocument();
+    });
+
+    it('rejects invalid dates and non-array history', () => {
+      expect(
+        normalizeReputationPageInput(
+          { score: 10, history: [{ id: 'bad-date', type: 'Review', summary: 'Test', date: 'not-a-date' }] },
+          undefined,
+        ).reputationData,
+      ).toBeNull();
+      expect(
+        normalizeReputationPageInput({ score: 10, history: {} } as any, undefined).reputationData,
+      ).toBeNull();
+    });
+
+    it('keeps valid history ordering and uses a safe name fallback', () => {
+      const history = [
+        { id: 'first', type: 'Review', summary: 'First', date: '2026-04-24' },
+        { id: 'second', type: 'Review', summary: 'Second', date: '2026-04-23' },
+      ];
+      const result = normalizeReputationPageInput({ score: 10, history }, '   ');
+      expect(result.userName).toBe('User');
+      expect(result.reputationData?.history).toEqual(history);
+      render(<ReputationPageContent reputationData={{ score: 10, history }} userName={'   ' as any} />);
+      expect(screen.getByTestId('reputation-name')).toHaveTextContent('User');
+      expect(screen.getByTestId('history-event-first')).toBeInTheDocument();
+      expect(screen.getByTestId('history-event-second')).toBeInTheDocument();
+    });
+
+    it('rejects blank levels and invalid event versions', () => {
+      const validEvent = { id: 'event', type: 'Review', summary: 'Test', date: '2026-04-24' };
+      expect(
+        normalizeReputationPageInput({ score: 10, level: '   ' }, undefined).reputationData,
+      ).toBeNull();
+      expect(
+        normalizeReputationPageInput(
+          { score: 10, history: [{ ...validEvent, version: -1 }] },
+          undefined,
+        ).reputationData,
+      ).toBeNull();
     });
   });
 

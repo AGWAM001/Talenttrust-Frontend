@@ -5,7 +5,7 @@ import EmptyState from '../../components/EmptyState';
 import ReputationProfile from '../../components/ReputationProfile';
 import ReputationSummaryCard from '../../components/ReputationSummaryCard';
 import SafeBoundary from '../../components/SafeBoundary';
-import type { Reputation } from '@/types/domain';
+import type { Reputation, ReputationEvent } from '@/types/domain';
 
 /**
  * Public compatibility contract for the reputation page.
@@ -26,40 +26,100 @@ export type ReputationPageContentProps = {
   userName?: string;
 };
 
-const DEFAULT_USER_NAME = 'User';
+type ReputationPageInput = {
+  reputationData: Reputation | null;
+  userName: string;
+};
 
-/**
- * Returns true only when the score is a finite, non-negative number.
- * This is the single source of truth for the "has reputation" decision.
- */
-function hasValidScore(score: unknown): score is number {
-  return typeof score === 'number' && Number.isFinite(score) && score >= 0;
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function isValidReputationEvent(value: unknown): value is ReputationEvent {
+  if (!isRecord(value)) return false;
+  if (
+    typeof value.id !== 'string' ||
+    !value.id.trim() ||
+    typeof value.type !== 'string' ||
+    !value.type.trim() ||
+    typeof value.summary !== 'string' ||
+    !value.summary.trim() ||
+    typeof value.date !== 'string' ||
+    !value.date.trim() ||
+    Number.isNaN(Date.parse(value.date))
+  ) {
+    return false;
+  }
+
+  return (
+    value.version === undefined ||
+    (typeof value.version === 'number' &&
+      Number.isInteger(value.version) &&
+      value.version >= 0)
+  );
 }
 
 /**
- * Normalizes the `userName` prop to a non-empty string so downstream components
- * always receive a stable value, even when callers pass null, undefined, or a
- * non-string value at runtime.
+ * Validates untrusted reputation input before it reaches child components.
+ * Invalid datasets are rejected as a whole to avoid silently dropping history,
+ * while omitted optional fields retain their existing defaults.
  */
-function normalizeUserName(userName: unknown): string {
-  if (typeof userName !== 'string') {
-    return DEFAULT_USER_NAME;
+export function normalizeReputationPageInput(
+  reputationData: Reputation | null | undefined,
+  userName: string | undefined,
+): ReputationPageInput {
+  const safeUserName = typeof userName === 'string' && userName.trim() ? userName : 'User';
+
+  if (!isRecord(reputationData)) {
+    return { reputationData: null, userName: safeUserName };
   }
-  const trimmed = userName.trim();
-  return trimmed.length > 0 ? trimmed : DEFAULT_USER_NAME;
+
+  const score = reputationData.score;
+  if (typeof score !== 'number' || !Number.isFinite(score) || score < 0) {
+    return { reputationData: null, userName: safeUserName };
+  }
+
+  const rawHistory = reputationData.history;
+  if (rawHistory !== undefined && !Array.isArray(rawHistory)) {
+    return { reputationData: null, userName: safeUserName };
+  }
+
+  const history = rawHistory ?? [];
+  const seenIds = new Set<string>();
+  for (const event of history) {
+    if (!isValidReputationEvent(event) || seenIds.has(event.id)) {
+      return { reputationData: null, userName: safeUserName };
+    }
+    seenIds.add(event.id);
+  }
+
+  const level = reputationData.level;
+  if (level !== undefined && (typeof level !== 'string' || !level.trim())) {
+    return { reputationData: null, userName: safeUserName };
+  }
+
+  return {
+    reputationData: {
+      score,
+      level,
+      history,
+    },
+    userName: safeUserName,
+  };
 }
 
 export function ReputationPageContent({
   reputationData,
   userName,
 }: ReputationPageContentProps) {
-  const score = reputationData?.score;
-  const hasReputation = hasValidScore(score);
-  const resolvedUserName = normalizeUserName(userName);
+  const normalized = normalizeReputationPageInput(reputationData, userName);
+  const safeReputationData = normalized.reputationData;
+  const score = safeReputationData?.score;
+  const hasReputation = typeof score === 'number' && score >= 0;
 
   return (
     <SafeBoundary>
-      {!reputationData || !hasReputation ? (
+      {!safeReputationData || !hasReputation ? (
         <main className="min-h-screen p-8">
           <h1 className="text-2xl font-bold mb-6">Reputation</h1>
           <EmptyState
@@ -72,17 +132,17 @@ export function ReputationPageContent({
         <main className="min-h-screen p-8">
           <h1 className="text-2xl font-bold mb-6">Reputation</h1>
           <ReputationSummaryCard
-            name={resolvedUserName}
+            name={normalized.userName}
             score={score}
-            level={reputationData.level}
-            history={reputationData.history}
+            level={safeReputationData.level}
+            history={safeReputationData.history}
           />
           <Suspense fallback={null}>
             <ReputationProfile
-              name={resolvedUserName}
+              name={normalized.userName}
               score={score}
-              level={reputationData.level}
-              history={reputationData.history}
+              level={safeReputationData.level}
+              history={safeReputationData.history}
             />
           </Suspense>
         </main>
