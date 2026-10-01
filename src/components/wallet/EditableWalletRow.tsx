@@ -340,8 +340,8 @@ const EditableWalletRow: React.FC<EditableWalletRowProps> = ({
             {error}
           </p>
         )}
+        {liveRegion}
       </td>
-      {liveRegion}
     </tr>
   );
 };
