@@ -1,7 +1,7 @@
 import React from 'react';
 import { render, screen } from '@testing-library/react';
 import { axe } from 'jest-axe';
-import RootLayout from '../layout';
+import RootLayout, { resolveMetadataBase } from '../layout';
 
 // WalletProvider and RouteAnnouncer are already mocked in jest.setup.ts.
 // Mock next/navigation for RouteAnnouncer's usePathname call and
@@ -11,13 +11,42 @@ jest.mock('next/navigation', () => ({
   useRouter: jest.fn().mockReturnValue({ push: jest.fn(), replace: jest.fn(), prefetch: jest.fn() }),
 }));
 
-function renderLayout() {
-  return render(
-    <RootLayout>
-      <div>Page content</div>
-    </RootLayout>
-  );
+/**
+ * Suppress the React error boundary console.error noise that appears in the
+ * test output whenever a child component deliberately throws.
+ */
+beforeEach(() => {
+  jest.spyOn(console, 'error').mockImplementation(() => {});
+  setErrorReporter(null);
+  clearCommands();
+});
+
+afterEach(() => {
+  jest.restoreAllMocks();
+  setErrorReporter(null);
+  clearCommands();
+});
+
+/** Render the root layout with a stable, happy-path child. */
+function renderLayout(child: React.ReactNode = <div>Page content</div>) {
+  return render(<RootLayout>{child}</RootLayout>);
 }
+
+// ---------------------------------------------------------------------------
+// Helpers: components that deliberately crash so we can verify isolation
+// ---------------------------------------------------------------------------
+
+/**
+ * When rendered, unconditionally throws so we can test SafeBoundary isolation.
+ * Named exports make jest.mock() easy to target at individual components.
+ */
+const Bomb = () => {
+  throw new Error('Deliberate test explosion');
+};
+
+// ---------------------------------------------------------------------------
+// Describe: skip-to-content link (a11y baseline — must not regress)
+// ---------------------------------------------------------------------------
 
 describe('RootLayout — skip-to-content link', () => {
   it('renders a skip link with correct text', () => {
@@ -64,4 +93,27 @@ describe('RootLayout — skip-to-content link', () => {
     const results = await axe(wrapper ?? container);
     expect(results).toHaveNoViolations();
   });
+});
+
+describe('RootLayout — metadata URL boundaries', () => {
+  it.each([
+    ['https://talenttrust.example', 'https:'],
+    ['https://talenttrust.example/app/', 'https:'],
+    [undefined, 'http:'],
+    ['', 'http:'],
+  ])('accepts a safe site URL (%s)', (value, protocol) => {
+    expect(resolveMetadataBase(value).protocol).toBe(protocol);
+  });
+
+  it.each(['not a URL', 'javascript:alert(1)', 'https://user:secret@example.com'])(
+    'falls back for unsafe metadata input (%s)',
+    (value) => {
+      const warning = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      expect(resolveMetadataBase(value).toString()).toBe('http://localhost:3000/');
+      expect(warning).toHaveBeenCalledWith(
+        '[metadata] invalid NEXT_PUBLIC_SITE_URL; using the default site URL',
+      );
+      warning.mockRestore();
+    },
+  );
 });

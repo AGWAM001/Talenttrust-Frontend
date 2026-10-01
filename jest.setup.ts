@@ -23,6 +23,21 @@ if (typeof window !== 'undefined') {
   });
 }
 
+// jsdom does not implement the deprecated `document.execCommand`, but suites
+// spy on it to exercise the clipboard fallback path. A configurable stub gives
+// `jest.spyOn(document, 'execCommand')` a property to wrap. Guarded because
+// `document` does not exist under the `node` test environment.
+if (
+  typeof document !== 'undefined' &&
+  typeof (document as unknown as { execCommand?: unknown }).execCommand !== 'function'
+) {
+  Object.defineProperty(document, 'execCommand', {
+    configurable: true,
+    writable: true,
+    value: jest.fn(() => true),
+  });
+}
+
 // Mock next/link to a plain <a> to avoid intersection/prefetch behavior
 jest.mock('next/link', () => {
   const React = require('react');

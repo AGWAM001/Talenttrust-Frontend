@@ -25,6 +25,14 @@ describe('robots.ts', () => {
     });
   });
 
+  it('uses the default URL when NEXT_PUBLIC_SITE_URL is blank', () => {
+    const warning = jest.spyOn(console, 'warn').mockImplementation();
+    process.env.NEXT_PUBLIC_SITE_URL = '   ';
+
+    expect(robots().sitemap).toBe('http://localhost:3000/sitemap.xml');
+    expect(warning).not.toHaveBeenCalled();
+  });
+
   it('should use provided NEXT_PUBLIC_SITE_URL when set', () => {
     process.env.NEXT_PUBLIC_SITE_URL = 'https://talenttrust.app';
     const result = robots();
