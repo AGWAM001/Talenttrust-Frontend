@@ -33,6 +33,9 @@ function getSitemapUrl(siteUrl: string): string | undefined {
 /**
  * Generates robots.txt metadata to instruct search crawlers.
  *
+ * The generated object is deterministic for a given environment and always
+ * exposes a valid absolute sitemap URL.
+ *
  * @returns Robots metadata rules
  */
 export default function robots(): MetadataRoute.Robots {
