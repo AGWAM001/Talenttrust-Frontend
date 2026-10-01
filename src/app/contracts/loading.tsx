@@ -1,6 +1,6 @@
 /**
- * loading.tsx – /contracts
- *
+ * loading.tsx - /contracts
+*
  * App Router Suspense boundary rendered while the contracts list page streams
  * in. Mirrors the visual shape of ContractsPage: a page heading followed by
  * a column of contract-card rows (matching the `<li>` cards rendered when
@@ -26,6 +26,7 @@
  * - Duplicate or out-of-range inputs are normalized to the nearest valid
  *   boundary, so rendering is always deterministic and side-effect free.
  */
+const SKELETON_CARD_COUNT = 5;
 
 /** Minimum number of skeleton cards rendered. */
 export const MIN_SKELETON_COUNT = 1;
@@ -95,7 +96,7 @@ export default function ContractsLoading({ count }: ContractsLoadingProps = {}) 
 
   return (
     <main className="min-h-screen p-8" aria-busy="true">
-      {/* Accessible announcement */}
+      {/* Accessible announcement -- exactly one live region (invariant #4) */}
       <span role="status" aria-live="polite" aria-atomic="true" className="sr-only">
         Loading contracts…
       </span>
@@ -118,7 +119,7 @@ export default function ContractsLoading({ count }: ContractsLoadingProps = {}) 
       <ul className="space-y-4" aria-label="Loading contract list">
         {Array.from({ length: skeletonCount }, (_, i) => (
           <li key={i}>
-            <ContractCardSkeleton />
+            <ContractCardSkeleton>
           </li>
         ))}
       </ul>
