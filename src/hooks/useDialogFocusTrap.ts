@@ -70,7 +70,9 @@ export function useDialogFocusTrap({
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
 
-      const activeElement = document.activeElement as HTMLElement | null;
+      const activeElement = document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
       const activeIndex = activeElement ? focusable.indexOf(activeElement) : -1;
 
       // Defensive entry guard: focus can be outside the dialog after browser
