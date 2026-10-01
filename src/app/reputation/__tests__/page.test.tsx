@@ -98,6 +98,16 @@ describe('ReputationPageContent', () => {
       expect(screen.queryByTestId('empty-state')).toBeInTheDocument();
     });
 
+    it.each([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY])(
+      'renders EmptyState when score is non-finite (%s)',
+      (score) => {
+        render(<ReputationPageContent reputationData={{ score, history: [] }} />);
+
+        expect(screen.getByText('No reputation yet')).toBeInTheDocument();
+        expect(screen.queryByTestId('reputation-profile')).not.toBeInTheDocument();
+      },
+    );
+
     it('does not render ReputationProfile when there is no reputation data', () => {
       render(<ReputationPageContent />);
 
@@ -348,6 +358,24 @@ describe('ReputationPageContent', () => {
       render(<ReputationPageContent reputationData={data} userName="CustomName" />);
 
       expect(screen.getByTestId('reputation-name')).toHaveTextContent('CustomName');
+    });
+
+    it('keeps repeated independent renders isolated', () => {
+      const firstRender = render(
+        <ReputationPageContent reputationData={{ score: 12 }} userName="Ada" />,
+      );
+      const secondRender = render(
+        <ReputationPageContent reputationData={{ score: 84 }} userName="Grace" />,
+      );
+
+      expect(firstRender.container.querySelector('[data-testid="reputation-score"]'))
+        .toHaveTextContent('12');
+      expect(firstRender.container.querySelector('[data-testid="reputation-name"]'))
+        .toHaveTextContent('Ada');
+      expect(secondRender.container.querySelector('[data-testid="reputation-score"]'))
+        .toHaveTextContent('84');
+      expect(secondRender.container.querySelector('[data-testid="reputation-name"]'))
+        .toHaveTextContent('Grace');
     });
   });
 

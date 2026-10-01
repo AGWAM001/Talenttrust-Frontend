@@ -7,6 +7,20 @@ import ReputationSummaryCard from '../../components/ReputationSummaryCard';
 import SafeBoundary from '../../components/SafeBoundary';
 import type { Reputation, ReputationEvent } from '@/types/domain';
 
+/**
+ * Public compatibility contract for the reputation page.
+ *
+ * Invariants (preserved across errors, empty data, and upgrades):
+ *  1. The component never throws for invalid or malformed input; it degrades to the
+ *     empty state.
+ *  2. A reputation is considered "present" only when `score` is a finite, non-negative
+ *     number. NaN, Infinity, negative, string, or missing scores are treated as empty.
+ *  3. The `userName` prop defaults to `'User'` and non-string values fall back to the
+ *     default so downstream components always receive a stable string.
+ *  4. The `history` and `level` fields are passed through untouched when the profile
+ *     is rendered, so existing callers remain compatible.
+ */
+
 export type ReputationPageContentProps = {
   reputationData?: Reputation | null;
   userName?: string;
@@ -96,7 +110,7 @@ export function normalizeReputationPageInput(
 
 export function ReputationPageContent({
   reputationData,
-  userName = 'User',
+  userName,
 }: ReputationPageContentProps) {
   const normalized = normalizeReputationPageInput(reputationData, userName);
   const safeReputationData = normalized.reputationData;
