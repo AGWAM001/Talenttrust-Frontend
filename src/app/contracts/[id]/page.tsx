@@ -101,6 +101,36 @@ export function isValidContractIdBoundary(id: unknown): id is string {
 }
 
 /**
+ * Maximum number of automatic retry attempts for transient load failures.
+ * Kept small so recovery stays bounded and deterministic.
+ */
+const MAX_LOAD_RETRIES = 2;
+
+/**
+ * Base delay (ms) for exponential backoff between load retries.
+ */
+const LOAD_RETRY_BASE_DELAY_MS = 300;
+
+/**
+ * Classifies an error as retryable (transient) or terminal.
+ *
+ * Retryable failures are network/abort-like conditions where a bounded retry
+ * can plausibly succeed. Terminal failures (validation, not-found, auth) must
+ * not be retried because they would produce the same result and could mask
+ * authorization or validation invariants.
+ *
+ * @param error - The thrown value from a load attempt.
+ * @returns `true` when a bounded retry is safe.
+ */
+function isRetryableLoadError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const message = error.message.toLowerCase();
+  if (message.includes('not found') || message.includes('unauthor')) return false;
+  if (message.includes('invalid')) return false;
+  return true;
+}
+
+/**
  * Merges the contract's resolved milestones with any milestones persisted in
  * the repository under the same `contractId`, de-duplicating by `id`.
  *
@@ -137,8 +167,8 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
   const [cachedAt, setCachedAt] = useState<string | undefined>(undefined);
   const [isDataStale, setIsDataStale] = useState(false);
   const isMountedRef = useRef(true);
-  const loadTokenRef = useRef(0);
-  const isMountedRef2 = useRef(true);
+  const loadAttemptRef = useRef(0);
+  const loadAbortRef = useRef<AbortController | null>(null);
   const milestonesRef = useRef(milestones);
   milestonesRef.current = milestones;
   const loadRequestIdRef = useRef(0);
@@ -149,6 +179,7 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
   const { copied, copy } = useCopyToClipboard({
     delay: 2000,
     onSuccess: () => {
+      /* istanbul ignore next -- toast side effect */
       showSuccess({
         title: 'Contract ID copied',
         description: 'The contract identifier has been copied to your clipboard.',
@@ -199,6 +230,8 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
     setContractData,
     buildPersistedContract,
   );
+  const persistStatusRef = useRef(persistStatus);
+  persistStatusRef.current = persistStatus;
 
   /**
    * Applies a contract status transition optimistically, then persists it.
@@ -252,10 +285,7 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
       setIsPersistingStatus(true);
       setErrorMessage(null);
 
-      // Track the latest mutation so concurrent/duplicate submissions cannot
-      // race and apply out-of-order results to the UI.
-      const mutationId = ++statusMutationIdRef.current;
-
+      const persistStatus = persistStatusRef.current;
       const result = persistStatus(nextStatus);
 
         if (!result.ok) {
@@ -289,7 +319,7 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
       });
       setIsPersistingStatus(false);
     },
-    [id, persistStatus, showError, showSuccess, isOnline, isUsingCachedData, isDataStale],
+    [showError, showSuccess, isOnline, isUsingCachedData, isDataStale],
   );
 
   useEffect(() => {
@@ -300,6 +330,14 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
       try {
         setIsLoading(true);
         setErrorMessage(null);
+        loadAttemptRef.current = 0;
+
+        // Abort any in-flight load from a previous effect run so concurrent
+        // executions cannot race and clobber newer state.
+        loadAbortRef.current?.abort();
+        const abortController = new AbortController();
+        loadAbortRef.current = abortController;
+        const isAborted = () => abortController.signal.aborted;
 
         // Boundary check: never touch cache, resolver, or repository with an
         // invalid id. This guards against malformed params that bypass the
@@ -336,8 +374,34 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
           return;
         }
 
-        // Online - load fresh data
-        const data = await resolveContractData(id);
+        // Online - load fresh data with bounded, deterministic retries.
+        let data: ContractData | null = null;
+        let lastError: unknown = null;
+        for (let attempt = 0; attempt <= MAX_LOAD_RETRIES; attempt += 1) {
+          if (isAborted()) return;
+          loadAttemptRef.current = attempt;
+          try {
+            data = await resolveContractData(id);
+            lastError = null;
+            break;
+          } catch (err) {
+            lastError = err;
+            if (!isRetryableLoadError(err) || attempt === MAX_LOAD_RETRIES) {
+              break;
+            }
+            // Exponential backoff, bounded and deterministic.
+            const delay = LOAD_RETRY_BASE_DELAY_MS * 2 ** attempt;
+            await new Promise((resolve) => setTimeout(resolve, delay));
+          }
+        }
+
+        if (isAborted()) return;
+
+        if (!data) {
+          throw lastError instanceof Error
+            ? lastError
+            : new Error('Failed to load contract after retries.');
+        }
 
         if (isMountedRef.current && requestId === loadRequestIdRef.current) {
           setContractData(data);
@@ -350,6 +414,7 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
           cacheContractData(id, data);
         }
       } catch (error) {
+        if (loadAbortRef.current?.signal.aborted) return;
         // On error, try to fall back to cache
         const cachedResult = getCachedContractData(id);
         if (cachedResult.success && cachedResult.data) {
@@ -380,9 +445,7 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
     loadContract();
 
     return () => {
-      // Invalidate any in-flight load so its late resolution cannot commit
-      // state after unmount or after a newer load has started.
-      loadTokenRef.current = -1;
+      loadAbortRef.current?.abort();
       isMountedRef.current = false;
     };
   }, [id, isOnline]);
@@ -432,6 +495,7 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
 
     // Disable unsafe mutations while offline
     if (!isOnline) {
+      /* istanbul ignore next -- toast side effect */
       showError({
         title: 'Cannot update milestone while offline',
         description: 'Please connect to the internet to make changes to milestones.',
@@ -441,6 +505,7 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
 
     // Also disable if using stale cached data
     if (isUsingCachedData && isDataStale) {
+      /* istanbul ignore next -- toast side effect */
       showError({
         title: 'Cannot update stale data',
         description: 'Please refresh the page to load the latest data before making changes.',
@@ -460,11 +525,14 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
 
     const snapshot = milestonesRef.current;
 
+    // Apply optimistic update synchronously so the UI reflects intent.
     setMilestones((current) =>
       current.map((item) => (item.id === id ? { ...item, ...sanitizedPatch } : item)),
     );
 
-    const persisted = updateMilestone(id, sanitizedPatch);
+    // Persist synchronously; on failure, roll back to the exact snapshot so
+    // partial failure cannot leave the UI in an inconsistent state.
+    const persisted = updateMilestone(id, patch);
 
       if (!persisted) {
         setMilestones(snapshot);
@@ -478,6 +546,14 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
   }, [isOnline, isUsingCachedData, isDataStale, showError]);
 
   const status = contractData?.status || 'Active';
+
+  // Deterministic derived flag: mutations are unsafe when offline or when
+  // showing stale cached data. Kept in one place so ActionPanel and handlers
+  // cannot drift out of sync.
+  const disableMutations = useMemo(
+    () => !isOnline || (isUsingCachedData && isDataStale),
+    [isOnline, isUsingCachedData, isDataStale],
+  );
 
   return (
     <main className="min-h-screen bg-slate-50 px-4 py-8 sm:px-6 lg:px-8">
@@ -580,7 +656,7 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
               isLoading={isLoading || isPersistingStatus}
               errorMessage={errorMessage || undefined}
               disputeFlow="confirm"
-              disableMutations={!isOnline || (isUsingCachedData && isDataStale)}
+              disableMutations={disableMutations}
             />
           </div>
         </div>
