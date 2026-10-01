@@ -14,15 +14,25 @@
  *
  * Accessibility:
  * - `aria-busy="true"` on <main> conveys the overall page state.
- * - Visually-hidden `role="status"` span announces "Loading contract…".
- * - All shimmer blocks carry `aria-hidden="true"`.
+ * - Exactly one visually-hidden `role="status"` announces "Loading contract…".
+ * - The complete visual skeleton is hidden from assistive technology so nested
+ *   busy regions cannot produce duplicate announcements during overlapping
+ *   Suspense renders.
  * - Animation is suppressed for prefers-reduced-motion users via the
  *   globals.css project-wide rule and `motion-reduce:animate-none`.
+ *
+ * Concurrency invariant:
+ * This boundary owns no shared state, effects, timers, or request data. Every
+ * render is an isolated, deterministic placeholder, so React may start,
+ * discard, retry, or overlap renders without leaving stale contract details or
+ * loading announcements behind.
  */
 
 import { ContractSummarySkeleton } from '@/components/ContractSummarySkeleton';
 import { ContractProgressSkeleton } from '@/components/ContractProgressSkeleton';
 import { MilestonesListSkeleton } from '@/components/MilestonesListSkeleton';
+
+const ACTION_PLACEHOLDERS = ['primary', 'secondary', 'tertiary'] as const;
 
 // ---------------------------------------------------------------------------
 // Local sub-skeletons
@@ -51,9 +61,10 @@ const ActionPanelSkeleton = () => (
   >
     <div className="h-5 w-32 rounded-lg bg-slate-200 animate-shimmer motion-reduce:animate-none" />
     <div className="space-y-3">
-      {Array.from({ length: 3 }, (_, i) => (
+      {ACTION_PLACEHOLDERS.map((slot) => (
         <div
-          key={i}
+          key={slot}
+          data-skeleton-slot={`contract-action-${slot}`}
           className="h-10 w-full rounded-2xl bg-slate-200 animate-shimmer motion-reduce:animate-none"
         />
       ))}
@@ -76,7 +87,11 @@ export default function ContractDetailLoading() {
         Loading contract…
       </span>
 
-      <div className="mx-auto max-w-screen-2xl space-y-6">
+      <div
+        aria-hidden="true"
+        data-loading-layout="contract-detail"
+        className="mx-auto max-w-screen-2xl space-y-6"
+      >
         {/* Header card – breadcrumb + back button */}
         <HeaderCardSkeleton />
 
