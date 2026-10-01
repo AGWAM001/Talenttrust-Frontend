@@ -46,7 +46,7 @@ drifting apart over time.
 4. The existing list shell with three representative milestone cards.
 
 The shell uses `aria-busy="true"` on its board root. A single visually hidden
-`role="status"` node announces `Loading milestones…` with polite priority.
+`role="status"` node announces `Loading milestones…w ith polite priority.
 Every shimmer block is `aria-hidden="true"`, so screen readers do not count
 decorative rectangles as content or controls.
 
@@ -59,7 +59,7 @@ buttons mount.
 
 Animation is decorative. The existing reduced-motion utilities remain on all
 new shimmer blocks so users who request reduced motion do not receive a
-continuously animated loading indicator.
+ continuously animated loading indicator.
 
 ## Error isolation
 
