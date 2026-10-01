@@ -28,6 +28,7 @@
  * loading announcements behind.
  */
 
+import type { ReactElement } from 'react';
 import { ContractSummarySkeleton } from '@/components/ContractSummarySkeleton';
 import { ContractProgressSkeleton } from '@/components/ContractProgressSkeleton';
 import { MilestonesListSkeleton } from '@/components/MilestonesListSkeleton';
@@ -39,7 +40,7 @@ const ACTION_PLACEHOLDERS = ['primary', 'secondary', 'tertiary'] as const;
 // ---------------------------------------------------------------------------
 
 /** Mirrors the header card with breadcrumb and back-link button. */
-const HeaderCardSkeleton = () => (
+const HeaderCardSkeleton = (): ReactElement => (
   <div
     aria-hidden="true"
     className="flex items-center justify-between gap-4 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"
@@ -53,7 +54,7 @@ const HeaderCardSkeleton = () => (
 );
 
 /** Mirrors the ActionPanel right-column card with 3 action buttons. */
-const ActionPanelSkeleton = () => (
+const ActionPanelSkeleton = (): ReactElement => (
   <div
     aria-hidden="true"
     data-testid="action-panel-skeleton"
@@ -76,7 +77,7 @@ const ActionPanelSkeleton = () => (
 // Route loading export
 // ---------------------------------------------------------------------------
 
-export default function ContractDetailLoading() {
+export default function ContractDetailLoading(): ReactElement {
   return (
     <main
       data-testid="contract-detail-loading"

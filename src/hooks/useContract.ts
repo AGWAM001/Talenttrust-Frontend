@@ -1,162 +1,181 @@
 'use client';
 
-/**
- * UseContract
- *
- * A deterministic, concurrency-safe hook for loading a single contract by id.
- *
- * Invariants:
- * -  Only the latest request for the current id may write state (stale responses
- *    are discarded).
- * -  Repeated or concurrent calls for the same id coalesce into one network
- *    request via the shared deduper.
- * -  Unmount aborts the caller-scoped view but never corrupts the shared
- *    in-flight promise for other consumers.
- * -  Retry is idempotent: a retry always issues a fresh request and never
- *    reuses a stale result.
- */
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { useCallback, useEffect, useMemo, useRef } from 'react';
-
+import type { Contract, ContractStatus, Milestone } from '@types/domain';
 import {
-  Contract,
-  ContractsApiError,
-  fetchContract,
-  FetchContractOptions,
-} from '@/lib/contractsApi';
+  applyContractStatusTransition,
+  canNTransitionContractStatus,
+  mergeContractMilestones,
+  normalizeContractId,
+} from '@/lib/contracts';
+
+export type ContractLoadState = 'loading' | 'ready' | 'not-found' | 'error';
 
 export interface UseContractResult {
+  state: ContractLoadState;
   contract: Contract | null;
-  isLoading: boolean;
-  error: ContractsApiError | null;
-  /** True when the current id is missing or malformed. */
-  isInvalidId: boolean;
-  /** Trigger a fresh fetch, bypassing any in-flight coalescing. */
-  refresh: () => Promise<void>;
+  milestones: Milestone[];
+  error: Error | null;
+  canTransition: (to: ContractStatus) => boolean;
+  transitionStatus: (to: ContractStatus) => Promise<void>;
+  reload: () => Promise<void>;
 }
 
 export interface UseContractOptions {
-  /** Optional request timeout in milliseconds. */
-  timeoutMs?: number;
-  /** Optional base URL override (tests). */
-  baseUrl?: string;
+  /** Resolves the contract record for a given id. */
+  resolveContract?: (id: string) => Promise<Contract | null>;
+  /** Loads persisted milestones for a contract. */
+  listMilestones?: (contractId: string) => Milestone[];
+  /** Persists a status transition. Must be idempotent on conflict. */
+  persistStatus?: (contract: Contract) => Promise<void>;
 }
 
-const isValidId = (id: unknown): boolean =>
-  typeof id === 'string' && id.trim().length > 0 && /^[A-Za-z0-9_.:-]+$/.test(id);
-
+/**
+ * Loads a contract and its milestones, enforcing the state invariants owned by
+ * the contract detail route.
+ *
+ * Guarantees:
+ *   - Results from stale requests are discarded (latest call wins).
+ *   - Status transitions are validated against the current state before any
+ *     persistence or optimistic update occurs.
+ *   - Concurrent transitions are serialized so the contract cannot move to a
+ *     conflicting state.
+ *   - Failed persistence rolls back the optimistic update.
+ */
 export function useContract(
-  id: string | undefined | null,
+  id: string | undefined,
   options: UseContractOptions = {},
 ): UseContractResult {
-  const { timeoutMs, baseUrl } = options;
+  const { resolveContract, listMilestones, persistStatus } = options;
 
-  const normalizedId = typeof id === 'string' ? id.trim() : '';
-  const validId = isValidId(normalizedId);
+  const normalizedId = useMemo(() => normalizeContractId(id), [id]);
 
-  const [state, setState] = useState<{
-    contract: Contract | null;
-    isLoading: boolean;
-    error: ContractsApiError | null;
-  }>({ contract: null, isLoading: false, error: null });
+  const [state, setState] = useState<ContractLoadState>('loading');
+  const [contract, setContract] = useState<Contract | null>(null);
+  const [milestones, setMilestones] = useState<Milestone[]>([]);
+  const [error, setError] = useState<Error | null>(null);
 
-  // Monotonic token guarantees only the latest request can commit state.
-  const requestTokenRef = useRef<number>(0);
-  const abortRef = useRef<AbortController | null>(null);
-  const mountedRef = useRef<true>(true);
+  // Monotonic request token used to discard stale async results.
+  const requestIdRef = useRef(0);
+  // Serializes concurrent transition requests.
+  const transitionChainRef = useRef<Promise<void>>(Promise.resolve());
+  // Tracks whether the hook is still mounted.
+  const mountedRef = useRef(true);
 
   useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
-      // Abort only this caller's view; the shared in-flight request survives.
-      abortRef.current?.abort();
-      abortRef.current = null;
     };
   }, []);
 
-  const load = useCallback(
-    async (force: boolean) => {
-      if (!validId) {
-        // Invalid inputs must never issue a request or leak stale state.
-        requestTokenRef.current += 1;
-        abortRef.current?.abort();
-        abortRef.current = null;
-        if (mountedRef.current) {
-          setState({ contract: null, isLoading: false, error: null });
-        }
+  const load = useCallback(async () => {
+    if (!normalizedId) {
+      setState('not-found');
+      setContract(null);
+      setMilestones([]);
+      setError(null);
+      return;
+    }
+
+    const requestId = ++requestIdRef.current;
+    setState('loading');
+    setError(null);
+
+    try {
+      const resolved = resolveContract
+        ? await resolveContract(normalizedId)
+        : null;
+
+      // Discard results from superseded requests.
+      if (requestId !== requestIdRef.current || !mountedRef.current) {
         return;
       }
 
-      const token = ++requestTokenRef.current;
-      abortRef.current?.abort();
-      const controller = new AbortController();
-      abortRef.current = controller;
-
-      if (mountedRef.current) {
-        setState((prev) => ({
-          // Preserve the last known contract while reloading to avoid flicker.
-          contract: prev.contract,
-          isLoading: true,
-          error: null,
-        }));
+      if (!resolved) {
+        setState('not-found');
+        setContract(null);
+        setMilestones([]);
+        return;
       }
 
-      const requestOptions: FetchContractOptions = {
-        signal: controller.signal,
-        timeoutMs,
-        baseUrl,
-        force,
-      };
-
-      try {
-        const contract = await fetchContract(normalizedId, requestOptions);
-        if (!mountedRef.current || token !== requestTokenRef.current) {
-          // Stale response: discard without touching state.
-          return;
-        }
-        setState({ contract, isLoading: false, error: null });
-      } catch (error) {
-        if (!mountedRef.current || token !== requestTokenRef.current) {
-          return;
-        }
-        const apiError =
-          error instanceof ContractsApiError
-            ? error
-            : new ContractsApiError('Unable to load contract.', 'ER_UNKNOWN');
-        // Aborted requests are expected during unmount/renavigation and must not
-        // surface as user-visible errors.
-        if (apiError.code === 'ER_ABORTED') {
-          return;
-        }
-        setState({ contract: null, isLoading: false, error: apiError });
-      } finally {
-        if (abortRef.current === controller) {
-          abortRef.current = null;
-        }
+      const persisted = listMilestones ? listMilestones(normalizedId) : [];
+      setContract(resolved);
+      setMilestones(mergeContractMilestones(resolved.milestones ?? [], persisted));
+      setState('ready');
+    } catch (cause) {
+      if (requestId !== requestIdRef.current || !mountedRef.current) {
+        return;
       }
-    },
-    [normalizedId, validId, timeoutMs, baseUrl],
-  );
+      setError(toError(cause));
+      setState('error');
+    }
+  }, [normalizedId, resolveContract, listMilestones]);
 
   useEffect(() => {
-    void load(false);
-    // Intentionally do not abort on dependency change here; `load` already
-    // assumes ownership of the previous caller signal and bumps the token.
+    void load();
   }, [load]);
 
-  const refresh = useCallback(async () => {
-    await load(true);
-  }, [load]);
+  const canTransition = useCallback(
+    (to: ContractStatus) => {
+      if (!contract) {
+        return false;
+      }
+      return canNTransitionContractStatus(contract.status, to);
+    },
+    [contract],
+  );
+
+  const transitionStatus = useCallback(
+    async (to: ContractStatus) => {
+      // Serialize transitions to avoid concurrent mutations of the same
+      // contract. The chain ensures the next transition observes the result
+      // of the previous one.
+      const next = transitionChainRef.current.then(async () => {
+        const current = contract;
+        if (!current) {
+          throw new Error('Contract is not loaded.');
+        }
+        if (!canNTransitionContractStatus(current.status, to)) {
+          throw new Error(
+            `Transition from "${current.status}" to "${to}" is not allowed.`,
+          );
+        }
+
+        const optimistic = applyContractStatusTransition(current, to);
+        setContract(optimistic);
+
+        try {
+          if (persistStatus) {
+            await persistStatus(optimistic);
+          }
+        } catch (cause) {
+          // Roll back the optimistic update on failure so the UI reflects
+          // the persisted state.
+          if (mountedRef.current) {
+            setContract(current);
+          }
+          throw toError(cause);
+        }
+      });
+
+      // Keep the chain alive even when a transition rejects.
+      transitionChainRef.current = next.catch(() => undefined);
+      await next;
+    },
+    [contract, persistStatus],
+  );
 
   return useMemo(
-    () => ({
-      contract: state.contract,
-      isLoading: state.isLoading,
-      error: state.error,
-      isInvalidId: !validId,
-      refresh,
-    }),
-    [state.contract, state.isLoading, state.error, validId, refresh],
+    () => ({ state, contract, milestones, error, canTransition, transitionStatus, reload: load }),
+    [state, contract, milestones, error, canTransition, transitionStatus, load],
   );
+}
+
+function toError(cause: unknown): Error {
+  if (cause instanceof Error) {
+    return cause;
+  }
+  return new Error('unexpected contract load failure');
 }
