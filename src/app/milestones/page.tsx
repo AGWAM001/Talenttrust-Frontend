@@ -1,6 +1,7 @@
 'use client';
 
 import React, {
+  createContext,
   useCallback,
   useEffect,
   useMemo,
@@ -9,6 +10,7 @@ import React, {
   Suspense,
   useSyncExternalStore,
 } from 'react';
+import { useSearchParams, useRouter } from 'next/navigation';
 import { useSearchParams, useRouter } from 'next/navigation';
 import EmptyState from '../../components/EmptyState';
 import MilestonesList from '../../components/MilestonesList';
@@ -101,6 +103,9 @@ const MilestonesContent: React.FC = () => {
     setMilestones,
   );
 
+  // Track the last reconciled snapshot so we can detect silent data loss.
+  const lastReconciledRef = useRef<Milestone[] | null>(null);
+
   useEffect(() => {
     mountedRef.current = true;
     return () => {
@@ -152,6 +157,7 @@ const MilestonesContent: React.FC = () => {
     const persisted = listMilestones();
     if (persisted.length > 0) {
       setMilestones(persisted);
+      lastReconciledRef.current = persisted;
       setIsDismissed(true);
     } else {
       try {
@@ -161,6 +167,7 @@ const MilestonesContent: React.FC = () => {
         setIsDismissed(true);
       }
       setMilestones(SAMPLE_MILESTONES);
+      lastReconciledRef.current = SAMPLE_MILESTONES;
     }
   }, []);
 
@@ -172,6 +179,7 @@ const MilestonesContent: React.FC = () => {
     }
     setIsDismissed(true);
     setMilestones([]);
+    lastReconciledRef.current = [];
     setTimeout(() => {
       // Guard against the component unmounting between scheduling and
       // execution of this timeout (concurrent rendering / navigation).
@@ -214,11 +222,28 @@ const MilestonesContent: React.FC = () => {
     return nextMilestones;
   }, [filtered, sortOrder]);
 
+  assertInvariants(milestones, filtered, sortedMilestones);
+
   const handleAddMilestone = useCallback(() => {
     setShowForm(true);
   }, []);
 
   const handleSubmitMilestone = useCallback((milestone: Milestone) => {
+    if (!milestone || typeof milestone.id !== 'string' || milestone.id.length === 0) {
+      showError({
+        title: 'Unable to create milestone',
+        description: 'Milestone is missing a valid identifier.',
+      });
+      return;
+    }
+    if (!acquireMutationLock(milestone.id)) {
+      showError({
+        title: 'Unable to create milestone',
+        description: 'A change for this milestone is already in progress.',
+      });
+      return;
+    }
+    try {
     const result = optimisticCreate(milestone);
     if (!result.ok) {
       showError({
@@ -229,6 +254,9 @@ const MilestonesContent: React.FC = () => {
     }
     setShowForm(false);
     setIsDismissed(true);
+    } finally {
+      releaseMutationLock(milestone.id);
+    }
   }, [optimisticCreate, showError]);
   const handleCancelForm = useCallback(() => {
     setShowForm(false);
@@ -236,6 +264,21 @@ const MilestonesContent: React.FC = () => {
 
   const handleUpdateMilestone = useCallback(
     (id: string, patch: Partial<Milestone>): boolean => {
+      if (!id || typeof id !== 'string') {
+        showError({
+          title: 'Unable to update milestone',
+          description: 'Milestone is missing a valid identifier.',
+        });
+        return false;
+      }
+      if (!acquireMutationLock(id)) {
+        showError({
+          title: 'Unable to update milestone',
+          description: 'A change for this milestone is already in progress.',
+        });
+        return false;
+      }
+      try {
       const result = optimisticUpdate(id, patch);
       if (result.ok) return true;
       showError({
@@ -243,6 +286,9 @@ const MilestonesContent: React.FC = () => {
         description: result.error,
       });
       return false;
+      } finally {
+        releaseMutationLock(id);
+      }
     },
     [optimisticUpdate, showError],
   );

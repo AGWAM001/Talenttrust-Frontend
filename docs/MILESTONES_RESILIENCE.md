@@ -37,6 +37,12 @@ drifting apart over time.
 
 ## Loading shell
 
+In the route loading component, the shell is the only output and it is pure: it
+declares no module-level mutable state, no timers, and no storage access. That
+guarantees the loading state is identical on every prerender, every route transition,
+and every concurrent render. It also means the route cannot fail because of
+corrupted or unavailable browser storage.
+
 `MilestonesBoardSkeleton` reserves the following regions:
 
 1. A heading block with the same margin and approximate text width as the page
@@ -51,15 +57,14 @@ Every shimmer block is `aria-hidden="true"`, so screen readers do not count
 decorative rectangles as content or controls.
 
 The list skeleton preserves the existing rounded card borders, internal
-padding, title line, metadata line, and footer row. The exact data cannot be
-known while loading, but these dimensions are sufficient to keep the first
+padding, title line, metadata line, and footer row. The exact data cannot be known while loading, but these dimensions are sufficient to keep the first
 paint visually aligned with the resolved list. `min-h-[42px]` on the toolbar
 and its action controls prevents the most noticeable vertical shift when the
 buttons mount.
 
 Animation is decorative. The existing reduced-motion utilities remain on all
 new shimmer blocks so users who request reduced motion do not receive a
-continuously animated loading indicator.
+ continuously animated loading indicator.
 
 ## Error isolation
 
@@ -90,7 +95,7 @@ are rendered inside a keyed fragment, so React gives the recovered subtree a
 fresh mount. This is important for sections that read data or initialize
 subscriptions during mount.
 
-The retry button is a real button with `type="button"`, a visible focus style,
+The retry button is a real button with `type="button`, a visible focus style,
 and `autoFocus` when the fallback appears. The fallback has `role="alert"`,
 `aria-live="assertive", and `aria-atomic="true"`, so both visual and
 assistive-technology users learn that the section needs attention.
@@ -195,6 +200,11 @@ The resilience tests are split by responsibility:
 - the reported metadata contains no thrown message text.
 
 ### Integration tests
+
+`src/hooks/__tests__/useMilestonesRouteError.test.ts` and
+`src/app/milestones/__tests__/route-states.test.tsx` cover the route boundary:
+report de-duplication, single-flight reset, cooldown re-arm, graceful handling
+of a throwing/non-function `reset`, no-leak assertions, and timer cleanup.
 
 `src/app/milestones/__tests__/resilience.test.tsx` renders the actual page
 composition with controlled filter and list probes. It proves that:

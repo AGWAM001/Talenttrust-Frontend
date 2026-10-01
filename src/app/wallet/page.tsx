@@ -10,27 +10,200 @@ import { useToast } from '@/components/toast/toast-provider';
 import type { WalletItem } from '@/types/domain';
 import { SAMPLE_WALLET_ITEMS } from './constants';
 
+/**
+ * Validation boundaries for wallet page inputs.
+ *
+ * Invariants enforced here:
+ * - IDs are non-empty strings; duplicate IDs are rejected at the boundary.
+ * - Names are trimmed, non-empty, and bounded by MAX_NAME_LENGTH.
+ * - Bulk operations are capped at MAX_BULK_SIZE to prevent unbounded work.
+ * - Selection state only ever contains IDs that exist in the current item set.
+ * - All boundary helpers are pure and deterministic so they can be unit tested.
+ */
+export const MAX_NAME_LENGTH = 120;
+export const MAX_BULK_SIZE = 500;
+
+export type ValidationResult<T> =
+  | { ok: true; value: T }
+  | { ok: false; reason: string };
+
+export function isValidId(id: unknown): id is string {
+  return typeof id === 'string' && id.trim().length > 0;
+}
+
+export function validateName(raw: unknown): ValidationResult<string> {
+  if (typeof raw !== 'string') {
+    return { ok: false, reason: 'Name must be a string.' };
+  }
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) {
+    return { ok: false, reason: 'Name cannot be empty.' };
+  }
+  if (trimmed.length > MAX_NAME_LENGTH) {
+    return {
+      ok: false,
+      reason: `Name cannot exceed ${MAX_NAME_LENGTH} characters.`,
+    };
+  }
+  return { ok: true, value: trimmed };
+}
+
+export function validateWalletItem(item: unknown): ValidationResult<WalletItem> {
+  if (!item || typeof item !== 'object') {
+    return { ok: false, reason: 'Wallet item must be an object.' };
+  }
+  const candidate = item as Partial<WalletItem>;
+  if (!isValidId(candidate.id)) {
+    return { ok: false, reason: 'Wallet item id is required.' };
+  }
+  const nameResult = validateName(candidate.name);
+  if (!nameResult.ok) {
+    return nameResult;
+  }
+  return {
+    ok: true,
+    value: { ...(candidate as WalletItem), id: candidate.id, name: nameResult.value },
+  };
+}
+
+export function dedupeIds(ids: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const id of ids) {
+    if (!isValidId(id)) continue;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    out.push(id);
+  }
+  return out;
+}
+
+export function validateBulkIds(
+  ids: readonly string[],
+  knownIds: ReadonlySet<string>,
+): ValidationResult<string[]> {
+  const unique = dedupeIds(ids);
+  if (unique.length === 0) {
+    return { ok: false, reason: 'No valid items selected.' };
+  }
+  if (unique.length > MAX_BULK_SIZE) {
+    return {
+      ok: false,
+      reason: `Cannot operate on more than ${MAX_BULK_SIZE} items at once.`,
+    };
+  }
+  const unknown = unique.filter((id) => !knownIds.has(id));
+  if (unknown.length > 0) {
+    return {
+      ok: false,
+      reason: `Unknown wallet item id(s): ${unknown.join(', ')}.`,
+    };
+  }
+  return { ok: true, value: unique };
+}
+
+export function sanitizeSelection(
+  selection: ReadonlySet<string>,
+  knownIds: ReadonlySet<string>,
+): Set<string> {
+  const next = new Set<string>();
+  selection.forEach((id) => {
+    if (isValidId(id) && knownIds.has(id)) {
+      next.add(id);
+    }
+  });
+  return next;
+}
+
 export default function WalletPage() {
   const [items, setItems] = useState<WalletItem[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [targetDeleteIds, setTargetDeleteIds] = useState<string[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const { showSuccess, showError } = useToast();
 
-  // Load from repository on mount, fallback to sample items if repository is empty
+  const knownIds = useMemo(() => new Set(items.map((i) => i.id)), [items]);
+
+  // Keep selection bounded to IDs that still exist. This protects against
+  // stale selections after deletes, reloads, or external mutations.
   useEffect(() => {
-    const loaded = listWalletItems();
-    if (loaded.length > 0) {
-      setItems(loaded);
-    } else {
-      // Seed sample items into repository for initial demo
-      SAMPLE_WALLET_ITEMS.forEach((item) => saveWalletItem(item));
-      setItems(SAMPLE_WALLET_ITEMS);
+    setSelectedIds((prev) => {
+      const next = sanitizeSelection(prev, knownIds);
+      if (next.size === prev.size) {
+        let same = true;
+        prev.forEach((id) => {
+          if (!next.has(id)) same = false;
+        });
+        if (same) return prev;
+      }
+      return next;
+    });
+  }, [knownIds]);
+
+  // Load from repository on mount, fallback to sample items if repository is empty
+  // Deterministic recovery: atomic seeding to prevent partial persistence on failure
+  useEffect(() => {
+    try {
+      const loaded = listWalletItems();
+      if (loaded.length > 0) {
+        setItems(loaded);
+      } else {
+        // Seed sample items atomically - all or nothing to prevent partial state
+        let seedSuccess = false;
+        try {
+          SAMPLE_WALLET_ITEMS.forEach((item) => saveWalletItem(item));
+          // Verify all items were persisted by re-reading
+          const afterSeed = listWalletItems();
+          if (afterSeed.length === SAMPLE_WALLET_ITEMS.length) {
+            seedSuccess = true;
+            setItems(SAMPLE_WALLET_ITEMS);
+          } else {
+            // Partial persistence detected - clear and retry
+            console.error('[WalletPage] Partial seed detected, clearing repository');
+            const { clearAppData } = require('@/lib/repository');
+            clearAppData();
+            SAMPLE_WALLET_ITEMS.forEach((item) => saveWalletItem(item));
+            const retry = listWalletItems();
+            if (retry.length === SAMPLE_WALLET_ITEMS.length) {
+              seedSuccess = true;
+              setItems(SAMPLE_WALLET_ITEMS);
+            }
+          }
+        } catch (err) {
+          console.error('[WalletPage] Failed to seed sample items:', err);
+        }
+
+        if (!seedSuccess) {
+          setLoadError('Failed to initialize wallet data. Please refresh the page.');
+          showError({
+            title: 'Initialization failed',
+            description: 'Could not load wallet data. Please refresh the page.',
+          });
+        }
+      }
+    } catch (err) {
+      console.error('[WalletPage] Failed to load wallet items:', err);
+      setLoadError('Failed to load wallet data. Please refresh the page.');
+      showError({
+        title: 'Load failed',
+        description: 'Could not load wallet data. Please refresh the page.',
+      });
+    } finally {
+      setIsLoading(false);
     }
-  }, []);
+  }, [showError]);
 
   const handleToggleSelect = useCallback((id: string) => {
+    if (!isValidId(id)) {
+      showError({
+        title: 'Invalid selection',
+        description: 'The selected wallet item id is not valid.',
+      });
+      return;
+    }
     setSelectedIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) {
@@ -40,7 +213,7 @@ export default function WalletPage() {
       }
       return next;
     });
-  }, []);
+  }, [showError]);
 
   const handleToggleSelectAll = useCallback(() => {
     setSelectedIds((prev) => {
@@ -57,7 +230,12 @@ export default function WalletPage() {
 
   const handleExportSelected = useCallback(() => {
     if (selectedIds.size === 0) return;
-    const selectedItems = items.filter((item) => selectedIds.has(item.id));
+    const validation = validateBulkIds(Array.from(selectedIds), knownIds);
+    if (!validation.ok) {
+      showError({ title: 'Export rejected', description: validation.reason });
+      return;
+    }
+    const selectedItems = items.filter((item) => validation.value.includes(item.id));
     const jsonStr = JSON.stringify(selectedItems, null, 2);
     
     try {
@@ -68,15 +246,12 @@ export default function WalletPage() {
       a.download = `wallet-export-${Date.now()}.json`;
       a.click();
       URL.revokeObjectURL(url);
-    } catch {
-      // Fallback for non-browser or strict CSP environments
-    }
 
     showSuccess({
       title: 'Export successful',
       description: `Exported ${selectedItems.length} ${selectedItems.length === 1 ? 'item' : 'items'} to JSON.`,
     });
-  }, [items, selectedIds, showSuccess]);
+  }, [items, selectedIds, knownIds, showSuccess, showError]);
 
   const handleRequestBulkDelete = useCallback(() => {
     if (selectedIds.size === 0) return;
@@ -85,15 +260,82 @@ export default function WalletPage() {
   }, [selectedIds]);
 
   const handleRequestSingleDelete = useCallback((id: string) => {
+    if (!isValidId(id) || !knownIds.has(id)) {
+      showError({
+        title: 'Delete rejected',
+        description: 'The wallet item could not be found.',
+      });
+      return;
+    }
     setTargetDeleteIds([id]);
     setIsDeleteModalOpen(true);
-  }, []);
+  }, [knownIds, showError]);
 
   const handleConfirmDelete = useCallback(() => {
     if (targetDeleteIds.length === 0) return;
 
+    // Deterministic recovery: optimistic update with rollback on failure
+    const previousItems = [...items];
+    const previousSelectedIds = new Set(selectedIds);
+
+    // Optimistically update UI
+    const optimisticItems = items.filter((item) => !targetDeleteIds.includes(item.id));
+    const optimisticSelectedIds = new Set(selectedIds);
+    targetDeleteIds.forEach((id) => optimisticSelectedIds.delete(id));
+
+    setItems(optimisticItems);
+    setSelectedIds(optimisticSelectedIds);
+
+    try {
+      const ok = deleteWalletItems(targetDeleteIds);
+      if (ok) {
+        // Verify deletion by re-reading from repository
+        const verified = listWalletItems();
+        const expectedCount = previousItems.length - targetDeleteIds.length;
+        
+        if (verified.length === expectedCount) {
+          showSuccess({
+            title: 'Items deleted',
+            description: `Successfully deleted ${targetDeleteIds.length} ${
+              targetDeleteIds.length === 1 ? 'item' : 'items'
+            }.`,
+          });
+        } else {
+          // Repository state inconsistent - rollback and notify
+          console.error('[WalletPage] Delete verification failed: count mismatch');
+          setItems(previousItems);
+          setSelectedIds(previousSelectedIds);
+          showError({
+            title: 'Delete verification failed',
+            description: 'Could not verify deletion. Please refresh the page.',
+          });
+        }
+      } else {
+        // Delete failed - rollback optimistic update
+        console.error('[WalletPage] Delete operation failed');
+        setItems(previousItems);
+        setSelectedIds(previousSelectedIds);
+        showError({
+          title: 'Delete failed',
+          description: 'Failed to remove selected wallet items. Please try again.',
+        });
+      }
+    } catch (err) {
+      // Exception during delete - rollback optimistic update
+      console.error('[WalletPage] Exception during delete:', err);
+      setItems(previousItems);
+      setSelectedIds(previousSelectedIds);
     const snapshot = items;
     const deleteIds = targetDeleteIds;
+
+    const validation = validateBulkIds(deleteIds, knownIds);
+    if (!validation.ok) {
+      showError({ title: 'Delete rejected', description: validation.reason });
+      setIsDeleteModalOpen(false);
+      setTargetDeleteIds([]);
+      return;
+    }
+    const safeDeleteIds = validation.value;
 
     setItems((prev) => prev.filter((item) => !deleteIds.includes(item.id)));
     setSelectedIds((prev) => {
@@ -102,7 +344,7 @@ export default function WalletPage() {
       return next;
     });
 
-    const ok = deleteWalletItems(deleteIds);
+    const ok = deleteWalletItems(safeDeleteIds);
     if (ok) {
       showSuccess({
         title: 'Items deleted',
@@ -119,13 +361,13 @@ export default function WalletPage() {
       });
       showError({
         title: 'Delete failed',
-        description: 'Failed to remove selected wallet items.',
+        description: 'An error occurred while deleting items. Please try again.',
       });
     }
 
     setIsDeleteModalOpen(false);
     setTargetDeleteIds([]);
-  }, [items, targetDeleteIds, showSuccess, showError]);
+  }, [items, targetDeleteIds, knownIds, showSuccess, showError]);
 
   const handleCancelDelete = useCallback(() => {
     setIsDeleteModalOpen(false);
@@ -133,18 +375,37 @@ export default function WalletPage() {
   }, []);
 
   const handleEditItem = useCallback((id: string) => {
+    if (!isValidId(id) || !knownIds.has(id)) {
+      showError({
+        title: 'Edit rejected',
+        description: 'The wallet item could not be found.',
+      });
+      return;
+    }
     setEditingId(id);
-  }, []);
+  }, [knownIds, showError]);
 
   const handleSaveEdit = useCallback((id: string, updated: WalletItem) => {
-    const ok = updateWalletItem(id, updated);
+    if (!isValidId(id) || !knownIds.has(id)) {
+      showError({
+        title: 'Update rejected',
+        description: 'The wallet item could not be found.',
+      });
+      return;
+    }
+    const validation = validateWalletItem({ ...updated, id });
+    if (!validation.ok) {
+      showError({ title: 'Update rejected', description: validation.reason });
+      return;
+    }
+    const ok = updateWalletItem(id, validation.value);
     if (ok) {
       const reloaded = listWalletItems();
       setItems(reloaded);
       setEditingId(null);
       showSuccess({
         title: 'Item updated',
-        description: `"${updated.name}" has been updated successfully.`,
+        description: `"${validation.value.name}" has been updated successfully.`,
       });
     } else {
       showError({
@@ -152,7 +413,7 @@ export default function WalletPage() {
         description: 'Failed to save changes to the wallet item.',
       });
     }
-  }, [showSuccess, showError]);
+  }, [knownIds, showSuccess, showError]);
 
   const handleCancelEdit = useCallback((_id: string) => {
     setEditingId(null);
@@ -183,16 +444,26 @@ export default function WalletPage() {
         </div>
       </div>
 
-      {items.length > 0 && (
+      {loadError && (
+        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-4 dark:border-red-800 dark:bg-red-900/20">
+          <p className="text-sm text-red-800 dark:text-red-200">{loadError}</p>
+        </div>
+      )}
+
+      {isLoading ? (
+        <div className="flex items-center justify-center py-12">
+          <p className="text-sm text-slate-500 dark:text-slate-400">Loading wallet items...</p>
+        </div>
+      ) : items.length > 0 ? (
         <WalletBulkToolbar
           selectedCount={selectedIds.size}
           onClearSelection={handleClearSelection}
           onExport={handleExportSelected}
           onDelete={handleRequestBulkDelete}
         />
-      )}
+      ) : null}
 
-      {items.length === 0 ? (
+      {isLoading ? null : items.length === 0 ? (
         <EmptyState
           illustration="contracts"
           title="No wallet items"

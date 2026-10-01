@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useWallet } from '@/contexts/WalletContext';
 import { ConfirmDialog } from './ConfirmDialog';
 import { DISPUTE_REASON_MAX_LENGTH, validateDisputeReason } from '@/lib/disputeReason';
@@ -79,6 +79,14 @@ const DISPUTE_REASON_COUNTER_ID = 'dispute-reason-counter';
 const DISPUTE_REASON_ASSERTIVE_THRESHOLD = 50;
 const DISPUTE_WALLET_ERROR = 'Connect your wallet before submitting a dispute.';
 
+/**
+ * Invariant: a single ActionPanel instance may have at most one mutation
+ * (submit / release / dispute) in flight at a time. Any attempt to start a
+ * second mutation while one is pending is ignored, so retries, double-clicks,
+ * and racing confirmations cannot dispatch duplicate or out-of-order work.
+ */
+const MUTATION_IN_FLIGHT_MESSAGE = 'An action is already in progress. Please wait for it to finish.';
+
 const getActionButtons = (status: ActionPanelProps['status']) => {
   if (status === 'Active') return ['Submit Milestone', 'Release Funds', 'Dispute'];
   if (status === 'Pending') return ['Release Funds', 'Dispute'];
@@ -125,6 +133,29 @@ const ActionPanel = ({
   const mutationsDisabledMsg = disableMutations ? 'Actions disabled while offline or viewing stale data' : undefined;
   const panelRef = useRef<HTMLElement | null>(null);
 
+  /**
+   * Guards against concurrent / duplicate mutation dispatch. The ref is the
+   * source of truth for synchronous re-entrancy checks (state updates are
+   * async and would allow two clicks in the same tick to both pass), while the
+   * state mirrors it for rendering (disabling buttons, aria-busy).
+   */
+  const mutationInFlightRef = useRef(false);
+  const [mutationInFlight, setMutationInFlight] = useState(false);
+  const [mutationError, setMutationError] = useState('');
+
+  const beginMutation = useCallback((): boolean => {
+    if (mutationInFlightRef.current) return false;
+    mutationInFlightRef.current = true;
+    setMutationInFlight(true);
+    setMutationError('');
+    return true;
+  }, []);
+
+  const endMutation = useCallback(() => {
+    mutationInFlightRef.current = false;
+    setMutationInFlight(false);
+  }, []);
+
   const describedBy = (perActionId: string | undefined) =>
     isLoading ? LOADING_DESCRIPTION_ID : perActionId;
   const describedById = (key: keyof ActionPanelDisabledReasons) =>
@@ -147,24 +178,39 @@ const ActionPanel = ({
     action: Exclude<ConfirmAction, null>,
     event: React.MouseEvent<HTMLButtonElement>,
   ) => {
-    if (disableMutations) return;
+    if (disableMutations || mutationInFlightRef.current) return;
     triggerElementRef.current = event.currentTarget;
     setConfirmAction(action);
   };
 
   const handleConfirm = () => {
-    if (disableMutations) {
+    if (disableMutations || mutationInFlightRef.current) {
       setConfirmAction(null);
       return;
     }
-    if (confirmAction === 'submit') {
-      onSubmitMilestone?.();
-    } else if (confirmAction === 'release') {
-      onReleaseFunds?.();
-    } else if (confirmAction === 'dispute') {
-      onDispute?.('Dispute opened from action panel.');
+    const action = confirmAction;
+    if (action === null) return;
+
+    if (!beginMutation()) {
+      setConfirmAction(null);
+      return;
     }
-    setConfirmAction(null);
+
+    try {
+      if (action === 'submit') {
+        onSubmitMilestone?.();
+      } else if (action === 'release') {
+        onReleaseFunds?.();
+      } else if (action === 'dispute') {
+        onDispute?.('Dispute opened from action panel.');
+      }
+    } catch (error) {
+      setMutationError('The action could not be completed. Please try again.');
+      throw error;
+    } finally {
+      endMutation();
+      setConfirmAction(null);
+    }
   };
 
   const handleCancel = () => {
@@ -183,7 +229,7 @@ const ActionPanel = ({
 
   /** Opens the inline dispute form and moves focus to the textarea. */
   const handleOpenDisputeForm = (event: React.MouseEvent<HTMLButtonElement>) => {
-    if (disableMutations) return;
+    if (disableMutations || mutationInFlightRef.current) return;
     triggerElementRef.current = event.currentTarget;
     disputeTriggerRef.current = event.currentTarget;
     setDisputeReason('');
@@ -291,7 +337,7 @@ const ActionPanel = ({
   const handleDisputeSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (disableMutations) {
+    if (disableMutations || mutationInFlightRef.current) {
       closeDisputeForm();
       return;
     }
@@ -309,8 +355,20 @@ const ActionPanel = ({
       return;
     }
 
-    onDispute?.(disputeReason.trim());
-    closeDisputeForm();
+    if (!beginMutation()) {
+      setDisputeReasonError(MUTATION_IN_FLIGHT_MESSAGE);
+      return;
+    }
+
+    try {
+      onDispute?.(disputeReason.trim());
+      closeDisputeForm();
+    } catch (error) {
+      setMutationError('The dispute could not be submitted. Please try again.');
+      throw error;
+    } finally {
+      endMutation();
+    }
   };
 
   const remainingChars = DISPUTE_REASON_MAX_LENGTH - disputeReason.length;
@@ -336,6 +394,11 @@ const ActionPanel = ({
         {errorMessage && (
           <p role="alert" className="mt-2 rounded-lg border border-rose-200 bg-rose-50 p-2 text-sm text-rose-700">
             {errorMessage}
+          </p>
+        )}
+        {mutationError && (
+          <p role="alert" className="mt-2 rounded-lg border border-rose-200 bg-rose-50 p-2 text-sm text-rose-700">
+            {mutationError}
           </p>
         )}
         {isLoading && (
@@ -370,7 +433,7 @@ const ActionPanel = ({
           <button
             type="button"
             onClick={(e) => handleOpenConfirm('submit', e)}
-            disabled={!isWalletConnected || isLoading || !!disabledReasons?.submitMilestone || disableMutations}
+            disabled={!isWalletConnected || isLoading || !!disabledReasons?.submitMilestone || disableMutations || mutationInFlight}
             title={!isWalletConnected ? noWalletMsg : mutationsDisabledMsg}
             aria-label="Submit milestone for approval"
             aria-describedby={describedBy(describedById('submitMilestone'))}
@@ -384,7 +447,7 @@ const ActionPanel = ({
           <button
             type="button"
             onClick={(event) => handleOpenConfirm('release', event)}
-            disabled={!isWalletConnected || isLoading || !!disabledReasons?.releaseFunds || disableMutations}
+            disabled={!isWalletConnected || isLoading || !!disabledReasons?.releaseFunds || disableMutations || mutationInFlight}
             title={!isWalletConnected ? noWalletMsg : mutationsDisabledMsg}
             aria-label="Release funds to the contractor"
             aria-describedby={describedBy(describedById('releaseFunds'))}
@@ -405,6 +468,7 @@ const ActionPanel = ({
                 isLoading ||
                 !!disabledReasons?.dispute ||
                 disputeFormOpen ||
+                mutationInFlight ||
                 disableMutations
               }
               title={!isWalletConnected ? noWalletMsg : mutationsDisabledMsg}
@@ -508,6 +572,7 @@ const ActionPanel = ({
                   <div className="flex gap-2 mt-3">
                     <button
                       type="submit"
+                      disabled={mutationInFlight}
                       className={`flex-1 rounded-xl bg-rose-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-rose-700 disabled:opacity-50 disabled:cursor-not-allowed ${focusRingClass}`}
                     >
                       Confirm Dispute
@@ -515,6 +580,7 @@ const ActionPanel = ({
                     <button
                       type="button"
                       onClick={closeDisputeForm}
+                      disabled={mutationInFlight}
                       className={`flex-1 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-900 transition hover:border-slate-400 ${focusRingClass}`}
                     >
                       Cancel
@@ -530,7 +596,7 @@ const ActionPanel = ({
           <button
             type="button"
             onClick={() => onViewSummary?.()}
-            disabled={isLoading || !!disabledReasons?.viewSummary}
+            disabled={isLoading || !!disabledReasons?.viewSummary || mutationInFlight}
             aria-label="View contract summary details"
             aria-describedby={describedBy(describedById('viewSummary'))}
             className={`w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-900 transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-50 ${focusRingClass}`}
@@ -550,6 +616,7 @@ const ActionPanel = ({
         cancelLabel="Cancel"
         tone={confirmAction === 'release' || confirmAction === 'dispute' ? 'destructive' : 'default'}
         onConfirm={handleConfirm}
+        isConfirming={mutationInFlight}
         onCancel={handleCancel}
       />
     </aside>

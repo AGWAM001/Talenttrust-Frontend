@@ -28,6 +28,8 @@ export interface MilestonesErrorBoundaryProps {
 interface State {
   hasError: boolean;
   retryKey: number;
+  /** The caught error. Retained for diagnostics only — never rendered. */
+  error?: Error;
 }
 
 /** Public error code used by dashboards and tests without exposing internals. */
@@ -71,7 +73,9 @@ export default class MilestonesErrorBoundary extends Component<
   // Lifecycle
   // ------------------------------------------------------------------
 
-  static getDerivedStateFromError(error: Error): State {
+  // A partial state keeps the current `retryKey`, so the next retry still
+  // remounts a fresh subtree.
+  static getDerivedStateFromError(error: Error): Partial<State> {
     return { hasError: true, error };
   }
 

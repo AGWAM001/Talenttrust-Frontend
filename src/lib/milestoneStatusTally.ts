@@ -33,7 +33,7 @@ function isKnownStatus(value: unknown): value is StatusType {
  *   public contract.
  */
 export function milestoneStatusTally(
-  milestones: { status: StatusType }[],
+  milestones: readonly { status: StatusType }[],
 ): StatusTally[] {
   const counts: Record<StatusType, number> = {
     Active: 0,
