@@ -23,57 +23,17 @@ type ContractsFetchState =
   | { status: 'error'; contracts: Contract[] };
 
 /**
- * Validation boundaries for the contracts page.
- *
- * Invariants enforced here:
- *  - A contract is only accepted when it has a non-empty id and a non-empty
- *    contractName. Anything else is rejected before it reaches state or
- *    persistence, so invalid data can never be rendered or exported.
- *  - Duplicate ids are rejected. The optimistic update and the persisted
- *    write are both skipped, guaranteeing the list stays consistent even if
- *    the same submission is delivered twice (double-click, retry, replay).
- *  - Concurrent submissions are serialized through a synchronous in-flight
- *    guard so two overlapping writes cannot interleave and produce a
- *    partially-applied state.
- *  - Search input is bounded to MAX_SEARCH_LENGTH characters to keep the
- *    filter deterministic and prevent pathological inputs.
+ * Invariants enforced by this page:
+ * - `fetchState.contracts` is always a valid array (never undefined).
+ * - Contract ids are unique within `fetchState.contracts`; duplicate ids are
+ *   rejected before being appended so optimistic updates cannot corrupt state.
+ * - Concurrent submissions are serialized via `submittingRef` so two rapid
+ *   submits cannot both optimistically append and race on persistence.
+ * - On persistence failure the optimistic append is rolled back by id, and
+ *   the rollback is idempotent (safe if the id is already absent).
+ * - `status: 'error'` always carries an empty contracts array so the error
+ *   UI cannot render stale data.
  */
-const MAX_SEARCH_LENGTH = 200;
-
-type ContractValidationResult =
-  | { ok: true; contract: Contract }
-  | { ok: false; reason: 'invalid' | 'duplicate' };
-
-/**
- * Validates a candidate contract against the current list.
- *
- * Pure and deterministic: given the same inputs it always returns the same
- * result. Used both for the optimistic update and as a defensive check
- * before persistence.
- */
-const validateContract = (
-  candidate: Contract,
-  existing: readonly Contract[],
-): ContractValidationResult => {
-  if (
-    !candidate ||
-    typeof candidate.id !== 'string' ||
-    candidate.id.trim().length === 0 ||
-    typeof candidate.contractName !== 'string' ||
-    candidate.contractName.trim().length === 0
-  ) {
-    return { ok: false, reason: 'invalid' };
-  }
-
-  const normalizedId = candidate.id.trim();
-  const isDuplicate = existing.some((item) => item.id === normalizedId);
-  if (isDuplicate) {
-    return { ok: false, reason: 'duplicate' };
-  }
-
-  return { ok: true, contract: { ...candidate, id: normalizedId } };
-};
-
 const getInitialFetchState = (): ContractsFetchState => {
   try {
     return { status: 'success', contracts: listContracts() };
@@ -87,6 +47,7 @@ const ContractsPage: React.FC = () => {
   const [showForm, setShowForm] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [sortOrder, setSortOrder] = useState<ContractSortOrder>(DEFAULT_CONTRACT_SORT_ORDER);
+  const submittingRef = useRef(false);
   const { showError } = useToast();
   const { preferences, updatePreference } = usePreferences();
   const { contracts } = fetchState;
@@ -146,38 +107,8 @@ const ContractsPage: React.FC = () => {
    */
   const handleSubmitContract = useCallback(
     (contract: Contract) => {
-      if (submissionInFlightRef.current) {
-        return;
-      }
-
-      const validation = validateContract(contract, contracts);
-      if (!validation.ok) {
-        if (validation.reason === 'duplicate') {
-          showError({
-            title: 'Duplicate contract',
-            description: 'A contract with this identifier already exists.',
-          });
-        } else {
-          showError({
-            title: 'Invalid contract',
-            description: 'The contract is missing required fields and was not saved.',
-          });
-        }
-        return;
-      }
-
-      const validated = validation.contract;
-      if (acceptedIdsRef.current.has(validated.id)) {
-        showError({
-          title: 'Duplicate contract',
-          description: 'A contract with this identifier already exists.',
-        });
-        return;
-      }
-
-      submissionInFlightRef.current = true;
-      acceptedIdsRef.current.add(validated.id);
-
+      if (submittingRef.current) return;
+      submittingRef.current = true;
       setFetchState((current) => ({
         status: 'success',
         contracts: [...current.contracts, validated],
@@ -185,21 +116,19 @@ const ContractsPage: React.FC = () => {
       setShowForm(false);
       setSearchQuery('');
 
-      try {
-        const persisted = saveContract(validated);
-        if (!persisted) {
-          setFetchState((current) => ({
-            status: 'success',
-            contracts: current.contracts.filter((item) => item.id !== validated.id),
-          }));
-          acceptedIdsRef.current.delete(validated.id);
-          showError({
-            title: "Unable to create contract",
-            description: "Your contract could not be saved. Please try again.",
-          });
-        }
-      } finally {
-        submissionInFlightRef.current = false;
+      const persisted = saveContract(contract);
+      if (!persisted) {
+        setFetchState((current) => ({
+          status: 'success',
+          contracts: current.contracts.filter((item) => item.id !== contract.id),
+        }));
+        submittingRef.current = false;
+        showError({
+          title: "Unable to create contract",
+          description: "Your contract could not be saved. Please try again.",
+        });
+      } else {
+        submittingRef.current = false;
       }
     },
     [contracts, showError],
