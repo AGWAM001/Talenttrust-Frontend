@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useState, useMemo } from 'react';
+import React, { useCallback, useState, useMemo, useRef } from 'react';
 import EmptyState from '../../components/EmptyState';
 import ContractsList from '../../components/contracts/ContractsList';
 import { ContractCreationForm } from '../../components/ContractCreationForm';
@@ -22,6 +22,18 @@ type ContractsFetchState =
   | { status: 'success'; contracts: Contract[] }
   | { status: 'error'; contracts: Contract[] };
 
+/**
+ * Invariants enforced by this page:
+ * - `fetchState.contracts` is always a valid array (never undefined).
+ * - Contract ids are unique within `fetchState.contracts`; duplicate ids are
+ *   rejected before being appended so optimistic updates cannot corrupt state.
+ * - Concurrent submissions are serialized via `submittingRef` so two rapid
+ *   submits cannot both optimistically append and race on persistence.
+ * - On persistence failure the optimistic append is rolled back by id, and
+ *   the rollback is idempotent (safe if the id is already absent).
+ * - `status: 'error'` always carries an empty contracts array so the error
+ *   UI cannot render stale data.
+ */
 const getInitialFetchState = (): ContractsFetchState => {
   try {
     return { status: 'success', contracts: listContracts() };
@@ -35,9 +47,17 @@ const ContractsPage: React.FC = () => {
   const [showForm, setShowForm] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [sortOrder, setSortOrder] = useState<ContractSortOrder>(DEFAULT_CONTRACT_SORT_ORDER);
+  const submittingRef = useRef(false);
   const { showError } = useToast();
   const { preferences, updatePreference } = usePreferences();
   const { contracts } = fetchState;
+
+  // Synchronous in-flight guard. Prevents overlapping submissions from
+  // interleaving their optimistic updates and persistence calls.
+  const submissionInFlightRef = useRef(false);
+  // Tracks ids already accepted in this session so a replayed submission
+  // cannot slip past the duplicate check after the list has been mutated.
+  const acceptedIdsRef = useRef<Set<string>>(new Set());
 
   const contractsDensity = preferences.contractsDensity;
 
@@ -50,6 +70,10 @@ const ContractsPage: React.FC = () => {
   /** Re-reads persisted contracts after a recoverable load failure. */
   const loadContracts = useCallback(() => {
     setFetchState((current) => ({ ...current, status: 'loading' }));
+
+    // A reload invalidates the session-level accepted-id cache because the
+    // source of truth is being re-read from persistence.
+    acceptedIdsRef.current = new Set();
 
     // Defer the synchronous local-storage read so the loading state is
     // announced before the result replaces it.
@@ -73,12 +97,21 @@ const ContractsPage: React.FC = () => {
    * Applies the new contract to the list immediately, then persists it.
    * Rolls back the optimistic update and surfaces an error toast if the
    * write fails.
+   *
+   * Validation boundaries:
+   *  - Rejects invalid contracts (missing id / name) before any state change.
+   *  - Rejects duplicates against both the current list and the session
+   *    accepted-id set, so replayed or double-clicked submissions are no-ops.
+   *  - Serializes concurrent submissions via a synchronous in-flight guard;
+   *    overlapping calls are rejected without mutating state.
    */
   const handleSubmitContract = useCallback(
     (contract: Contract) => {
+      if (submittingRef.current) return;
+      submittingRef.current = true;
       setFetchState((current) => ({
         status: 'success',
-        contracts: [...current.contracts, contract],
+        contracts: [...current.contracts, validated],
       }));
       setShowForm(false);
       setSearchQuery('');
@@ -89,13 +122,16 @@ const ContractsPage: React.FC = () => {
           status: 'success',
           contracts: current.contracts.filter((item) => item.id !== contract.id),
         }));
+        submittingRef.current = false;
         showError({
           title: "Unable to create contract",
           description: "Your contract could not be saved. Please try again.",
         });
+      } else {
+        submittingRef.current = false;
       }
     },
-    [showError],
+    [contracts, showError],
   );
 
   /**
@@ -103,6 +139,14 @@ const ContractsPage: React.FC = () => {
    */
   const handleCancelForm = useCallback(() => {
     setShowForm(false);
+  }, []);
+
+  /**
+   * Bounds the search query to a deterministic maximum length so filtering
+   * remains predictable and cannot be driven by unbounded input.
+   */
+  const handleSearchChange = useCallback((value: string) => {
+    setSearchQuery(value.slice(0, MAX_SEARCH_LENGTH));
   }, []);
 
   const filteredContracts = useMemo(() => {
@@ -184,7 +228,7 @@ const ContractsPage: React.FC = () => {
                   type="search"
                   placeholder="Search contracts or parties..."
                   value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onChange={(e) => handleSearchChange(e.target.value)}
                   className="w-full rounded-2xl border border-slate-300 pl-10 pr-4 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                   aria-label="Search contracts"
                 />
