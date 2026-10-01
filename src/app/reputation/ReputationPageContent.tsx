@@ -112,10 +112,16 @@ export function ReputationPageContent({
   reputationData,
   userName,
 }: ReputationPageContentProps) {
-  const normalized = normalizeReputationPageInput(reputationData, userName);
-  const safeReputationData = normalized.reputationData;
-  const score = safeReputationData?.score;
-  const hasReputation = typeof score === 'number' && score >= 0;
+  const score = reputationData?.score;
+  const hasReputation =
+    typeof score === 'number' && Number.isFinite(score) && score >= 0;
+  const suppliedMaxScore = reputationData?.maxScore;
+  const maxScore =
+    typeof suppliedMaxScore === 'number' &&
+    Number.isFinite(suppliedMaxScore) &&
+    suppliedMaxScore > 0
+      ? suppliedMaxScore
+      : undefined;
 
   return (
     <SafeBoundary>
@@ -134,15 +140,18 @@ export function ReputationPageContent({
           <ReputationSummaryCard
             name={normalized.userName}
             score={score}
-            level={safeReputationData.level}
-            history={safeReputationData.history}
+            maxScore={maxScore}
+            level={reputationData.level}
+            history={reputationData.history}
           />
           <Suspense fallback={null}>
             <ReputationProfile
               name={normalized.userName}
               score={score}
-              level={safeReputationData.level}
-              history={safeReputationData.history}
+              maxScore={maxScore}
+              level={reputationData.level}
+              history={reputationData.history}
+              lastUpdated={reputationData.lastUpdated}
             />
           </Suspense>
         </main>

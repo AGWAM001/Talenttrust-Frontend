@@ -683,7 +683,7 @@ export function deleteReputationEvents(ids: string[]): number {
   const removed = before - remaining.length;
 
   if (removed > 0) {
-    writeStore({ ...store, reputationEvents: remaining });
+    if (!writeStore({ ...store, reputationEvents: remaining })) return 0;
   }
 
   return removed;
