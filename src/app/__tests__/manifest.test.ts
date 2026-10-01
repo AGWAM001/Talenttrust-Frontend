@@ -1,6 +1,42 @@
 import manifest from '../manifest';
+import {
+  DEFAULT_MANIFEST_ICONS,
+  MANIFEST_NAME,
+  getWebAppManifest,
+} from '@/lib/webAppManifest';
+import { setErrorReporter, type ErrorReporter } from '@/lib/errorReporter';
 
 describe('manifest.ts', () => {
+  it('preserves the complete App Router manifest contract and icon order', () => {
+    expect(manifest()).toEqual({
+      name: 'TalentTrust - Safe Freelance Payments',
+      short_name: 'TalentTrust',
+      description:
+        'Safe, secure payments that protect both freelancers and clients throughout your project.',
+      start_url: '/',
+      display: 'standalone',
+      background_color: '#ffffff',
+      theme_color: '#2563eb',
+      icons: [
+        { src: '/icon.svg', sizes: 'any', type: 'image/svg+xml' },
+        { src: '/icon-192x192.png', sizes: '192x192', type: 'image/png' },
+        { src: '/icon-512x512.png', sizes: '512x512', type: 'image/png' },
+      ],
+    });
+  });
+
+  it('returns independent objects so caller mutations do not affect later results', () => {
+    const first = manifest();
+    const second = manifest();
+
+    expect(second).not.toBe(first);
+    expect(second.icons).not.toBe(first.icons);
+    expect(second.icons?.[0]).not.toBe(first.icons?.[0]);
+
+    if (first.icons) first.icons[0].src = '/caller-mutated.svg';
+    expect(manifest().icons?.[0]?.src).toBe('/icon.svg');
+  });
+
   it('should return an object with required top-level fields', () => {
     const result = manifest();
 
@@ -146,5 +182,54 @@ describe('manifest.ts', () => {
         expect(validTypes).toContain(icon.type);
       }
     });
+  });
+});
+
+/**
+ * Wiring assertions for the manifest contract (`src/lib/webAppManifest.ts`).
+ *
+ * The route must stay a thin consumer: the canonical content, icon ordering,
+ * and immutability guarantees are owned by the contract module, and the route
+ * must not emit diagnostics for the canonical configuration.
+ */
+describe('manifest.ts contract wiring', () => {
+  it('returns the canonical manifest owned by the contract module', () => {
+    expect(manifest()).toEqual(getWebAppManifest());
+    expect(manifest().icons).toEqual([...DEFAULT_MANIFEST_ICONS]);
+  });
+
+  it('returns a fresh, deeply frozen manifest on every call', () => {
+    const first = manifest();
+    const second = manifest();
+
+    expect(first).not.toBe(second);
+    expect(first).toEqual(second);
+    expect(Object.isFrozen(first)).toBe(true);
+    expect(Object.isFrozen(first.icons)).toBe(true);
+    expect(Object.isFrozen(first.icons?.[0])).toBe(true);
+  });
+
+  it('cannot be mutated into a degraded state', () => {
+    const result = manifest();
+
+    try {
+      (result as Record<string, unknown>).name = 'Hacked';
+    } catch {
+      // Frozen objects throw in strict mode — expected.
+    }
+
+    expect(manifest().name).toBe(MANIFEST_NAME);
+  });
+
+  it('does not report anomalies for the canonical configuration', () => {
+    const reporter = jest.fn();
+    setErrorReporter(reporter as unknown as ErrorReporter);
+
+    try {
+      manifest();
+      expect(reporter).not.toHaveBeenCalled();
+    } finally {
+      setErrorReporter(null);
+    }
   });
 });
