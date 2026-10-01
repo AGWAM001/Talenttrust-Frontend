@@ -11,13 +11,42 @@ jest.mock('next/navigation', () => ({
   useRouter: jest.fn().mockReturnValue({ push: jest.fn(), replace: jest.fn(), prefetch: jest.fn() }),
 }));
 
-function renderLayout() {
-  return render(
-    <RootLayout>
-      <div>Page content</div>
-    </RootLayout>
-  );
+/**
+ * Suppress the React error boundary console.error noise that appears in the
+ * test output whenever a child component deliberately throws.
+ */
+beforeEach(() => {
+  jest.spyOn(console, 'error').mockImplementation(() => {});
+  setErrorReporter(null);
+  clearCommands();
+});
+
+afterEach(() => {
+  jest.restoreAllMocks();
+  setErrorReporter(null);
+  clearCommands();
+});
+
+/** Render the root layout with a stable, happy-path child. */
+function renderLayout(child: React.ReactNode = <div>Page content</div>) {
+  return render(<RootLayout>{child}</RootLayout>);
 }
+
+// ---------------------------------------------------------------------------
+// Helpers: components that deliberately crash so we can verify isolation
+// ---------------------------------------------------------------------------
+
+/**
+ * When rendered, unconditionally throws so we can test SafeBoundary isolation.
+ * Named exports make jest.mock() easy to target at individual components.
+ */
+const Bomb = () => {
+  throw new Error('Deliberate test explosion');
+};
+
+// ---------------------------------------------------------------------------
+// Describe: skip-to-content link (a11y baseline — must not regress)
+// ---------------------------------------------------------------------------
 
 describe('RootLayout — skip-to-content link', () => {
   it('renders a skip link with correct text', () => {

@@ -30,6 +30,13 @@ export type Milestone = {
   updatedAt?: string;    
 };
 
+/**
+ * Compatibility contract: the public shape of `Milestone` and the props of
+ * `MilestonesList` are consumed by external callers. New optional fields may
+ * be added, but existing fields must never be removed or have their types
+ * narrowed without a documented migration path.
+ */
+
 export const PAGE_SIZE_DEFAULT = 5;
 
 export type MilestonesListProps = {
@@ -46,6 +53,13 @@ export type MilestonesListProps = {
   /** Callback to update the status of selected milestones. Should return the number successfully updated. */
   onBulkStatusUpdate?: (selectedIds: string[], status: StatusType) => number;
 };
+
+/**
+ * Invariant: bulk callbacks receive a snapshot of the selection at the time
+ * of the action. They must not be invoked with an empty id list — the
+ * toolbar and confirmation dialog are only reachable when `selectedIds.size
+ * > 0`, and the handlers below re-check this before dispatching.
+ */
 
 export const REMINDER_WINDOW_DAYS = 7;
 
@@ -313,12 +327,14 @@ const MilestonesList = ({
   }, [onSelectionChange, announceSelection]);
 
   const handleBulkExport = useCallback(() => {
+    if (selectedIds.size === 0) return;
     const selected = milestones.filter((m) => selectedIds.has(m.id));
     onBulkExport?.(selected);
   }, [milestones, selectedIds, onBulkExport]);
 
   const handleBulkStatusUpdate = useCallback(
     (status: StatusType) => {
+      if (selectedIds.size === 0) return;
       const ids = Array.from(selectedIds);
       onBulkStatusUpdate?.(ids, status);
       setSelectedIds(new Set());
@@ -328,6 +344,7 @@ const MilestonesList = ({
   );
 
   const handleDeleteConfirm = useCallback(() => {
+    if (selectedIds.size === 0) return;
     const ids = Array.from(selectedIds);
     onBulkDelete?.(ids);
     setShowDeleteDialog(false);
