@@ -7,8 +7,20 @@ export interface StatusTally {
   count: number;
 }
 
+const KNOWN_STATUSES: ReadonlySet<StatusType> = new Set(STATUS_ORDER);
+
+/**
+ * Invariants enforced by this tally:
+ * - Deterministic: output order always follows STATUS_ORDER.
+ * - Total: every known status is counted exactly once; unknown statuses are
+ *   ignored rather than corrupting the tally (defensive against malformed
+ *   or untrusted input).
+ * - Non-negative: counts are derived from a fresh accumulator, so repeated
+ *   or concurrent calls cannot leak state between invocations.
+ * - Pure: no mutation of the input array or its elements.
+ */
 export function milestoneStatusTally(
-  milestones: { status: StatusType }[],
+  milestones: readonly { status: StatusType }[],
 ): StatusTally[] {
   const counts: Record<StatusType, number> = {
     Active: 0,
@@ -18,8 +30,19 @@ export function milestoneStatusTally(
     Paid: 0,
   };
 
+  if (!Array.isArray(milestones)) {
+    return [];
+  }
+
   for (const m of milestones) {
-    counts[m.status]++;
+    if (m == null) {
+      continue;
+    }
+    const status = m.status;
+    if (!KNOWN_STATUSES.has(status)) {
+      continue;
+    }
+    counts[status]++;
   }
 
   return STATUS_ORDER

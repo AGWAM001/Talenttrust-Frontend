@@ -12,7 +12,7 @@ export const ContractProgressSkeleton = () => {
     <section
       aria-busy="true"
       aria-label="Loading escrow progress"
-      className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm animate-pulse"
+      className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm animate-pulse motion-reduce:animate-none"
     >
       {/* Heading */}
       <div className="h-7 w-40 rounded-lg bg-slate-200" />

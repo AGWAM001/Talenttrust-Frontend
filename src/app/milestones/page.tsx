@@ -52,6 +52,36 @@ function getValidSortOption(param: string | null): MilestoneSortOption {
     : 'newest';
 }
 
+/**
+ * State invariants owned by this page:
+ *
+ * I1. `milestones` is the single source of truth for the rendered board.
+ *     Any mutation must flow through `optimisticCreate` / `optimisticUpdate`
+ *     so that repository persistence and in-memory state stay consistent.
+ *
+ * I2. Sample data is never persisted. When the user dismisses the sample
+ *     banner, `SAMPLE_DISMISSED_KEY` is written and the in-memory list is
+ *     cleared; the sample array must never be written to the repository.
+ *
+ * I3. URL query params (`status`, `sort`) are derived state. They are
+ *     validated on read (unknown values fall back to defaults) and only
+ *     written back when they differ from the defaults, so repeated
+ *     navigation cannot accumulate stale params.
+ *
+ * I4. Concurrent flushes from the offline hook must not clobber newer
+ *     in-memory edits. `reconcileFromRepo` is the only path that replaces
+ *     the list wholesale, and it is invoked from a single effect.
+ */
+
+const isSameMilestoneList = (a: Milestone[], b: Milestone[]): boolean => {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i += 1) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
+};
+
 
 
 const MilestonesContent: React.FC = () => {
@@ -71,7 +101,10 @@ const MilestonesContent: React.FC = () => {
   const [showForm, setShowForm] = useState(false);
   const { showError } = useToast();
   const reconcileFromRepo = useCallback(() => {
-    setMilestones(listMilestones());
+    setMilestones((prev) => {
+      const next = listMilestones();
+      return isSameMilestoneList(prev, next) ? prev : next;
+    });
   }, []);
   const offline = useOfflineMilestones(reconcileFromRepo);
   const { optimisticCreate, optimisticUpdate } = useOptimisticMilestoneMutation(
@@ -80,8 +113,10 @@ const MilestonesContent: React.FC = () => {
   );
 
   useEffect(() => {
-    setStatusFilter(getValidStatus(searchParams.get('status')));
-    setSortOrder(getValidSortOption(searchParams.get('sort')));
+    const nextStatus = getValidStatus(searchParams.get('status'));
+    const nextSort = getValidSortOption(searchParams.get('sort'));
+    setStatusFilter((prev) => (prev === nextStatus ? prev : nextStatus));
+    setSortOrder((prev) => (prev === nextSort ? prev : nextSort));
   }, [searchParams]);
 
   useEffect(() => {
@@ -100,7 +135,12 @@ const MilestonesContent: React.FC = () => {
       }
 
       const query = params.toString();
-      router.replace(query ? `?${query}` : '?');
+      const nextUrl = query ? `?${query}` : '?';
+      const currentUrl = searchParams.toString();
+      const currentUrlWithPrefix = currentUrl ? `?${currentUrl}` : '?';
+      if (nextUrl !== currentUrlWithPrefix) {
+        router.replace(nextUrl);
+      }
     }, 150);
 
     return () => window.clearTimeout(timeoutId);
