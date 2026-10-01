@@ -80,6 +80,65 @@ In production, replace the mock implementation with a real API call. The return 
 - **Loading:** While data is resolving, skeleton placeholders display for `ContractSummary` and `MilestonesList`. `ActionPanel` receives `isLoading={true}`, which disables all buttons and announces a reason to screen readers.
 - **Error:** If data resolution fails, `ActionPanel` displays an error message with `role="alert"`. Buttons remain disabled. Components are wrapped in `SafeBoundary` to catch render errors.
 
+## Contract-detail action state machine
+
+The detail page treats the contract status as the source of truth for which
+actions are available. Loading, wallet, authorization, and persistence
+conditions are separate guards; a visible action is not evidence that a wallet
+transaction has been submitted.
+
+### States and transitions
+
+| State | Entry trigger | Allowed actions | Terminal outcome |
+|---|---|---|---|
+| `Loading` | The route is valid and `resolveContractData(id)` is pending | None; all action buttons are disabled | `Active`, `Pending`, `Completed`, or `Disputed` after data resolves; load error leaves actions disabled |
+| `Active` | A resolved contract is active | Submit milestone, release funds, open dispute | Submit is currently a placeholder; release transitions to `Completed`; dispute transitions to `Disputed` |
+| `Pending` | A resolved contract has a pending lifecycle status | Release funds, open dispute | Release transitions to `Completed`; dispute transitions to `Disputed` |
+| `Completed` | Release succeeds or the contract resolves completed | View summary | Terminal for contract actions; no further funding or dispute action is offered |
+| `Disputed` | Dispute submission succeeds or the contract resolves disputed | Dispute is shown as the lifecycle action (wallet-gated) | Terminal for release and milestone actions; dispute submission remains policy-controlled |
+| `Unavailable` | The resolver fails, the contract is missing, or the route id is invalid | None | Invalid ids call `notFound()`; resolver failures show an alert and keep actions disabled |
+
+### Guard and failure rules
+
+| Condition | User-visible behavior | Retry rule |
+|---|---|---|
+| Wallet unavailable | Action buttons are disabled and `Connect wallet to perform this action` is shown. Dispute also re-checks the wallet at submit time. | Connect the wallet, then retry the action. No wallet address is persisted by the detail page. |
+| Authorization or action restriction | The action is disabled when `disabledReasons` is supplied; the reason is exposed through `aria-describedby`. | Resolve the permission or unmet-condition message, then retry. Do not bypass the guard in the client. |
+| Transaction pending | `Pending` exposes only release and dispute actions. This UI does not claim confirmation or poll a chain transaction. | Reload or refetch through the owning API/wallet integration before retrying; do not treat a pending state as success. |
+| API conflict / stale write | Optimistic status is rolled back and the alert/toast says `This contract was updated in another session. Please reload and try again.` | Reload to obtain the latest version, then retry. |
+| Other persistence failure | Optimistic status is rolled back and the alert/toast says `The contract status could not be persisted. Please try again.` | Retry after the underlying repository or network failure is resolved. |
+| Contract not found or invalid id | Invalid route ids call `notFound()` without rendering the raw id. Resolver failures render the error state. | Navigate to a valid contract or reload after the data source is available. |
+
+Successful release and dispute writes announce the new status and show a
+success toast. A failed write never leaves the optimistic status in place.
+There is no automatic retry, because repeating a release or dispute could
+duplicate a wallet/API operation.
+
+### Boundary requirements
+
+- **Wallet boundary:** `ActionPanel` reads connection state from `useWallet`.
+  The contract page passes status callbacks but does not treat a connected
+  address as proof of transaction confirmation.
+- **Network/API boundary:** `resolveContractData` and repository writes are
+  fallible. Loading and persistence failures remain explicit UI states; the
+  repository version check protects against stale overwrites.
+- **Authorization boundary:** Server/API authorization remains authoritative.
+  Client-side disabled buttons improve clarity and accessibility but are not a
+  security boundary.
+- **Cached data boundary:** Repository data is merged by milestone id, with
+  persisted records taking precedence. Cached values must not be presented as
+  confirmed on-chain transaction results.
+- **User-content boundary:** Dispute reasons are trimmed and validated to 500
+  characters, then rendered as text. Contract names, party labels, and ids are
+  rendered through React text nodes; raw HTML is never injected.
+
+The focused page tests in `src/app/contracts/[id]/__tests__/page.test.tsx`
+verify the resolved detail view and optimistic release persistence. Component
+tests for `ActionPanel` verify status-specific actions, wallet gating, loading
+disabling, dispute validation, and accessible disabled reasons. When a real
+wallet/API transaction adapter is introduced, add integration coverage for
+transaction confirmation and retry behavior at that adapter boundary.
+
 ## Adding a new action type
 
 1. Update the `ActionPanelProps` type to include the callback for the new action.

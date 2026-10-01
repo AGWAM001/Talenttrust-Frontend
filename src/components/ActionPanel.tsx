@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useWallet } from '@/contexts/WalletContext';
 import { ConfirmDialog } from './ConfirmDialog';
 import { DISPUTE_REASON_MAX_LENGTH, validateDisputeReason } from '@/lib/disputeReason';
@@ -23,6 +23,12 @@ export type ActionPanelDisabledReasons = {
 };
 
 /**
+ * The action name passed to `onActionError` and `onActionStart`.
+ * Identifies which callback failed or was initiated.
+ */
+export type ActionName = 'submitMilestone' | 'releaseFunds' | 'dispute';
+
+/**
  * Props for the ActionPanel component.
  */
 export type ActionPanelProps = {
@@ -31,15 +37,22 @@ export type ActionPanelProps = {
    * Drives which actions are visible and their order (mapped via `getActionButtons`).
    */
   status: 'Active' | 'Completed' | 'Disputed' | 'Pending';
-  /** Callback triggered when the user initiates a milestone submission. */
-  onSubmitMilestone?: () => void;
+  /**
+   * Callback triggered when the user initiates a milestone submission.
+   * May be synchronous or async; errors are caught and surfaced via `onActionError`.
+   */
+  onSubmitMilestone?: () => void | Promise<void>;
   /**
    * Callback triggered when the user confirms a dispute with a reason.
    * Receives the trimmed, non-empty reason string (max 500 chars).
+   * May be synchronous or async; errors are caught and surfaced via `onActionError`.
    */
-  onDispute?: (reason: string) => void;
-  /** Callback triggered when the user releases funds to the freelancer. */
-  onReleaseFunds?: () => void;
+  onDispute?: (reason: string) => void | Promise<void>;
+  /**
+   * Callback triggered when the user releases funds to the freelancer.
+   * May be synchronous or async; errors are caught and surfaced via `onActionError`.
+   */
+  onReleaseFunds?: () => void | Promise<void>;
   /** Callback triggered to view the summary of a completed contract. */
   onViewSummary?: () => void;
   /**
@@ -51,6 +64,8 @@ export type ActionPanelProps = {
   /**
    * Render a `role="alert"` region above the actions to announce transient
    * errors (like network failures) to assistive technologies.
+   * This is managed externally; ActionPanel also maintains its own `internalError`
+   * banner for callback failures that the parent did not handle.
    */
   errorMessage?: string;
   /**
@@ -63,6 +78,28 @@ export type ActionPanelProps = {
    * confirmation dialog expected by older page-level flows.
    */
   disputeFlow?: 'inline' | 'confirm';
+  /**
+   * When true, disables all mutation actions (submit, release, dispute) to prevent
+   * unsafe changes while offline or when viewing stale cached data.
+   */
+  disableMutations?: boolean;
+  /**
+   * Called whenever a mutation action is successfully initiated (before the callback
+   * runs). Use this to clear any stale external error message on a new attempt.
+   *
+   * Invariant: called at most once per user action, only when the action passes
+   * all guards (wallet connected, not loading, disableMutations=false).
+   */
+  onActionStart?: (action: ActionName) => void;
+  /**
+   * Called when an action callback throws synchronously or rejects asynchronously.
+   * ActionPanel also surfaces an internal error banner so failures are always
+   * visible even if this prop is omitted.
+   *
+   * @param action - Which action failed.
+   * @param error  - The thrown value (may not be an Error instance).
+   */
+  onActionError?: (action: ActionName, error: unknown) => void;
 };
 
 const LOADING_REASON = 'Action is disabled while contract data is loading.';
@@ -73,6 +110,14 @@ const DISPUTE_REASON_HINT_ID = 'dispute-reason-hint';
 const DISPUTE_REASON_COUNTER_ID = 'dispute-reason-counter';
 const DISPUTE_REASON_ASSERTIVE_THRESHOLD = 50;
 const DISPUTE_WALLET_ERROR = 'Connect your wallet before submitting a dispute.';
+
+/**
+ * Invariant: a single ActionPanel instance may have at most one mutation
+ * (submit / release / dispute) in flight at a time. Any attempt to start a
+ * second mutation while one is pending is ignored, so retries, double-clicks,
+ * and racing confirmations cannot dispatch duplicate or out-of-order work.
+ */
+const MUTATION_IN_FLIGHT_MESSAGE = 'An action is already in progress. Please wait for it to finish.';
 
 const getActionButtons = (status: ActionPanelProps['status']) => {
   if (status === 'Active') return ['Submit Milestone', 'Release Funds', 'Dispute'];
@@ -111,12 +156,39 @@ const ActionPanel = ({
   errorMessage,
   disabledReasons,
   disputeFlow: _disputeFlow = 'inline',
+  disableMutations = false,
+  onActionStart,
+  onActionError,
 }: ActionPanelProps) => {
   const actions = getActionButtons(status);
   const { address } = useWallet();
   const isWalletConnected = !!address;
   const noWalletMsg = 'Connect wallet to perform this action';
+  const mutationsDisabledMsg = disableMutations ? 'Actions disabled while offline or viewing stale data' : undefined;
   const panelRef = useRef<HTMLElement | null>(null);
+
+  /**
+   * Guards against concurrent / duplicate mutation dispatch. The ref is the
+   * source of truth for synchronous re-entrancy checks (state updates are
+   * async and would allow two clicks in the same tick to both pass), while the
+   * state mirrors it for rendering (disabling buttons, aria-busy).
+   */
+  const mutationInFlightRef = useRef(false);
+  const [mutationInFlight, setMutationInFlight] = useState(false);
+  const [mutationError, setMutationError] = useState('');
+
+  const beginMutation = useCallback((): boolean => {
+    if (mutationInFlightRef.current) return false;
+    mutationInFlightRef.current = true;
+    setMutationInFlight(true);
+    setMutationError('');
+    return true;
+  }, []);
+
+  const endMutation = useCallback(() => {
+    mutationInFlightRef.current = false;
+    setMutationInFlight(false);
+  }, []);
 
   const describedBy = (perActionId: string | undefined) =>
     isLoading ? LOADING_DESCRIPTION_ID : perActionId;
@@ -125,6 +197,29 @@ const ActionPanel = ({
 
   const focusRingClass =
     'focus-visible:outline focus-visible:outline-4 focus-visible:outline-offset-2 focus-visible:outline-blue-500';
+
+  /**
+   * Tracks the currently in-flight action to prevent duplicate invocations.
+   *
+   * Invariant: while `pendingAction !== null`, all action buttons that trigger
+   * mutations are disabled and `handleConfirm` / `handleDisputeSubmit` return
+   * early. This ensures exactly-once execution per user gesture regardless of
+   * whether the parent callback is synchronous or async.
+   *
+   * Implementation note: a `useRef` is used as a synchronous guard to prevent
+   * re-entrance before the state update can propagate; `pendingAction` state is
+   * used for the UI (disabled buttons / visual feedback during async operations).
+   */
+  const [pendingAction, setPendingAction] = useState<ActionName | null>(null);
+  const pendingActionRef = useRef<ActionName | null>(null);
+
+  /**
+   * Internal error surfaced when a callback throws or rejects.
+   * Cleared automatically when the user successfully initiates a new action.
+   * Distinct from the externally-managed `errorMessage` prop so callers that
+   * handle errors themselves do not see double banners.
+   */
+  const [internalError, setInternalError] = useState<string | null>(null);
 
   // Submit / Release confirmation dialog state.
   const [confirmAction, setConfirmAction] = useState<ConfirmAction>(null);
@@ -140,19 +235,111 @@ const ActionPanel = ({
     action: Exclude<ConfirmAction, null>,
     event: React.MouseEvent<HTMLButtonElement>,
   ) => {
+    // Re-check disableMutations at click time, not just at render time.
+    if (disableMutations) return;
+    // Block if an action is already in-flight (use ref for synchronous check).
+    if (pendingActionRef.current !== null) return;
     triggerElementRef.current = event.currentTarget;
     setConfirmAction(action);
   };
 
+  /**
+   * Executes the callback for the confirmed action.
+   *
+   * Guards:
+   *   1. disableMutations is re-checked at execution time (handles the window
+   *      between dialog-open and dialog-confirm where the prop may have flipped).
+   *   2. A ref-based synchronous guard (`pendingActionRef`) prevents duplicate
+   *      invocations even before the state update has propagated.
+   *   3. Both synchronous throws and async rejections are caught; sync throws
+   *      are wrapped in a rejected Promise so they do not escape React's event
+   *      system unhandled.
+   *   4. `pendingAction` state (for UI) is set only when the callback returns a
+   *      Promise (i.e., the operation is async), so synchronous callers do not
+   *      see a flash of disabled buttons.
+   */
   const handleConfirm = () => {
-    if (confirmAction === 'submit') {
-      onSubmitMilestone?.();
-    } else if (confirmAction === 'release') {
-      onReleaseFunds?.();
-    } else if (confirmAction === 'dispute') {
-      onDispute?.('Dispute opened from action panel.');
+    // Guard: disableMutations may have flipped since the dialog was opened.
+    if (disableMutations) {
+      setConfirmAction(null);
+      return;
     }
+    // Guard: another action is already executing (synchronous check via ref).
+    if (pendingActionRef.current !== null) {
+      setConfirmAction(null);
+      return;
+    }
+
+    const action: ActionName | null =
+      confirmAction === 'submit' ? 'submitMilestone'
+      : confirmAction === 'release' ? 'releaseFunds'
+      : confirmAction === 'dispute' ? 'dispute'
+      : null;
+
+    if (action === null) {
+      setConfirmAction(null);
+      return;
+    }
+
+    // Close the dialog before invoking the callback so focus restoration fires
+    // immediately and is not blocked by a potentially long async callback.
     setConfirmAction(null);
+    // Clear any previous internal error; a new attempt is being made.
+    setInternalError(null);
+    onActionStart?.(action);
+
+    // Set the ref immediately (synchronous re-entrance guard).
+    pendingActionRef.current = action;
+
+    /**
+     * Invokes the action callback and always returns a Promise.
+     * Synchronous throws are caught here and converted to rejected Promises
+     * so they never escape to React's event system as uncaught exceptions.
+     */
+    const invokeCallback = (): { promise: Promise<void>; isAsync: boolean } => {
+      let returnValue: void | Promise<void>;
+      try {
+        if (action === 'submitMilestone') {
+          returnValue = onSubmitMilestone?.();
+        } else if (action === 'releaseFunds') {
+          returnValue = onReleaseFunds?.();
+        } else {
+          // action === 'dispute' (legacy confirm flow)
+          returnValue = onDispute?.('Dispute opened from action panel.');
+        }
+      } catch (syncErr) {
+        return { promise: Promise.reject(syncErr), isAsync: false };
+      }
+      const isAsync = returnValue instanceof Promise;
+      return { promise: Promise.resolve(returnValue), isAsync };
+    };
+
+    const { promise, isAsync } = invokeCallback();
+
+    // Only show the in-flight UI (disabled buttons) for genuinely async callbacks.
+    // For sync callbacks: clear the ref immediately so subsequent synchronous
+    // interactions are not blocked by a stale ref that would only clear after a
+    // microtask. The promise .then still clears it again (idempotently) for safety.
+    if (isAsync) {
+      setPendingAction(action);
+    } else {
+      pendingActionRef.current = null;
+    }
+
+    promise.then(
+      () => {
+        pendingActionRef.current = null;
+        setPendingAction(null);
+      },
+      (err: unknown) => {
+        pendingActionRef.current = null;
+        setPendingAction(null);
+        const message =
+          err instanceof Error ? err.message : 'An unexpected error occurred. Please try again.';
+        setInternalError(message);
+        onActionError?.(action, err);
+      },
+    );
   };
 
   const handleCancel = () => {
@@ -171,10 +358,16 @@ const ActionPanel = ({
 
   /** Opens the inline dispute form and moves focus to the textarea. */
   const handleOpenDisputeForm = (event: React.MouseEvent<HTMLButtonElement>) => {
+    // Re-check disableMutations at click time.
+    if (disableMutations) return;
+    // Block if an action is already in-flight (use ref for synchronous check).
+    if (pendingActionRef.current !== null) return;
     triggerElementRef.current = event.currentTarget;
     disputeTriggerRef.current = event.currentTarget;
     setDisputeReason('');
     setDisputeReasonError('');
+    // Clear any previous internal error when opening a new attempt.
+    setInternalError(null);
     setDisputeFormOpen(true);
   };
 
@@ -274,9 +467,25 @@ const ActionPanel = ({
    *
    * On success the trimmed reason is forwarded to `onDispute` and the form
    * is closed; focus returns to the originating "Dispute" button.
+   *
+   * Guards:
+   *   - disableMutations re-checked at submit time.
+   *   - Ref-based synchronous guard prevents duplicate invocations.
+   *   - Synchronous throws are caught and surface as internalError, never
+   *     escaping to React's event system unhandled.
+   *   - pendingAction state is only set for genuinely async callbacks.
    */
   const handleDisputeSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+
+    // Guard: disableMutations may have flipped since the form was opened.
+    if (disableMutations) {
+      closeDisputeForm();
+      return;
+    }
+
+    // Guard: another action is already executing (synchronous check via ref).
+    if (pendingActionRef.current !== null) return;
 
     if (!isWalletConnected) {
       setDisputeReasonError(DISPUTE_WALLET_ERROR);
@@ -291,8 +500,52 @@ const ActionPanel = ({
       return;
     }
 
-    onDispute?.(disputeReason.trim());
+    const trimmedReason = disputeReason.trim();
+    // Clear any previous internal error; a new attempt is being made.
+    setInternalError(null);
+    onActionStart?.('dispute');
     closeDisputeForm();
+
+    // Set the ref immediately (synchronous re-entrance guard).
+    pendingActionRef.current = 'dispute';
+
+    let returnValue: void | Promise<void>;
+    let invokeError: unknown;
+    let didThrow = false;
+    try {
+      returnValue = onDispute?.(trimmedReason);
+    } catch (syncErr) {
+      invokeError = syncErr;
+      didThrow = true;
+    }
+
+    const isAsync = returnValue instanceof Promise;
+
+    // Only show in-flight UI for async callbacks; clear ref immediately for sync.
+    if (isAsync) {
+      setPendingAction('dispute');
+    } else {
+      pendingActionRef.current = null;
+    }
+
+    const promise: Promise<void> = didThrow
+      ? Promise.reject(invokeError)
+      : Promise.resolve(returnValue);
+
+    promise.then(
+      () => {
+        pendingActionRef.current = null;
+        setPendingAction(null);
+      },
+      (err: unknown) => {
+        pendingActionRef.current = null;
+        setPendingAction(null);
+        const message =
+          err instanceof Error ? err.message : 'An unexpected error occurred. Please try again.';
+        setInternalError(message);
+        onActionError?.('dispute', err);
+      },
+    );
   };
 
   const remainingChars = DISPUTE_REASON_MAX_LENGTH - disputeReason.length;
@@ -318,6 +571,13 @@ const ActionPanel = ({
         {errorMessage && (
           <p role="alert" className="mt-2 rounded-lg border border-rose-200 bg-rose-50 p-2 text-sm text-rose-700">
             {errorMessage}
+          </p>
+        )}
+        {/* Internal error banner: surfaces callback failures that the parent did not handle.
+            Shown only when there is no external errorMessage to avoid a double banner. */}
+        {internalError && !errorMessage && (
+          <p role="alert" className="mt-2 rounded-lg border border-rose-200 bg-rose-50 p-2 text-sm text-rose-700">
+            {internalError}
           </p>
         )}
         {isLoading && (
@@ -352,8 +612,8 @@ const ActionPanel = ({
           <button
             type="button"
             onClick={(e) => handleOpenConfirm('submit', e)}
-            disabled={!isWalletConnected || isLoading || !!disabledReasons?.submitMilestone}
-            title={!isWalletConnected ? noWalletMsg : undefined}
+            disabled={!isWalletConnected || isLoading || !!disabledReasons?.submitMilestone || disableMutations || pendingAction !== null}
+            title={!isWalletConnected ? noWalletMsg : mutationsDisabledMsg}
             aria-label="Submit milestone for approval"
             aria-describedby={describedBy(describedById('submitMilestone'))}
             className={`w-full rounded-2xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 ${focusRingClass}`}
@@ -366,8 +626,8 @@ const ActionPanel = ({
           <button
             type="button"
             onClick={(event) => handleOpenConfirm('release', event)}
-            disabled={!isWalletConnected || isLoading || !!disabledReasons?.releaseFunds}
-            title={!isWalletConnected ? noWalletMsg : undefined}
+            disabled={!isWalletConnected || isLoading || !!disabledReasons?.releaseFunds || disableMutations || pendingAction !== null}
+            title={!isWalletConnected ? noWalletMsg : mutationsDisabledMsg}
             aria-label="Release funds to the contractor"
             aria-describedby={describedBy(describedById('releaseFunds'))}
             className={`w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-900 transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-50 ${focusRingClass}`}
@@ -381,17 +641,25 @@ const ActionPanel = ({
             <button
               ref={disputeTriggerRef}
               type="button"
-              onClick={handleOpenDisputeForm}
+              onClick={(e) => {
+                if (_disputeFlow === 'confirm') {
+                  handleOpenConfirm('dispute', e);
+                } else {
+                  handleOpenDisputeForm(e);
+                }
+              }}
               disabled={
                 !isWalletConnected ||
                 isLoading ||
                 !!disabledReasons?.dispute ||
-                disputeFormOpen
+                disputeFormOpen ||
+                disableMutations ||
+                pendingAction !== null
               }
-              title={!isWalletConnected ? noWalletMsg : undefined}
+              title={!isWalletConnected ? noWalletMsg : mutationsDisabledMsg}
               aria-label="Open a dispute for this contract"
-              aria-expanded={disputeFormOpen}
-              aria-controls={disputeFormOpen ? 'dispute-reason-form' : undefined}
+              aria-expanded={_disputeFlow === 'inline' ? disputeFormOpen : undefined}
+              aria-controls={_disputeFlow === 'inline' && disputeFormOpen ? 'dispute-reason-form' : undefined}
               aria-describedby={describedBy(describedById('dispute'))}
               className={`w-full rounded-2xl bg-rose-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-rose-700 disabled:opacity-50 disabled:cursor-not-allowed ${focusRingClass}`}
             >
@@ -401,7 +669,7 @@ const ActionPanel = ({
             {/* Inline dispute reason form — rendered below the trigger button,
                 visible only when the user clicks "Dispute". The form is not a
                 modal so the rest of the page remains accessible. */}
-            {disputeFormOpen && (
+            {_disputeFlow === 'inline' && disputeFormOpen && (
               <div
                 id="dispute-reason-form"
                 role="group"
@@ -489,6 +757,7 @@ const ActionPanel = ({
                   <div className="flex gap-2 mt-3">
                     <button
                       type="submit"
+                      disabled={pendingAction !== null}
                       className={`flex-1 rounded-xl bg-rose-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-rose-700 disabled:opacity-50 disabled:cursor-not-allowed ${focusRingClass}`}
                     >
                       Confirm Dispute
@@ -496,6 +765,7 @@ const ActionPanel = ({
                     <button
                       type="button"
                       onClick={closeDisputeForm}
+                      disabled={mutationInFlight}
                       className={`flex-1 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-900 transition hover:border-slate-400 ${focusRingClass}`}
                     >
                       Cancel
@@ -511,7 +781,7 @@ const ActionPanel = ({
           <button
             type="button"
             onClick={() => onViewSummary?.()}
-            disabled={isLoading || !!disabledReasons?.viewSummary}
+            disabled={isLoading || !!disabledReasons?.viewSummary || mutationInFlight}
             aria-label="View contract summary details"
             aria-describedby={describedBy(describedById('viewSummary'))}
             className={`w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-900 transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-50 ${focusRingClass}`}
@@ -531,6 +801,7 @@ const ActionPanel = ({
         cancelLabel="Cancel"
         tone={confirmAction === 'release' || confirmAction === 'dispute' ? 'destructive' : 'default'}
         onConfirm={handleConfirm}
+        isConfirming={mutationInFlight}
         onCancel={handleCancel}
       />
     </aside>

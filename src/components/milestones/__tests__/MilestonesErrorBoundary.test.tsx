@@ -6,7 +6,7 @@
  *   2. Fallback UI rendered when a child throws
  *   3. Accessible attributes on the fallback (role, aria-live, aria-atomic)
  *   4. autoFocus on the retry button
- *   5. Error message displayed in the fallback
+ *   5. Internal error details are not displayed in the fallback
  *   6. Retry re-mounts children (successful recovery)
  *   7. Retry that still fails keeps the fallback visible
  *   8. Custom fallback prop
@@ -229,19 +229,18 @@ describe('MilestonesErrorBoundary — autoFocus on retry button', () => {
 // ===========================================================================
 
 describe('MilestonesErrorBoundary — error message in fallback', () => {
-  it('displays the thrown error message in the fallback', () => {
+  it('does not display internal thrown error details in the fallback', () => {
     render(
       <MilestonesErrorBoundary>
         <Bomb shouldThrow message="Cannot read properties of undefined" />
       </MilestonesErrorBoundary>,
     );
 
-    expect(
-      screen.getByTestId('milestones-error-message'),
-    ).toHaveTextContent('Cannot read properties of undefined');
+    expect(screen.queryByTestId('milestones-error-message')).not.toBeInTheDocument();
+    expect(screen.queryByText('Cannot read properties of undefined')).not.toBeInTheDocument();
   });
 
-  it('does not render the error message element when the error has no message', () => {
+  it('keeps the fallback safe when the error has no message', () => {
     const NoMessageBomb = () => {
       throw Object.assign(new Error(), { message: '' });
   };
@@ -253,6 +252,17 @@ describe('MilestonesErrorBoundary — error message in fallback', () => {
     );
 
     expect(screen.queryByTestId('milestones-error-message')).not.toBeInTheDocument();
+  });
+
+  it('uses the supplied section name while retaining a stable fallback shape', () => {
+    render(
+      <MilestonesErrorBoundary sectionName="filters">
+        <Bomb shouldThrow message="database password=secret" />
+      </MilestonesErrorBoundary>,
+    );
+
+    expect(screen.getByText(/the filters section couldn.t load/i)).toBeInTheDocument();
+    expect(screen.queryByText(/database password=secret/i)).not.toBeInTheDocument();
   });
 });
 
@@ -492,6 +502,24 @@ describe('MilestonesErrorBoundary — component stack in metadata', () => {
 
     const meta = mockReporter.mock.calls[0][3];
     expect(meta).toHaveProperty('componentStack');
+  });
+
+  it('includes a stable code and safe section label in the report metadata', () => {
+    const mockReporter = jest.fn();
+    setErrorReporter(mockReporter);
+
+    render(
+      <MilestonesErrorBoundary sectionName="milestone list">
+        <Bomb shouldThrow />
+      </MilestonesErrorBoundary>,
+    );
+
+    expect(mockReporter.mock.calls[0][3]).toEqual(
+      expect.objectContaining({
+        code: 'MILESTONES_SECTION_FAILED',
+        section: 'milestone list',
+      }),
+    );
   });
 });
 

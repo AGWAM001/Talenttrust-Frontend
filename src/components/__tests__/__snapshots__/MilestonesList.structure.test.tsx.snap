@@ -138,13 +138,16 @@ exports[`MilestonesList structural/snapshot tests edge cases matches the structu
     aria-labelledby="milestones-title milestones-count"
     class="max-h-[calc(100vh-260px)] overflow-y-auto pr-2 rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-2 mt-6 space-y-4"
     role="region"
-    tabindex="0"
+    tabindex="-1"
   >
     <article
       aria-label="Local milestone"
-      class="rounded-3xl border p-4 shadow-sm transition-colors border-slate-200 bg-slate-50"
+      class="rounded-3xl border p-4 shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 border-slate-200 bg-slate-50"
+      data-milestone-row=""
+      data-row-index="0"
       data-selected="false"
       id="milestone-m1"
+      tabindex="0"
     >
       <div
         class="flex items-start gap-3"
@@ -155,6 +158,7 @@ exports[`MilestonesList structural/snapshot tests edge cases matches the structu
           <input
             aria-label="Select Local milestone"
             class="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+            tabindex="0"
             type="checkbox"
           />
         </div>
@@ -209,6 +213,7 @@ exports[`MilestonesList structural/snapshot tests edge cases matches the structu
               aria-label="Edit milestone Local milestone"
               class="inline-flex items-center gap-1 rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2"
               data-testid="edit-milestone-m1"
+              tabindex="0"
               type="button"
             >
               <span
@@ -237,9 +242,12 @@ exports[`MilestonesList structural/snapshot tests edge cases matches the structu
     </article>
     <article
       aria-label="Foreign milestone"
-      class="rounded-3xl border p-4 shadow-sm transition-colors border-slate-200 bg-slate-50"
+      class="rounded-3xl border p-4 shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 border-slate-200 bg-slate-50"
+      data-milestone-row=""
+      data-row-index="1"
       data-selected="false"
       id="milestone-m2"
+      tabindex="-1"
     >
       <div
         class="flex items-start gap-3"
@@ -250,6 +258,7 @@ exports[`MilestonesList structural/snapshot tests edge cases matches the structu
           <input
             aria-label="Select Foreign milestone"
             class="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+            tabindex="-1"
             type="checkbox"
           />
         </div>
@@ -304,6 +313,7 @@ exports[`MilestonesList structural/snapshot tests edge cases matches the structu
               aria-label="Edit milestone Foreign milestone"
               class="inline-flex items-center gap-1 rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2"
               data-testid="edit-milestone-m2"
+              tabindex="-1"
               type="button"
             >
               <span
@@ -491,13 +501,16 @@ exports[`MilestonesList structural/snapshot tests edge cases matches the structu
     aria-labelledby="milestones-title milestones-count"
     class="max-h-[calc(100vh-260px)] overflow-y-auto pr-2 rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-2 mt-6 space-y-4"
     role="region"
-    tabindex="0"
+    tabindex="-1"
   >
     <article
       aria-label="Urgent milestone"
-      class="rounded-3xl border p-4 shadow-sm transition-colors border-slate-200 bg-slate-50"
+      class="rounded-3xl border p-4 shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 border-slate-200 bg-slate-50"
+      data-milestone-row=""
+      data-row-index="0"
       data-selected="false"
       id="milestone-m1"
+      tabindex="0"
     >
       <div
         class="flex items-start gap-3"
@@ -508,6 +521,7 @@ exports[`MilestonesList structural/snapshot tests edge cases matches the structu
           <input
             aria-label="Select Urgent milestone"
             class="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+            tabindex="0"
             type="checkbox"
           />
         </div>
@@ -562,6 +576,7 @@ exports[`MilestonesList structural/snapshot tests edge cases matches the structu
               aria-label="Edit milestone Urgent milestone"
               class="inline-flex items-center gap-1 rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2"
               data-testid="edit-milestone-m1"
+              tabindex="0"
               type="button"
             >
               <span
@@ -704,13 +719,16 @@ exports[`MilestonesList structural/snapshot tests edge cases renders "Due TBD" a
     aria-labelledby="milestones-title milestones-count"
     class="max-h-[calc(100vh-260px)] overflow-y-auto pr-2 rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-2 mt-6 space-y-4"
     role="region"
-    tabindex="0"
+    tabindex="-1"
   >
     <article
       aria-label="Undated milestone"
-      class="rounded-3xl border p-4 shadow-sm transition-colors border-slate-200 bg-slate-50"
+      class="rounded-3xl border p-4 shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 border-slate-200 bg-slate-50"
+      data-milestone-row=""
+      data-row-index="0"
       data-selected="false"
       id="milestone-m1"
+      tabindex="0"
     >
       <div
         class="flex items-start gap-3"
@@ -721,6 +739,7 @@ exports[`MilestonesList structural/snapshot tests edge cases renders "Due TBD" a
           <input
             aria-label="Select Undated milestone"
             class="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+            tabindex="0"
             type="checkbox"
           />
         </div>
@@ -775,6 +794,7 @@ exports[`MilestonesList structural/snapshot tests edge cases renders "Due TBD" a
               aria-label="Edit milestone Undated milestone"
               class="inline-flex items-center gap-1 rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2"
               data-testid="edit-milestone-m1"
+              tabindex="0"
               type="button"
             >
               <span
@@ -1022,13 +1042,16 @@ exports[`MilestonesList structural/snapshot tests loaded state matches the struc
     aria-labelledby="milestones-title milestones-count"
     class="max-h-[calc(100vh-260px)] overflow-y-auto pr-2 rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-2 mt-6 space-y-4"
     role="region"
-    tabindex="0"
+    tabindex="-1"
   >
     <article
       aria-label="Kickoff call"
-      class="rounded-3xl border p-4 shadow-sm transition-colors border-slate-200 bg-slate-50"
+      class="rounded-3xl border p-4 shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 border-slate-200 bg-slate-50"
+      data-milestone-row=""
+      data-row-index="0"
       data-selected="false"
       id="milestone-m1"
+      tabindex="0"
     >
       <div
         class="flex items-start gap-3"
@@ -1039,6 +1062,7 @@ exports[`MilestonesList structural/snapshot tests loaded state matches the struc
           <input
             aria-label="Select Kickoff call"
             class="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+            tabindex="0"
             type="checkbox"
           />
         </div>
@@ -1093,6 +1117,7 @@ exports[`MilestonesList structural/snapshot tests loaded state matches the struc
               aria-label="Edit milestone Kickoff call"
               class="inline-flex items-center gap-1 rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2"
               data-testid="edit-milestone-m1"
+              tabindex="0"
               type="button"
             >
               <span
@@ -1121,9 +1146,12 @@ exports[`MilestonesList structural/snapshot tests loaded state matches the struc
     </article>
     <article
       aria-label="Design handoff"
-      class="rounded-3xl border p-4 shadow-sm transition-colors border-slate-200 bg-slate-50"
+      class="rounded-3xl border p-4 shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 border-slate-200 bg-slate-50"
+      data-milestone-row=""
+      data-row-index="1"
       data-selected="false"
       id="milestone-m2"
+      tabindex="-1"
     >
       <div
         class="flex items-start gap-3"
@@ -1134,6 +1162,7 @@ exports[`MilestonesList structural/snapshot tests loaded state matches the struc
           <input
             aria-label="Select Design handoff"
             class="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+            tabindex="-1"
             type="checkbox"
           />
         </div>
@@ -1188,6 +1217,7 @@ exports[`MilestonesList structural/snapshot tests loaded state matches the struc
               aria-label="Edit milestone Design handoff"
               class="inline-flex items-center gap-1 rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2"
               data-testid="edit-milestone-m2"
+              tabindex="-1"
               type="button"
             >
               <span
@@ -1216,9 +1246,12 @@ exports[`MilestonesList structural/snapshot tests loaded state matches the struc
     </article>
     <article
       aria-label="Final delivery"
-      class="rounded-3xl border p-4 shadow-sm transition-colors border-slate-200 bg-slate-50"
+      class="rounded-3xl border p-4 shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 border-slate-200 bg-slate-50"
+      data-milestone-row=""
+      data-row-index="2"
       data-selected="false"
       id="milestone-m3"
+      tabindex="-1"
     >
       <div
         class="flex items-start gap-3"
@@ -1229,6 +1262,7 @@ exports[`MilestonesList structural/snapshot tests loaded state matches the struc
           <input
             aria-label="Select Final delivery"
             class="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+            tabindex="-1"
             type="checkbox"
           />
         </div>
@@ -1283,6 +1317,7 @@ exports[`MilestonesList structural/snapshot tests loaded state matches the struc
               aria-label="Edit milestone Final delivery"
               class="inline-flex items-center gap-1 rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2"
               data-testid="edit-milestone-m3"
+              tabindex="-1"
               type="button"
             >
               <span

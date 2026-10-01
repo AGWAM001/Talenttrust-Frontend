@@ -30,6 +30,13 @@ export type Milestone = {
   updatedAt?: string;    
 };
 
+/**
+ * Compatibility contract: the public shape of `Milestone` and the props of
+ * `MilestonesList` are consumed by external callers. New optional fields may
+ * be added, but existing fields must never be removed or have their types
+ * narrowed without a documented migration path.
+ */
+
 export const PAGE_SIZE_DEFAULT = 5;
 
 export type MilestonesListProps = {
@@ -46,6 +53,13 @@ export type MilestonesListProps = {
   /** Callback to update the status of selected milestones. Should return the number successfully updated. */
   onBulkStatusUpdate?: (selectedIds: string[], status: StatusType) => number;
 };
+
+/**
+ * Invariant: bulk callbacks receive a snapshot of the selection at the time
+ * of the action. They must not be invoked with an empty id list — the
+ * toolbar and confirmation dialog are only reachable when `selectedIds.size
+ * > 0`, and the handlers below re-check this before dispatching.
+ */
 
 export const REMINDER_WINDOW_DAYS = 7;
 
@@ -96,6 +110,27 @@ const MilestonesList = ({
 
   const listContainerRef = useRef<HTMLDivElement>(null);
 
+  /**
+   * Roving-tabindex state for the milestone list (WAI-ARIA roving tabindex).
+   * Exactly one row — the "active" row — is in the tab order at a time: it
+   * carries tabIndex={0} while every other row carries tabIndex={-1}. Arrow
+   * keys move the active row, Home/End jump to the first/last row, and
+   * Enter/Space activate the focused row (open its inline edit form).
+   */
+  const [activeIndex, setActiveIndex] = useState(0);
+  /** Mirror of `activeIndex` for use inside effects without stale closures. */
+  const activeIndexRef = useRef(0);
+  useEffect(() => {
+    activeIndexRef.current = activeIndex;
+  }, [activeIndex]);
+  /**
+   * The last element that held focus inside the list. Lets the list-change
+   * sync effect distinguish "focus was in the list and its element was
+   * removed" (restore focus to the active row) from "focus was never in the
+   * list" (must NOT move focus).
+   */
+  const lastFocusedInListRef = useRef<HTMLElement | null>(null);
+
   const isCompact = preferences.milestonesDensity === 'compact';
 
   // Reset to the first page whenever the underlying list or page size
@@ -107,6 +142,54 @@ const MilestonesList = ({
   const today = new Date();
   const visibleMilestones = milestones.slice(0, displayCount);
   const hasMore = displayCount < milestones.length;
+
+  // Track the last element focused inside the list so the sync effect below
+  // can tell "the focused row was removed" apart from "focus never entered
+  // the list" (which must not move focus). See `lastFocusedInListRef`.
+  useEffect(() => {
+    const container = listContainerRef.current;
+    if (!container) return;
+    const handleFocusIn = () => {
+      lastFocusedInListRef.current = document.activeElement as HTMLElement | null;
+    };
+    const handleFocusOut = (event: FocusEvent) => {
+      const next = event.relatedTarget as Node | null;
+      // Only forget the tracked element when focus moved to a real element
+      // outside the list. A null relatedTarget means the focused element was
+      // removed or focus was lost — keep the ref so the sync effect can
+      // restore focus (it re-checks via `isConnected`).
+      if (next && !container.contains(next)) {
+        lastFocusedInListRef.current = null;
+      }
+    };
+    container.addEventListener('focusin', handleFocusIn);
+    container.addEventListener('focusout', handleFocusOut);
+    return () => {
+      container.removeEventListener('focusin', handleFocusIn);
+      container.removeEventListener('focusout', handleFocusOut);
+    };
+  }, []);
+
+  // Keep the roving active index valid when the list changes (status filter,
+  // pagination, bulk delete) and, if the element that had focus inside the
+  // list was removed by the change, move focus to the clamped active row so
+  // keyboard users don't fall out of the list to <body>.
+  useEffect(() => {
+    const count = visibleMilestones.length;
+    if (count === 0) {
+      setActiveIndex(0);
+      return;
+    }
+    setActiveIndex((prev) => Math.min(prev, count - 1));
+    const lastFocused = lastFocusedInListRef.current;
+    if (lastFocused && !lastFocused.isConnected) {
+      const rows = listContainerRef.current?.querySelectorAll<HTMLElement>(
+        '[data-milestone-row]',
+      );
+      const targetIndex = Math.min(activeIndexRef.current, count - 1);
+      rows?.[targetIndex]?.focus();
+    }
+  }, [visibleMilestones.length]);
 
   const mismatchedMilestoneIds = contractCurrency
     ? new Set(findCurrencyMismatches(contractCurrency, milestones))
@@ -244,12 +327,14 @@ const MilestonesList = ({
   }, [onSelectionChange, announceSelection]);
 
   const handleBulkExport = useCallback(() => {
+    if (selectedIds.size === 0) return;
     const selected = milestones.filter((m) => selectedIds.has(m.id));
     onBulkExport?.(selected);
   }, [milestones, selectedIds, onBulkExport]);
 
   const handleBulkStatusUpdate = useCallback(
     (status: StatusType) => {
+      if (selectedIds.size === 0) return;
       const ids = Array.from(selectedIds);
       onBulkStatusUpdate?.(ids, status);
       setSelectedIds(new Set());
@@ -259,6 +344,7 @@ const MilestonesList = ({
   );
 
   const handleDeleteConfirm = useCallback(() => {
+    if (selectedIds.size === 0) return;
     const ids = Array.from(selectedIds);
     onBulkDelete?.(ids);
     setShowDeleteDialog(false);
@@ -267,6 +353,66 @@ const MilestonesList = ({
   }, [selectedIds, onBulkDelete, onSelectionChange]);
 
   const isIndeterminate = hasSelection && !allSelected;
+
+  // --------------------------------------------------------------------------
+  // Roving-tabindex keyboard navigation
+  // --------------------------------------------------------------------------
+
+  const focusRowAtIndex = (index: number) => {
+    const rows = listContainerRef.current?.querySelectorAll<HTMLElement>(
+      '[data-milestone-row]',
+    );
+    rows?.[index]?.focus();
+  };
+
+  /**
+   * Handles the list's roving-tabindex keys via event delegation on the
+   * scroll region. Key events are only intercepted when the event target IS
+   * a milestone row element (identified via `data-milestone-row`), so inner
+   * controls keep their native behaviour: Space still toggles a focused
+   * checkbox, arrows still move the caret inside edit-form fields, and the
+   * region itself still scrolls with arrow keys when focused.
+   *
+   * - ArrowDown / ArrowUp  -> move focus to the next / previous row
+   * - Home / End           -> jump to the first / last row
+   * - Enter / Space        -> activate the focused row (open edit mode)
+   */
+  const handleListKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    const target = event.target as HTMLElement;
+    const row = target.closest<HTMLElement>('[data-milestone-row]');
+    if (!row || row !== target) return;
+
+    const currentIndex = Number(row.dataset.rowIndex);
+    const lastIndex = visibleMilestones.length - 1;
+    if (Number.isNaN(currentIndex) || lastIndex < 0) return;
+
+    if (event.key === 'Enter' || event.key === ' ') {
+      // Activate the focused row — the same action as clicking its Edit
+      // button.
+      event.preventDefault();
+      const milestone = visibleMilestones[currentIndex];
+      if (milestone) setEditingId(milestone.id);
+      return;
+    }
+
+    let nextIndex: number | null = null;
+    if (event.key === 'ArrowDown') {
+      nextIndex = Math.min(currentIndex + 1, lastIndex);
+    } else if (event.key === 'ArrowUp') {
+      nextIndex = Math.max(currentIndex - 1, 0);
+    } else if (event.key === 'Home') {
+      nextIndex = 0;
+    } else if (event.key === 'End') {
+      nextIndex = lastIndex;
+    }
+    if (nextIndex === null) return;
+
+    // Consume the key so the page / scroll region doesn't also scroll.
+    event.preventDefault();
+    if (nextIndex === currentIndex) return;
+    setActiveIndex(nextIndex);
+    focusRowAtIndex(nextIndex);
+  };
 
   return (
     <section aria-labelledby="milestones-title" className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -419,15 +565,19 @@ const MilestonesList = ({
       </span>
 
       {/*
-        Keyboard Accessibility (WCAG 2.1.1):
-        The scrollable container is focusable (tabIndex={0}) with role="region" so keyboard-only users
-        can navigate to it and scroll with arrow keys.
-
         Labelling (WCAG 1.3.1 / 4.1.2):
         aria-labelledby references both the visible "Milestones" heading (milestones-title) and the live
         count span (milestones-count) so AT users hear e.g. "Milestones, 3 total – region" rather than
         a disconnected static string. This keeps the accessible name in sync with both the heading and
         the rendered item count without duplicating text.
+
+        Why the region is tabIndex={-1} (programmatically focusable only):
+        The milestone rows own the list's single tab stop via roving tabindex (one active row has
+        tabIndex={0}, every other row tabIndex={-1}), so the scroll container itself must stay out of
+        the natural tab order — otherwise the list would have two tab stops and "Tab enters the list at
+        one item" would be violated. It remains focusable programmatically so the due-soon banner
+        dismiss flow (WCAG 2.4.3) can move focus into the list, and arrow keys still scroll it when it
+        is focused.
 
         Why tabIndex is always applied when the list is populated:
         1. Consistency between SSR and client hydration avoids layout/hydration shifts.
@@ -483,17 +633,25 @@ const MilestonesList = ({
         ref={listContainerRef}
         role={milestones.length > 0 ? 'region' : undefined}
         aria-labelledby={milestones.length > 0 ? 'milestones-title milestones-count' : undefined}
-        tabIndex={milestones.length > 0 ? 0 : undefined}
+        tabIndex={milestones.length > 0 ? -1 : undefined}
+        onKeyDown={handleListKeyDown}
         className={`max-h-[calc(100vh-260px)] overflow-y-auto pr-2 rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-2 ${isCompact ? 'mt-4 space-y-2' : 'mt-6 space-y-4'}`}
       >
-        {visibleMilestones.map((milestone) => (
+        {visibleMilestones.map((milestone, index) => (
           <MilestoneRow
             key={milestone.id}
             milestone={milestone}
+            rowIndex={index}
+            tabIndex={index === activeIndex ? 0 : -1}
             isSelected={selectedIds.has(milestone.id)}
             onToggleSelect={handleToggleSelect}
             isEditing={editingId === milestone.id}
-            onRequestEdit={() => setEditingId(milestone.id)}
+            onRequestEdit={() => {
+              setEditingId(milestone.id);
+              // Interacting with a row (clicking Edit) makes it the active
+              // roving row so focus stays consistent after save/cancel.
+              setActiveIndex(index);
+            }}
             onSave={handleSave}
             onCancel={handleCancel}
             onAnnounce={pushAnnouncement}

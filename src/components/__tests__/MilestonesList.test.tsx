@@ -220,10 +220,13 @@ describe('MilestonesList', () => {
     });
   });
 
-  it('makes the scroll region keyboard-focusable with focus-ring styles when populated', () => {
+  it('keeps the scroll region out of the tab order but programmatically focusable when populated', () => {
     const { container } = r(<MilestonesList milestones={SAMPLE} />);
     const region = scrollRegion(container);
-    expect(region).toHaveAttribute('tabIndex', '0');
+    // With roving tabindex on the rows, the region must not be a second tab
+    // stop — the list's single tab stop is the active row. It stays
+    // focusable programmatically (e.g. the due-soon banner dismiss flow).
+    expect(region).toHaveAttribute('tabIndex', '-1');
     expect(region).toHaveClass(
       'focus-visible:outline-none',
       'focus-visible:ring-2',

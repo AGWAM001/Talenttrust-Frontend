@@ -22,6 +22,9 @@ export type BreadcrumbItem = {
    * obvious during development.
    */
   href?: string;
+  /** Optional unique identifier for stable key assignment under concurrent re-renders. */
+  id?: string;
+  [key: string]: unknown;
 };
 
 export type BreadcrumbsProps = {
@@ -138,9 +141,98 @@ function crumbKey(item: BreadcrumbItem, index: number): string {
   return `${item.href ?? ''}-${item.label}-${index}`;
 }
 
-// ---------------------------------------------------------------------------
-// Component
-// ---------------------------------------------------------------------------
+/**
+ * Return true when `href` is a safe, renderable navigation target.
+ *
+ * We only accept relative paths and http(s) URLs. This blocks dangerous
+ * schemes such as `javascript:`, `data:`, `vbscript:`, and `mailto:` from
+ * being rendered as a `<Link>`. Control characters and whitespace are
+ * rejected because they can be used to obfuscate dangerous schemes.
+ */
+export const isSafeBreadcrumbHref = (href: unknown): href is string => {
+  if (!isNonEmptyString(href)) return false;
+  if (href.length > MAX_HREF_LENGTH) return false;
+  // Reject control characters and newlines.
+  if (/[\u0000-\u001F\u007F]/.test(href)) return false;
+  // Reject leading/trailing whitespace.
+  if (href !== href.trim()) return false;
+
+  // Relative path (including protocol-relative `//`) is always allowed.
+  if (href.startsWith('/')) return true;
+
+  // Absolute URLs: only http and https.
+  try {
+    const parsed = new URL(href);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * Normalize and validate a list of breadcrumb items.
+ *
+ * This function is pure and deterministic: the same input always produces
+ * the same output. It is the single source of truth for what the component
+ * will render, which makes failure recovery and testing straightforward.
+ *
+ * Invariants:
+ * - Every returned item has a non-empty, trimmed label.
+ * - Every returned item has a safe `href` or no `href` at all.
+ * - Duplicate consecutive labels are collapsed to a single crumb.
+ * - The last item is always treated as the current page (no `href`).
+ */
+export const normalizeBreadcrumbs = (items: unknown): NormalizedBreadcrumbs => {
+  const safeItems = Array.isArray(items) ? items : [];
+
+  const normalized: BreadcrumbItem[] = [];
+  let droppedInvalidCount = 0;
+  let dedupedCount = 0;
+
+  for (const rawItem of safeItems) {
+    if (!rawItem || typeof rawItem !== 'object') {
+      droppedInvalidCount += 1;
+      continue;
+    }
+
+    const candidate = rawItem as { label?: unknown; href?: unknown };
+    const label = typeof candidate.label === 'string' ? candidate.label.trim() : '';
+
+    if (label.length === 0 || label.length > MAX_LABEL_LENGTH) {
+      droppedInvalidCount += 1;
+      continue;
+    }
+
+    const hasHref = candidate.href !== undefined && candidate.href !== null;
+    const href = hasHref && isSafeBreadcrumbHref(candidate.href)
+      ? (candidate.href as string)
+      : undefined;
+
+    if (hasHref && href === undefined) {
+      // Unsafe or malformed href: drop the href but keep the label so the
+      // user still sees the trail and can recover via other navigation.
+      droppedInvalidCount += 1;
+    }
+
+    const previous = normalized[normalized.length - 1];
+    if (previous && previous.label === label && previous.href === href) {
+      dedupedCount += 1;
+      continue;
+    }
+
+    normalized.push(href === undefined ? { label } : { label, href });
+  }
+
+  // The final crumb is always the current page: drop any `href` on it.
+  if (normalized.length > 0) {
+    const last = normalized[normalized.length - 1];
+    if (last.href !== undefined) {
+      normalized[normalized.length - 1] = { label: last.label };
+    }
+  }
+
+  return { items: normalized, droppedInvalidCount, dedupedCount };
+};
 
 /**
  * Accessible breadcrumb navigation component.
@@ -222,7 +314,7 @@ const Breadcrumbs = ({
               {/* Separator — hidden from screen readers */}
               {index > 0 && (
                 <span aria-hidden="true" className="select-none text-slate-400">
-                  /
+                  {separator}
                 </span>
               )}
 
