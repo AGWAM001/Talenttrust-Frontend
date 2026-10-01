@@ -48,8 +48,11 @@ export default function WalletPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [targetDeleteIds, setTargetDeleteIds] = useState<string[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const { showSuccess, showError } = useToast();
+  const isMountedRef = useRef(true);
 
   // Guard against concurrent/re-entrant delete confirmations. The ref is checked
   // and set synchronously before any state update so a second invocation in
@@ -58,14 +61,10 @@ export default function WalletPage() {
 
   // Load from repository on mount, fallback to sample items if repository is empty
   useEffect(() => {
-    const loaded = listWalletItems();
-    if (loaded.length > 0) {
-      setItems(loaded);
-    } else {
-      // Seed sample items into repository for initial demo
-      SAMPLE_WALLET_ITEMS.forEach((item) => saveWalletItem(item));
-      setItems(SAMPLE_WALLET_ITEMS);
-    }
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
   }, []);
 
   // I1: Prune selection whenever items change. This keeps the selection set a
@@ -96,6 +95,7 @@ export default function WalletPage() {
   }, [items, editingId]);
 
   const handleToggleSelect = useCallback((id: string) => {
+    if (!items.some((item) => item.id === id)) return;
     setSelectedIds((prev) => {
       // Ignore toggles for ids that are not currently visible.
       if (!items.some((item) => item.id === id)) return prev;
@@ -132,20 +132,31 @@ export default function WalletPage() {
     try {
       const blob = new Blob([jsonStr], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `wallet-export-${Date.now()}.json`;
-      a.click();
-      URL.revokeObjectURL(url);
+      try {
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `wallet-export-${Date.now()}.json`;
+        a.click();
+        downloaded = true;
+      } finally {
+        URL.revokeObjectURL(url);
+      }
     } catch {
-      // Fallback for non-browser or strict CSP environments
+      // Fallback for non-browser or strict CPR environments.
     }
 
-    showSuccess({
-      title: 'Export successful',
-      description: `Exported ${selectedItems.length} ${selectedItems.length === 1 ? 'item' : 'items'} to JSON.`,
-    });
-  }, [items, selectedIds, showSuccess]);
+    if (downloaded) {
+      showSuccess({
+        title: 'Export successful',
+        description: `Exported ${selectedItems.length} ${selectedItems.length === 1 ? 'item' : 'items'} to JSON.`,
+      });
+    } else {
+      showError({
+        title: 'Export failed',
+        description: 'The browser blocked the download. Please allow downloads and try again.',
+      });
+    }
+  }, [items, selectedIds, showSuccess, showError]);
 
   const handleRequestBulkDelete = useCallback(() => {
     if (selectedIds.size === 0) return;
@@ -224,7 +235,7 @@ export default function WalletPage() {
       });
       showError({
         title: 'Delete failed',
-        description: 'Failed to remove selected wallet items.',
+        description: 'Failed to remove selected wallet items. No changes were applied.',
       });
     }
 
@@ -270,14 +281,22 @@ export default function WalletPage() {
     }
 
     if (ok) {
-      const reloaded = listWalletItems();
-      setItems(reloaded);
+      const reloaded = safelyListWalletItems();
+      // If the repository returns an empty set after a successful update, keep the
+      // in-memory authoritative state rather than clearing the UI. This preserves
+      // the compatibility contract that a successful update never silently empties the view.
+      if (reloaded.length > 0) {
+        setItems(reloaded);
+      } else {
+        setItems(snapshot.map((item) => (item.id === id ? updated : item)));
+      }
       setEditingId(null);
       showSuccess({
         title: 'Item updated',
-        description: `"${updated.name}" has been updated successfully.`,
+        description: `"${validation.value.name}" has been updated successfully.`,
       });
     } else {
+      setItems(snapshot);
       showError({
         title: 'Update failed',
         description: 'Failed to save changes to the wallet item.',
@@ -314,16 +333,26 @@ export default function WalletPage() {
         </div>
       </div>
 
-      {items.length > 0 && (
+      {loadError && (
+        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-4 dark:border-red-800 dark:bg-red-900/20">
+          <p className="text-sm text-red-800 dark:text-red-200">{loadError}</p>
+        </div>
+      )}
+
+      {isLoading ? (
+        <div className="flex items-center justify-center py-12">
+          <p className="text-sm text-slate-500 dark:text-slate-400">Loading wallet items...</p>
+        </div>
+      ) : items.length > 0 ? (
         <WalletBulkToolbar
           selectedCount={selectedIds.size}
           onClearSelection={handleClearSelection}
           onExport={handleExportSelected}
           onDelete={handleRequestBulkDelete}
         />
-      )}
+      ) : null}
 
-      {items.length === 0 ? (
+      {isLoading ? null : items.length === 0 ? (
         <EmptyState
           illustration="contracts"
           title="No wallet items"
