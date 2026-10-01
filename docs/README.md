@@ -81,6 +81,7 @@ Reference documentation for components, hooks, contexts, and library utilities.
 | [COPYWRITING_GUIDE.md](./COPYWRITING_GUIDE.md) | Voice, tone, and copy standards |
 | [data-model.md](./data-model.md) | Domain types, `Contract`, `Milestone`, optional `contractId` |
 | [error-reporting.md](./error-reporting.md) | Pluggable error reporting abstraction |
+| [route-failure-recovery.md](./route-failure-recovery.md) | Deterministic failure recovery for the `/contracts` loading fallback (stall, retry budget, error isolation) and for `/sitemap.xml` (base-URL validation, entry invariants, report codes) |
 | [persistence.md](./persistence.md) | `safeStorage`, `localStorage` fallback, SSR safety |
 | [preferences.md](./preferences.md) | `PreferencesProvider` hydration, theme application, amount formatting |
 | [security-headers.md](./security-headers.md) | CSP, `X-Frame-Options`, and other HTTP response headers |
