@@ -28,6 +28,7 @@ export interface MilestonesErrorBoundaryProps {
 interface State {
   hasError: boolean;
   retryKey: number;
+  /** The error captured by `getDerivedStateFromError`, kept for diagnostics. */
   error?: Error;
 }
 
