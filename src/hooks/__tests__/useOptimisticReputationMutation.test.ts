@@ -1,4 +1,5 @@
 import { renderHook, act } from '@testing-library/react';
+import { useState } from 'react';
 import { useOptimisticReputationMutation } from '../useOptimisticReputationMutation';
 import * as repository from '@/lib/repository';
 import type { ReputationEvent } from '@/types/domain';
@@ -100,6 +101,29 @@ describe('useOptimisticReputationMutation — optimisticCreate', () => {
     expect(setEvents.mock.calls[1][0]).toEqual(baseEvents);
   });
 
+  it('keeps an earlier successful create when a repeated operation fails in the same turn', () => {
+    const earlierEvent = { ...newEvent, id: 'evt-earlier' };
+    const repeatedEvent = { ...earlierEvent };
+    mockedUpsertReputationEvent
+      .mockReturnValueOnce({ success: true, stale: false })
+      .mockReturnValueOnce({ success: false, stale: false });
+
+    const { result } = renderHook(() => {
+      const [events, setEvents] = useState(baseEvents);
+      return {
+        events,
+        ...useOptimisticReputationMutation(events, setEvents),
+      };
+    });
+
+    act(() => {
+      result.current.optimisticCreate(earlierEvent);
+      result.current.optimisticCreate(repeatedEvent);
+    });
+
+    expect(result.current.events).toEqual([...baseEvents, earlierEvent]);
+  });
+
   it('rolls back and returns stale:true when a stale overwrite is detected', () => {
     mockedUpsertReputationEvent.mockReturnValue({ success: false, stale: true });
 
@@ -118,6 +142,33 @@ describe('useOptimisticReputationMutation — optimisticCreate', () => {
       stale: true,
       error: 'This reputation event was updated in another session. Please reload and try again.',
     });
+  });
+
+  it('does not allow an update patch to change the event identity', () => {
+    mockedUpsertReputationEvent.mockReturnValue({ success: true, stale: false });
+
+    const { result } = renderHook(() => {
+      const [events, setEvents] = useState(baseEvents);
+      return {
+        events,
+        ...useOptimisticReputationMutation(events, setEvents),
+      };
+    });
+
+    act(() => {
+      result.current.optimisticUpdate('evt-1', {
+        id: 'evt-2',
+        summary: 'Updated summary',
+      });
+    });
+
+    expect(result.current.events).toEqual([
+      { ...baseEvents[0], summary: 'Updated summary' },
+      baseEvents[1],
+    ]);
+    expect(mockedUpsertReputationEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'evt-1', summary: 'Updated summary' }),
+    );
   });
 });
 
@@ -307,5 +358,26 @@ describe('useOptimisticReputationMutation — optimisticDelete', () => {
 
     expect(setEvents).toHaveBeenCalledTimes(2);
     expect(setEvents.mock.calls[1][0]).toEqual(baseEvents);
+  });
+
+  it('keeps a successful delete when the same delete is repeated before rerender', () => {
+    mockedDeleteReputationEvents
+      .mockReturnValueOnce(1)
+      .mockReturnValueOnce(0);
+
+    const { result } = renderHook(() => {
+      const [events, setEvents] = useState(baseEvents);
+      return {
+        events,
+        ...useOptimisticReputationMutation(events, setEvents),
+      };
+    });
+
+    act(() => {
+      result.current.optimisticDelete(['evt-1']);
+      result.current.optimisticDelete(['evt-1']);
+    });
+
+    expect(result.current.events).toEqual([baseEvents[1]]);
   });
 });
