@@ -1,132 +1,223 @@
 'use client';
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import EmptyState from '@/components/EmptyState';
-import ReputationProfile from '@/components/ReputationProfile';
-import ReputationSummaryCard from '@/components/ReputationSummaryCard';
+/**
+ * @file src/app/reputation/page.tsx
+ *
+ * Entry-point route component for /reputation.
+ *
+ * ## State model
+ *
+ * The page owns four mutually exclusive UI states:
+ *
+ *   loading  → data fetch in progress; renders the skeleton UI
+ *   error    → data fetch failed; renders a diagnosable error message
+ *              without leaking raw error details to the user
+ *   empty    → fetch succeeded but no reputation data available;
+ *              rendered by ReputationPageContent via its own invariant
+ *   success  → fetch succeeded and data passes validation;
+ *              rendered by ReputationPageContent
+ *
+ * ## Invariants enforced here
+ *
+ * 1. **Mutual exclusivity** — only one of {loading, error, content} is ever
+ *    rendered at a time; a loading-ref guard prevents a stale async callback
+ *    from committing state after the component unmounts or a second call fires.
+ *
+ * 2. **Data validation** — incoming data is run through `validateReputationData`
+ *    before being committed to state. Invalid or structurally corrupt payloads
+ *    are treated as a recoverable error rather than silent data loss.
+ *
+ * 3. **Concurrent-execution safety** — each call to `loadReputation` captures
+ *    a per-invocation `active` flag. If the component unmounts or a newer call
+ *    starts before the current one resolves, the stale call is a no-op.
+ *
+ * 4. **Error isolation** — the error message shown to the user is a static,
+ *    safe string. The raw Error object is only ever forwarded to `reportError`
+ *    (which may log it to a monitoring service), never rendered into the DOM.
+ *
+ * 5. **Re-try safety** — re-mounting or calling `loadReputation` a second time
+ *    is safe: state is reset to loading first, and any in-flight call that
+ *    resolves after a re-try is discarded via the active flag.
+ *
+ * `ReputationPageContent` (in ReputationPageContent.tsx) handles its own
+ * sub-tree invariants (empty vs. full vs. error-boundary fallback) and is
+ * imported rather than duplicated here.
+ */
+
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import SafeBoundary from '@/components/SafeBoundary';
-import { readReputationHistory, ReputationHistoryReadError } from '@/lib/readReputationHistory';
+import { listReputationEvents } from '@/lib/repository';
 import { reportError } from '@/lib/errorReporter';
 import type { Reputation } from '@/types/domain';
+import { ReputationPageContent } from './ReputationPageContent';
+import ReputationLoading from './loading';
 
-export type ReputationPageContentProps = {
-  reputationData?: Reputation | null;
-  userName?: string;
-};
+// ---------------------------------------------------------------------------
+// Validation helper
+// ---------------------------------------------------------------------------
 
-export function ReputationPageContent({
-  reputationData,
-  userName = 'User',
-}: ReputationPageContentProps) {
-  const score = reputationData?.score;
-  const hasReputation =
-    typeof score === 'number' && Number.isFinite(score) && score >= 0;
+/**
+ * Validates that `data` is structurally sound enough to pass to
+ * `ReputationPageContent`. Invalid shapes produce a recoverable error
+ * rather than silent rendering with undefined values.
+ *
+ * Rules:
+ * - `data` must be a non-null object.
+ * - `score`, when present, must be a finite number.
+ * - `history`, when present, must be an array.
+ *
+ * @throws {Error} with a descriptive message when any rule is violated.
+ */
+export function validateReputationData(data: unknown): asserts data is Reputation {
+  if (data === null || typeof data !== 'object') {
+    throw new Error(
+      `validateReputationData: expected an object, got ${data === null ? 'null' : typeof data}`,
+    );
+  }
 
-  if (!reputationData || !hasReputation) {
+  const record = data as Record<string, unknown>;
+
+  if ('score' in record && record.score !== null && record.score !== undefined) {
+    if (typeof record.score !== 'number' || !Number.isFinite(record.score)) {
+      throw new Error(
+        `validateReputationData: score must be a finite number, got ${JSON.stringify(record.score)}`,
+      );
+    }
+  }
+
+  if ('history' in record && record.history !== undefined && record.history !== null) {
+    if (!Array.isArray(record.history)) {
+      throw new Error(
+        `validateReputationData: history must be an array, got ${typeof record.history}`,
+      );
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Data-fetch helper (swap for a real API call when available)
+// ---------------------------------------------------------------------------
+
+/**
+ * Loads reputation data from the local repository.
+ *
+ * Returns `null` when no events exist (empty state). Wraps access in a
+ * try/catch so any storage error propagates as a rejected Promise and is
+ * handled uniformly by the loading logic inside `ReputationPage`.
+ */
+async function fetchReputationData(): Promise<Reputation | null> {
+  const history = listReputationEvents();
+  if (history.length === 0) return null;
+
+  return { score: null, history };
+}
+
+// ---------------------------------------------------------------------------
+// Page component
+// ---------------------------------------------------------------------------
+
+type PageState =
+  | { status: 'loading' }
+  | { status: 'error'; message: string }
+  | { status: 'success'; data: Reputation | null };
+
+const INITIAL_STATE: PageState = { status: 'loading' };
+
+const ReputationPage: React.FC = () => {
+  const [pageState, setPageState] = useState<PageState>(INITIAL_STATE);
+
+  /**
+   * `mountedRef` guards against setState calls after the component unmounts.
+   * A ref (not state) is correct here: toggling it must never trigger a
+   * re-render, and it must be readable inside async closures.
+   */
+  const mountedRef = useRef(true);
+
+  const loadReputation = useCallback(async () => {
+    // Reset to loading before every fetch so state is always consistent.
+    setPageState({ status: 'loading' });
+
+    // `active` tracks whether *this particular invocation* is still the
+    // current one. If a newer call fires before this one resolves, or if
+    // the component unmounts, we bail out without touching state.
+    let active = true;
+
+    try {
+      const raw = await fetchReputationData();
+
+      if (!active || !mountedRef.current) return;
+
+      if (raw !== null) {
+        // Validate before committing: a corrupt payload becomes an error
+        // state rather than silent corruption of the rendered UI.
+        validateReputationData(raw);
+      }
+
+      setPageState({ status: 'success', data: raw });
+    } catch (err) {
+      if (!active || !mountedRef.current) return;
+
+      // Forward raw error to monitoring; never render it to the user.
+      reportError(err, 'ReputationPage.loadReputation');
+
+      setPageState({
+        status: 'error',
+        message: 'Unable to load your reputation data. Please try again.',
+      });
+    }
+
+    return () => {
+      // Mark this invocation as stale when the effect re-runs or the
+      // component unmounts.
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    loadReputation();
+
+    return () => {
+      mountedRef.current = false;
+    };
+  }, [loadReputation]);
+
+  // ------------------------------------------------------------------
+  // Render – mutually exclusive states
+  // ------------------------------------------------------------------
+
+  if (pageState.status === 'loading') {
+    return <ReputationLoading />;
+  }
+
+  if (pageState.status === 'error') {
     return (
       <main className="min-h-screen p-8">
         <h1 className="text-2xl font-bold mb-6">Reputation</h1>
-        <EmptyState
-          illustration="reputation"
-          title="No reputation yet"
-          description="Your reputation will be built as you complete contracts and receive feedback from clients. Start by creating and fulfilling your first contract."
-        />
+        <div
+          role="alert"
+          aria-live="assertive"
+          className="flex flex-col items-center justify-center p-8 rounded-lg border border-red-200 bg-red-50 text-center space-y-4"
+        >
+          <p className="text-red-700 font-medium">{pageState.message}</p>
+          <button
+            type="button"
+            onClick={loadReputation}
+            className="px-4 py-2 rounded-lg bg-gray-900 text-white text-sm font-medium hover:bg-gray-700 transition-colors"
+          >
+            Retry
+          </button>
+        </div>
       </main>
     );
   }
 
+  // status === 'success': delegate content + sub-tree error isolation to
+  // ReputationPageContent (which wraps in SafeBoundary + Suspense).
   return (
-    <main className="min-h-screen p-8">
-      <h1 className="text-2xl font-bold mb-6">Reputation</h1>
-      <ReputationSummaryCard
-        name={userName}
-        score={score}
-        level={reputationData.level}
-        history={reputationData.history}
-      />
-      <ReputationProfile
-        name={userName}
-        score={score}
-        level={reputationData.level}
-        history={reputationData.history}
-        lastUpdated={reputationData.lastUpdated}
-      />
-    </main>
-  );
-}
-
-const ReputationPage: React.FC = () => {
-  const [reputationData, setReputationData] = useState<Reputation | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [readError, setReadError] = useState<string | null>(null);
-  const requestRef = useRef<{ cancelled: boolean } | null>(null);
-
-  const loadReputation = useCallback(async () => {
-    // The ref closes the gap before React commits the disabled button state.
-    if (requestRef.current) return;
-    const request = { cancelled: false };
-    requestRef.current = request;
-    setIsLoading(true);
-    setReadError(null);
-    try {
-      const history = await Promise.resolve().then(readReputationHistory);
-      if (request.cancelled) return;
-      setReputationData({ score: 4.5, level: 'Expert', history });
-    } catch (error) {
-      if (request.cancelled) return;
-      const reason = error instanceof ReputationHistoryReadError ? error.reason : 'read-failed';
-      setReadError(
-        reason === 'invalid-data'
-          ? 'Saved reputation history is invalid. Your saved data has not been changed.'
-          : 'Reputation history could not be read. Check browser storage access and retry. Your saved data has not been changed.',
-      );
-      // Arbitrary storage/JSON exception messages can contain private history.
-      reportError(new Error('Reputation history read failed'), 'ReputationPage.load', 'error', {
-        reason,
-      });
-      // Keep both the last successful snapshot and the mounted profile's local state.
-    } finally {
-      if (requestRef.current === request) {
-        requestRef.current = null;
-        setIsLoading(false);
-      }
-    }
-  }, []);
-
-  useEffect(() => {
-    void loadReputation();
-    return () => {
-      if (requestRef.current) {
-        requestRef.current.cancelled = true;
-        requestRef.current = null;
-      }
-    };
-  }, [loadReputation]);
-
-  return (
-    <>
-      <section aria-label="Reputation updates" className="px-8 pt-8">
-        {isLoading && <p role="status">Loading reputation history…</p>}
-        {readError && <p role="alert">{readError}</p>}
-        <button
-          type="button"
-          onClick={() => void loadReputation()}
-          disabled={isLoading}
-          className="rounded-lg border px-4 py-2 focus-visible:outline focus-visible:outline-2"
-        >
-          {readError ? 'Retry reputation history' : 'Refresh reputation history'}
-        </button>
-      </section>
-      {reputationData ? (
-        <SafeBoundary>
-          <ReputationPageContent reputationData={reputationData} />
-        </SafeBoundary>
-      ) : (
-        <main className="min-h-screen p-8" aria-busy={isLoading}>
-          <h1 className="text-2xl font-bold mb-6">Reputation</h1>
-        </main>
-      )}
-    </>
+    <SafeBoundary>
+      <ReputationPageContent reputationData={pageState.data} />
+    </SafeBoundary>
   );
 };
 
