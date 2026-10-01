@@ -240,7 +240,26 @@ When the reputation page mounts, `ReputationPageClient` runs a `useEffect`
 that:
 
 1. Captures `document.activeElement` into a ref (`previousFocusRef`).
-2. After a 100 ms delay, focuses the `<main tabIndex="-1">` element.
+2. Focuses **this component's own** `<main tabIndex="-1">` element after a
+   short delay (100 ms).
+
+Focus target resolution is deterministic: the wrapper's own `main` ref is
+preferred, so the focused landmark does not depend on document-wide ordering
+of `<main>` elements (the nested `<main>` rendered by `ReputationPageContent`
+could otherwise be selected). A bare `document.querySelector('main')` is only
+used as a fallback when the ref is unusable.
+
+Failure recovery:
+
+- Focus is attempted at most five times, one timer per attempt, so a route
+  whose DOM is not yet ready recovers without an unbounded retry loop.
+- An unmounted or superseded mount can never focus a stale node: cleanup sets
+  a `cancelled` flag and clears the pending timer, so concurrent
+  mount/unmount cycles cannot produce an inconsistent focus state.
+- A `focus()` that throws or silently no-ops is non-fatal to rendering (no user
+  data is lost). On exhaustion the failure is reported through the central
+  `reportError` seam with context `ReputationPageClient: focus` and an
+  `attempts` count — no user data (name, score, address) is included.
 
 This gives keyboard and screen-reader users a predictable entry point at the
 top of the page content on each navigation.
