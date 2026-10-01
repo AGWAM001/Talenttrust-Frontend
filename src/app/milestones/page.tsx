@@ -400,16 +400,46 @@ const MilestonesContent: React.FC = () => {
       return;
     }
     setShowForm(false);
+
+    const result = optimisticCreate(milestone);
+    if (!result.ok) {
+      showError({
+        title: 'Unable to create milestone',
+        description: result.stale
+          ? 'This milestone was updated in another session. Please reload and try again.'
+          : 'Your milestone could not be saved. Please try again.',
+        action: result.stale ? undefined : {
+          label: 'Retry',
+          onClick: () => handleSubmitMilestone(milestone),
+        },
+      });
+      return;
+    }
+
     setIsDismissed(true);
-  }, [optimisticCreate, recoverFromFailure, showError]);
+  }, [optimisticCreate, showError]);
+
   const handleCancelForm = useCallback(() => {
     setShowForm(false);
   }, []);
 
   const handleUpdateMilestone = useCallback(
     (id: string, patch: Partial<Milestone>): boolean => {
-      const normalizedPatch = patch.status ? { ...patch, status: normalizeMilestoneStatus(patch.status) } : patch;
-      const result = optimisticUpdate(id, normalizedPatch);
+      const result = optimisticUpdate(id, patch);
+      if (!result.ok) {
+        showError({
+          title: 'Unable to update milestone',
+          description: result.stale
+            ? 'This milestone was updated in another session. Please reload and try again.'
+            : 'Your milestone could not be saved. Please try again.',
+          action: result.stale ? undefined : {
+            label: 'Retry',
+            onClick: () => handleUpdateMilestone(id, patch),
+          },
+        });
+        return false;
+      }
+      return true;
       if (result.ok) return true;
       recovery.recordFailure('update', result.error);
       showError({
