@@ -58,9 +58,9 @@ export function ErrorBoundary({ error, reset }: ErrorProps) {
 
     try {
       setIsResetting(true);
-      const result = reset();
+      const result: unknown = reset();
 
-      if (result && typeof (result as Promise<unknown>).then === 'function') {
+      if (typeof (result as Promise<unknown>)?.then === 'function') {
         (result as Promise<unknown>)
           .catch((err) => {
             reportError(err, 'Error Boundary Reset');
