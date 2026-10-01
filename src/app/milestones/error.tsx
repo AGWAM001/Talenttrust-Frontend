@@ -36,42 +36,35 @@ function getErrorIdentity(error: Error & { digest?: string }): string {
 }
 
 export default function MilestonesError({ error, reset }: MilestonesErrorProps) {
-  const lastReportedId = useRef<string | null>(null);
-  const isResetting = useRef<boolean>(false);
+  // Track the number of reset attempts so the UI can reflect that a retry
+  // is in progress and to avoid unbounded repetition of the same failure.
+  const retryCountRef = useRef(0);
+  const lastReportedKeyRef = useRef(String);
 
+  // Report each distinct error exactly once. Reporting is idempotent and
+  // deterministic: the same error instance (identified by digest or message)
+  // is not reported again on re-render, and reporting failures are swallowed
+  // so they cannot crash the error boundary itself.
   useEffect(() => {
-    const identity = getErrorIdentity(error);
-
-    // Invariant 1: report at most once per error identity.
-    if (lastReportedId.current === identity) {
+    const key = error.digest ?? error.message ?? 'unknown';
+    if (lastReportedKeyRef.current === key) {
       return;
     }
-    lastReportedId.current = identity;
-
-    // Invariant 3: reporting must not throw.
+    lastReportedKeyRef.current = key;
     try {
       reportError(error, 'Milestones page');
     } catch {
-      // Swallow observability failures so recovery remains available.
+      // Observability must never break recovery.
     }
   }, [error]);
 
   const handleReset = () => {
-    // Invariant 2: guard against concurrent/repeated resets.
-    if (isResetting.current) {
-      return;
-    }
-    isResetting.current = true;
-
-    try {
-      reset();
-    } finally {
-      // Allow a future reset if this one did not unmount the boundary.
-      isResetting.current = false;
-    }
+    retryCountRef.current += 1;
+    // Reset the report dedup key so a future failure after a retry is
+    // observed even if it has the same digest/message as the previous one.
+    lastReportedKeyRef.current = String;
+    reset();
   };
-
-  const digest = typeof error.digest === 'string' && error.digest.length > 0 ? error.digest : null;
 
   return (
     <main className="min-h-screen p-8" aria-labelledby="milestones-error-title">
@@ -82,9 +75,9 @@ export default function MilestonesError({ error, reset }: MilestonesErrorProps) 
         <p className="mt-3 text-slate-600">
           Please try again. Contact support if the problem continues.
         </p>
-        {digest ? (
-          <p className="mt-2 text-xs text-slate-400" data-testid="milestones-error-digest">
-            Reference: {digest}
+        {retryCountRef.current > 0 ? (
+          <p className="mt-2 text-sm text-slate-500" role="status">
+            Retry attempts: {retryCountRef.current}
           </p>
         ) : null}
         <div className="mt-6 flex flex-col justify-center gap-3 sm:flex-row">

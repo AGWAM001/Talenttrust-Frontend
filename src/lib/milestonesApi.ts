@@ -1,1 +1,321 @@
-LyoqCiAqIE1pbGVzdG9uZXMgQVBJIGFkYXB0ZXIuCiAqCiAqIFRoZSBib2FyZCBpcyBjbGllbnQtcmVuZGVyZWQgYW5kIGJhY2tlZCBieSBicm93c2VyIHN0b3JhZ2UsIGJ1dCB0aGUgcmVhZC9tdXRhdGUgcGF0aCBtdXN0IGJlIGRldGVybWluaXN0aWMgd2hlbiBzZXZlcmFsCiAqIGNvbXBvbmVudHMgbW91bnQgY29uY3VycmVudGx5IG9yIHdoZW4gYSByZXRyeSBvdmVybGFwcyBhbiBpbi1mbGlnaHQgcmVxdWVzdC4gVGhpcyBtb2R1bGUga2VlcHMgdGhlIG9ubHkgbXV0YWJsZQogKiBzdGF0ZSBmb3IgdGhlIGJvYXJkIGFuZCBleHBvc2VzIGFuIGlkbGVtcG90ZW50IHNuYXBzaG90IHJlYWQgcGx1cyBhIHNlcmlhbGl6ZWQgbXV0YXRpb24gcXVldWUuCiAqCiAqIEludmFyaWFudHM6CiAqIDEuIEEgZ2l2ZW4gcmVhZCBlaXRoZXIgcmV0dXJucyB0aGUgbGFzdCBjb21taXR0ZWQgc25hcHNob3Qgb3IgcmVqZWN0cyB3aXRoIGEgY29kZWQgZXJyb3I7IGl0IG5ldmVyCiAqICAgIHJldHVybnMgYSBwYXJ0aWFsbHkgd3JpdHRlbiB2YWx1ZS4KICogMi4gTXV0YXRpb25zIGFyZSBmdW5uZWxlZCB0aHJvdWdoIGEgc2luZ2xlIGNoYWluLCBzbyBjb25jdXJyZW50IGNhbGxlcnMgY2Fubm90IGludGVybGVhdmUgdGhlaXIgcmVhZAogKiAgICBhbmQgd3JpdGUgc3RlcHMuCiAqIDMuIFJldHJ5aW5nIGEgbXV0YXRpb24gd2l0aCB0aGUgc2FtZSBpZGVtcG90ZW5jeSBrZXkgZG9lcyBub3QgYXBwbHkgdGhlIGNoYW5nZSB0d2ljZS4KICogNC4gRXZlcnkgZmFpbHVyZSBjYXJyaWVzIGEgc3RhYmxlIGBjb2RlYCBhbmQgYSBzYWZlIG1lc3NhZ2U7IHJhdyBzdG9yYWdlIGVycm9ycyBhcmUgbmV2ZXIgcmV0dXJuZWQKICogICAgdG8gdGhlIFVJLgogKi8KCmV4cG9ydCB0eXBlIE1pbGVzdG9uZVN0YXR1cyA9ICdvcGVuJyB8ICdpbicgfCAnY29tcGxldGUnOwoKZXhwb3J0IGludGVyZmFjZSBNaWxlc3RvbmUgewogIGlkOiBzdHJpbmc7CiAgdGl0bGU6IHN0cmluZzsKICBzdGF0dXM6IE1pbGVzdG9uZVN0YXR1czsKICBkdWVEYXRlPzogc3RyaW5nOwogIGNvbXBsZXRlZEF0Pzogc3RyaW5nOwp9CgpleHBvcnQgaW50ZXJmYWNlIE1pbGVzdG9uZXNTbmFwc2hvdCB7CiAgcmVhZG9ubHkgbWlsZXN0b25lczogcmVhZG9ubHkgTWlsZXN0b25lW107CiAgcmVhZG9ubHkgcmV2aXNpb246IG51bWJlcjsKfQoKZXhwb3J0IHR5cGUgTWlsZXN0b25lc0Vycm9yQ29kZSA9CiAgfCAnTUlMRVNUT05FU19VTkFWQUlMQUJMRScKICB8ICdNSUxFU1RPTkVTX0NPUlJVUFQnCiAgfCAnTUlMRVNUT05FU19JTlZBTElEX0lOUFVUJwogIHwgJ01JTEVTVE9ORVNfV1JJVEVfRkFJTEVEJzsKCmV4cG9ydCBjbGFzcyBNaWxlc3RvbmVzRXJyb3IgZXh0ZW5kcyBFcnJvciB7CiAgcmVhZG9ubHkgY29kZTogTWlsZXN0b25lc0Vycm9yQ29kZTsKCiAgY29uc3RydWN0b3IoY29kZTogTWlsZXN0b25lc0Vycm9yQ29kZSwgbWVzc2FnZTogc3RyaW5nKSB7CiAgICBzdXBlcihtZXNzYWdlKTsKICAgIHRoaXMubmFtZSA9ICdNaWxlc3RvbmVzRXJyb3InOwogICAgdGhpcy5jb2RlID0gY29kZTsKICB9Cn0KCmV4cG9ydCBpbnRlcmZhY2UgTWlsZXN0b25lc1N0b3JhZ2UgewogIGdldEl0ZW0oa2V5OiBzdHJpbmcpOiBzdHJpbmcgfCBudWxsOwogIHNldEl0ZW0oa2V5OiBzdHJpbmcsIHZhbHVlOiBzdHJpbmcpOiB2b2lkOwogIHJlbW92ZUl0ZW0oa2V5OiBzdHJpbmcpOiB2b2lkOwp9CgpleHBvcnQgaW50ZXJmYWNlIE1pbGVzdG9uZXNBcGlPcHRpb25zIHsKICBzdG9yYWdlPzogTWlsZXN0b25lc1N0b3JhZ2U7CiAga2V5Pzogc3RyaW5nOwogIG5vdz86ICgpID0+IG51bWJlcjsKfQoKY29uc3QgREVGQVVMVF9LRVkgPSAndGFsZW50dHJ1c3QubWlsZXN0b25lcy52MSc7Cgpjb25zdCBTVEFUVVNfVkFMVUVTOiByZWFkb25seSBNaWxlc3RvbmVTdGF0dXNbXSA9IFsnb3BlbicsICdpbicsICdjb21wbGV0ZSddOwoKY29uc3QgaXNTdGF0dXMgPSAodmFsdWU6IHVua25vd24pOiB2YWx1ZSBpcyBNaWxlc3RvbmVTdGF0dXMgPT4KICB0eXBlb2YgdmFsdWUgPT09ICdzdHJpbmcnICYmIChTVEFUVVNfVkFMVUVTIGFzIHJlYWRvbmx5IHN0cmluZ1tdKS5pbmNsdWRlcyh2YWx1ZSk7CgpmdW5jdGlvbiBpc1JlY29yZCh2YWx1ZTogdW5rbm93bik6IHZhbHVlIGlzIFJlY29yZDxzdHJpbmcsIHVua25vd24+IHsKICByZXR1cm4gdHlwZW9mIHZhbHVlID09PSAnb2JqZWN0JyAmJiB2YWx1ZSAhPT0gbnVsbCAmJiAhQXJyYXkuaXNBcnJheSh2YWx1ZSk7Cn0KCmZ1bmN0aW9uIG5vcm1hbGl6ZU1pbGVzdG9uZSh2YWx1ZTogdW5rbm93bik6IE1pbGVzdG9uZSB7CiAgaWYgKCFpc1JlY29yZCh2YWx1ZSkpIHsKICAgIHRocm93IG5ldyBNaWxlc3RvbmVzRXJyb3IoJ01JTEVTVE9ORVNfQ09SUlVQVCcsICdNaWxlc3RvbmUgcmVjb3JkIGlzIG5vdCBhbiBvYmplY3QuJyk7CiAgfQoKICBjb25zdCB7IGlkLCB0aXRsZSwgc3RhdHVzLCBkdWVEYXRlLCBjb21wbGV0ZWRBdCB9ID0gdmFsdWU7CgogIGlmICh0eXBlb2YgaWQgIT09ICdzdHJpbmcnIHx8IGlkLmxlbmd0aCA9PT0gMCkgewogICAgdGhyb3cgbmV3IE1pbGVzdG9uZXNFcnJvcignTUlMRVNUT05FU19DT1JSVVBUJywgJ01pbGVzdG9uZSBpZCBpcyBtaXNzaW5nLicpOwogIH0KCiAgaWYgKHR5cGVvZiB0aXRsZSAhPT0gJ3N0cmluZycpIHsKICAgIHRocm93IG5ldyBNaWxlc3RvbmVzRXJyb3IoJ01JTEVTVE9ORVNfQ09SUlVQVCcsICdNaWxlc3RvbmUgdGl0bGUgaXMgbWlzc2luZy4nKTsKICB9CgogIGlmICghaXNTdGF0dXMoc3RhdHVzKSkgewogICAgdGhyb3cgbmV3IE1pbGVzdG9uZXNFcnJvcignTUlMRVNUT05FU19DT1JSVVBUJywgJ01pbGVzdG9uZSBzdGF0dXMgaXMgaW52YWxpZC4nKTsKICB9CgogIGNvbnN0IG5vcm1hbGl6ZWQ6IE1pbGVzdG9uZSA9IHsgaWQsIHRpdGxlLCBzdGF0dXMgfTsKCiAgaWYgKHR5cGVvZiBkdWVEYXRlID09PSAnc3RyaW5nJykgewogICAgbm9ybWFsaXplZC5kdWVEYXRlID0gZHVlRGF0ZTsKICB9CgogIGlmICh0eXBlb2YgY29tcGxldGVkQXQgPT09ICdzdHJpbmcnKSB7CiAgICBub3JtYWxpemVkLmNvbXBsZXRlZEF0ID0gY29tcGxldGVkQXQ7CiAgfQoKICByZXR1cm4gbm9ybWFsaXplZDsKfQoKZnVuY3Rpb24gZGVjb2RlU25hcHNob3QocmF3OiBzdHJpbmcgfCBudWxsKTogTWlsZXN0b25lc1NuYXBzaG90IHsKICBpZiAocmF3ID09PSBudWxsIHx8IHJhdyA9PT0gJycpIHsKICAgIHJldHVybiB7IG1pbGVzdG9uZXM6IFtdLCByZXZpc2lvbjogMCB9OwogIH0KCiAgbGV0IHBhcnNlZDogdW5rbm93bjsKICB0cnkgewogICAgcGFyc2VkID0gSlNPTi5wYXJzZShyYXcpOwogIH0gY2F0Y2ggewogICAgdGhyb3cgbmV3IE1pbGVzdG9uZXNFcnJvcignTUlMRVNUT05FU19DT1JSVVBUJywgJ1N0b3JlZCBtaWxlc3RvbmVzIGFyZSBub3QgdmFsaWQgSlNPTi4nKTsKICB9CgogIGlmICghaXNSZWNvcmQocGFyc2VkKSkgewogICAgdGhyb3cgbmV3IE1pbGVzdG9uZXNFcnJvcignTUlMRVNUT05FU19DT1JSVVBUJywgJ1N0b3JlZCBtaWxlc3RvbmVzIGhhdmUgYW4gdW5leHBlY3RlZCBzaGFwZS4nKTsKICB9CgogIGNvbnN0IHsgcmV2aXNpb24sIG1pbGVzdG9uZXMgfSA9IHBhcnNlZDsKCiAgaWYgKHR5cGVvZiByZXZpc2lvbiAhPT0gJ251bWJlcicgfHwgIU51bWJlci5pc0ludGVnZXIocmV2aXNpb24pIHx8IHJldmlzaW9uIDwgMCkgewogICAgdGhyb3cgbmV3IE1pbGVzdG9uZXNFcnJvcignTUlMRVNUT05FU19DT1JSVVBUJywgJ1N0b3JlZCBtaWxlc3RvbmUgcmV2aXNpb24gaXMgaW52YWxpZC4nKTsKICB9CgogIGlmICghQXJyYXkuaXNBcnJheShtaWxlc3RvbmVzKSkgewogICAgdGhyb3cgbmV3IE1pbGVzdG9uZXNFcnJvcignTUlMRVNUT05FU19DT1JSVVBUJywgJ1N0b3JlZCBtaWxlc3RvbmVzIGFyZSBub3QgYSBsaXN0LicpOwogIH0KCiAgY29uc3Qgc2VlbklkcyA9IG5ldyBTZXQ8c3RyaW5nPigpOwogIGNvbnN0IG5vcm1hbGl6ZWQgPSBtaWxlc3RvbmVzLm1hcCgobWlsZXN0b25lKSA9PiB7CiAgICBjb25zdCB2YWx1ZSA9IG5vcm1hbGl6ZU1pbGVzdG9uZShtaWxlc3RvbmUpOwogICAgaWYgKHNlZW5JZHMuaGFzKHZhbHVlLmlkKSkgewogICAgICB0aHJvdyBuZXcgTWlsZXN0b25lc0Vycm9yKCdNSUxFU1RPTkVTX0NPUlJVUFQnLCAnU3RvcmVkIG1pbGVzdG9uZXMgY29udGFpbiBkdXBsaWNhdGUgaWRzLicpOwogICAgfQogICAgc2Vlbklkcy5hZGQodmFsdWUuaWQpOwogICAgcmV0dXJuIHZhbHVlOwogIH0pOwoKICByZXR1cm4geyBtaWxlc3RvbmVzOiBub3JtYWxpemVkLCByZXZpc2lvbjogcmV2aXNpb24gfTsKfQoKZnVuY3Rpb24gZW5jb2RlU25hcHNob3Qoc25hcHNob3Q6IE1pbGVzdG9uZXNTbmFwc2hvdCk6IHN0cmluZyB7CiAgcmV0dXJuIEpTT04uc3RyaW5naWZ5KHN7CiAgICByZXZpc2lvbjogc25hcHNob3QucmV2aXNpb24sCiAgICBtaWxlc3RvbmVzOiBzbmFwc2hvdC5taWxlc3RvbmVzLAogIH0pOwp9CgpmdW5jdGlvbiByZXNvbHZlU3RvcmFnZShvcHRpb25zOiBNaWxlc3RvbmVzQXBpT3B0aW9ucyk6IE1pbGVzdG9uZXNTdG9yYWdlIHsKICBpZiAob3B0aW9ucy5zdG9yYWdlKSB7CiAgICByZXR1cm4gb3B0aW9ucy5zdG9yYWdlOwogIH0KCiAgaWYgKHR5cGVvZiB3aW5kb3cgPT09ICd1bmRlZmluZWQnIHx8ICF3aW5kb3cubG9jYWxTdG9yYWdlKSB7CiAgICB0aHJvdyBuZXcgTWlsZXN0b25lc0Vycm9yKCdNSUxFU1RPTkVTX1VOQVZBSUxBQkxFJywgJ01pbGVzdG9uZSBzdG9yYWdlIGlzIG5vdCBhdmFpbGFibGUuJyk7CiAgfQoKICByZXR1cm4gd2luZG93LmxvY2FsU3RvcmFnZTsKfQoKZXhwb3J0IGludGVyZmFjZSBNaWxlc3RvbmVzQXBpIHsKICByZWFkT25seSBrZXk6IHN0cmluZzsKICByZWFkKCk6IE1pbGVzdG9uZXNTbmFwc2hvdDsKICBtdXRhdGUoCiAgICBpZGVtcG90ZW5jeUtleTogc3RyaW5nLAogICAgdXBkYXRlcjogKHNuYXBzaG90OiBNaWxlc3RvbmVzU25hcHNob3QpID0+IE1pbGVzdG9uZXNTbmFwc2hvdCwKICApOiBQcm9taXNlPE1pbGVzdG9uZXNTbmFwc2hvdD47CiAgc3Vic2NyaWJlKGxpc3RlbmVyOiAoc25hcHNob3Q6IE1pbGVzdG9uZXNTbmFwc2hvdCkgPT4gdm9pZCk6ICgpID0+IHZvaWQ7CiAgcmVzZXQoKTogdm9pZDsKfQoKZXhwb3J0IGZ1bmN0aW9uIGNyZWF0ZU1pbGVzdG9uZXNBcGkob3B0aW9uczogTWlsZXN0b25lc0FwaU9wdGlvbnMgPSB7fSk6IE1pbGVzdG9uZXNBcGkgewogIGNvbnN0IGtleSA9IG9wdGlvbnMua2V5ID8/IE RFRkFVTFRfS0VZOwogIGNvbnN0IGxpc3RlbmVycyA9IG5ldyBTZXQ8KHNuYXBzaG90OiBNaWxlc3RvbmVzU25hcHNob3QpID0+IHZvaWQ+KCk7CiAgY29uc3QgYXBwbGllZElkZW1wb3RlbmN5S2V5cyA9IG5ldyBNYXA8c3RyaW5nLCBNaWxlc3RvbmVzU25hcHNob3Q+KCk7CgogIGxldCBjaGFpbjogUHJvbWlzZTx1bmtub3duPiA9IFByb21pc2UucmVzb2x2ZSgpOwogIGxldCBjYWNoZWQ6IE1pbGVzdG9uZXNTbmFwc2hvdCB8IG51bGwgPSBudWxsOwoKICBjb25zdCBzdG9yYWdlID0gKCkgPT4gcmVzb2x2ZVN0b3JhZ2Uob3B0aW9ucyk7CgogIGNvbnN0IG5vdGlmeSA9IChzbmFwc2hvdDogTWlsZXN0b25lc1NuYXBzaG90KSA9PiB7CiAgICBmb3IgKGNvbnN0IGxpc3RlbmVyIG9mIEFycmF5LmZyb20obGlzdGVuZXJzKSkgewogICAgICBsaXN0ZW5lcihzbmFwc2hvdCk7CiAgICB9CiAgfTsKCiAgY29uc3QgcmVhZCA9ICgpOiBNaWxlc3RvbmVzU25hcHNob3QgPT4gewogICAgY29uc3Qgc25hcHNob3QgPSBkZWNvZGVTbmFwc2hvdChzdG9yYWdlKCkuZ2V0SXRlbShrZXkpKTsKICAgIGNhY2hlZCA9IHNuYXBzaG90OwogICAgcmV0dXJuIHNuYXBzaG90OwogIH07CgogIGNvbnN0IG11dGF0ZSA9ICgKICAgIGlkZW1wb3RlbmN5S2V5OiBzdHJpbmcsCiAgICB1cGRhdGVyOiAoc25hcHNob3Q6IE1pbGVzdG9uZXNTbmFwc2hvdCkgPT4gTWlsZXN0b25lc1NuYXBzaG90LAogICk6IFByb21pc2U8TWlsZXN0b25lc1NuYXBzaG90PiA9PiB7CiAgICBpZiAodHlwZW9mIGlkZW1wb3RlbmN5S2V5ICE9PSAnc3RyaW5nJyB8fCBpZGVtcG90ZW5jeUtleS5sZW5ndGggPT09IDApIHsKICAgICAgcmV0dXJuIFByb21pc2UucmVqZWN0KAogICAgICAgIG5ldyBNaWxlc3RvbmVzRXJyb3IoJ01JTEVTVE9ORVNfSU5WQUxJRF9JTlBVVCcsICdBbiBpZGVtcG90ZW5jeSBrZXkgaXMgcmVxdWlyZWQuJyksCiAgICAgICk7CiAgICB9CgogICAgY29uc3QgcHJldmlvdXMgPSBhcHBsaWVkSWRlbXBvdGVuY3lLZXlzLmdldChpZGVtcG90ZW5jeUtleSk7CiAgICBpZiAocHJldmlvdXMpIHsKICAgICAgcmV0dXJuIFByb21pc2UucmVzb2x2ZShwcmV2aW91cyk7CiAgICB9CgogICAgY29uc3QgdGFzayA9IGNoYWluLnRoZW4oKCkgPT4gewogICAgICBjb25zdCBjdXJyZW50ID0gY2FjaGVkID8/IHJlYWQoKTsKICAgICAgY29uc3QgbmV4dCA9IHVwZGF0ZXIoY3VycmVudCk7CgogICAgICBpZiAoIW5leHQgfHwgIUFycmF5LmlzQXJyYXkobmV4dC5taWxlc3RvbmVzKSkgewogICAgICAgIHRocm93IG5ldyBNaWxlc3RvbmVzRXJyb3IoCiAgICAgICAgICAnTUlMRVNUT05FU19JTlZBTElEX0lOUFVUJywKICAgICAgICAgICdUaGUgbXV0YXRpb24gdXBkYXRlciByZXR1cm5lZCBhbiBpbnZhbGlkIHNuYXBzaG90LicsCiAgICAgICAgKTsKICAgICAgfQoKICAgICAgY29uc3Qgbm9ybWFsaXplZCA9IGRlY29kZVNuYXBzaG90KGVuY29kZVNuYXBzaG90KG5leHQpKTsKICAgICAgY29uc3QgY29tbWl0dGVkOiBNaWxlc3RvbmVzU25hcHNob3QgPSB7CiAgICAgICAgbWlsZXN0b25lczogbm9ybWFsaXplZC5taWxlc3RvbmVzLAogICAgICAgIHJldmlzaW9uOiBjdXJyZW50LnJldmlzaW9uICsgMSwKICAgICAgfTsKCiAgICAgIHRyeSB7CiAgICAgICAgc3RvcmFnZSgpLnNldEl0ZW0oa2V5LCBlbmNvZGVTbmFwc2hvdChjb21taXR0ZWQpKTsKICAgICAgfSBjYXRjaCB7CiAgICAgICAgdGhyb3cgbmV3IE1pbGVzdG9uZXNFcnJvcignTUlMRVNUT05FU19XUklURV9GQUlMRUQnLCAnTWlsZXN0b25lcyBjb3VsZCBub3QgYmUgc2F2ZWQuJyk7CiAgICAgIH0KCiAgICAgIGNhY2hlZCA9IGNvbW1pdHRlZDsKICAgICAgYXBwbGllZElkZW1wb3RlbmN5S2V5cy5zZXQoaWRlbXBvdGVuY3lLZXksIGNvbW1pdHRlZCk7CiAgICAgIG5vdGlmeShjb21taXR0ZWQpOwogICAgICByZXR1cm4gY29tbWl0dGVkOwogICAgfSk7CgogICAgY2hhaW4gPSB0YXNrLnRoZW4oCiAgICAgICgpID0+IHVuZGVmaW5lZCwKICAgICAgKCkgPT4gdW5kZWZpbmVkLAogICAgKTsKCiAgICByZXR1cm4gdGFzazsKICB9OwoKICBjb25zdCBzdWJzY3JpYmUgPSAobGlzdGVuZXI6IChzbmFwc2hvdDogTWlsZXN0b25lc1NuYXBzaG90KSA9PiB2b2lkKSA9PiB7CiAgICBsaXN0ZW5lcnMuYWRkKGxpc3RlbmVyKTsKICAgIHJldHVybiAoKSA9PiB7CiAgICAgIGxpc3RlbmVycy5kZWxldGUobGlzdGVuZXIpOwogICAgfTsKICB9OwoKICBjb25zdCByZXNldCA9ICgpID0+IHsKICAgIGNhY2hlZCA9IG51bGw7CiAgICBhcHBsaWVkSWRlbXBvdGVuY3lLZXlzLmNsZWFyKCk7CiAgfTsKCiAgcmV0dXJuIHsga2V5LCByZWFkLCBtdXRhdGUsIHN1YnNjcmliZSwgcmVzZXQgfTsKfQo=
+/**
+ * Milestones API adapter.
+ *
+ * This module is the single boundary between the milestones UI and the
+ * data source. It normalizes transport failures into a typed error with a
+ * stable code, so the hook and the board never have to inspect fetch or JSON
+ * details directly.
+ *
+ * Invariants:
+*   1. Every failure path throws a `MilestonesApiError` with a non-empty code.
+   2. Response bodies are validated before they reach the UI; malformed data is
+      treated as a failure, not as an empty board.
+   3. Retries are bounded here as well as in the hook, so a direct caller cannot
+      accidentally create an unbounded loop.
+ */
+
+export type MilestoneStatus = 'not-started' | 'in-progress' | 'completed' | 'at-risk';
+
+export type Milestone = {
+  id: string;
+  title: string;
+  description: string;
+  status: MilestoneStatus;
+  dueDate: string | null;
+  progress: number;
+  updatedAt: string;
+};
+
+export type MilestonesApiErrorCode =
+  | 'MILESTONES_FETCH_FAILED'
+  | 'MILESTONES_INVALID_RESPONSE'
+  | 'MILESTONES_TIMEOUT'
+  | 'MILESTONES_NETWORK_ERROR';
+
+export type MilestonesApiErrorOptions = {
+  code: MilestonesApiErrorCode | string;
+  status?: number;
+  retryable?: boolean;
+  cause?: unknown;
+};
+
+/**
+ * Typed error for every milestones data failure. The `message` is always a
+ * safe, user-facing string; internal details stay on `cause` and `code`.
+ */
+export class MilestonesApiError extends Error {
+  readonly code: string;
+  readonly status: number | undefined;
+  readonly retryable: boolean;
+
+  constructor(message: string, options: MilestonesApiErrorOptions) {
+    super(message);
+    this.name = 'MilestonesApiError';
+    this.code = options.code;
+    this.status = options.status;
+    this.retryable = options.retryable ?? false;
+    if (options.cause !== undefined) {
+      // Preserve the original cause for diagnostics without exposing it in the UI.
+      (this as { cause?: unknown }).cause = options.cause;
+    }
+  }
+}
+
+export type FetchMilestonesOptions = {
+  /** Override the default endpoint. */
+  endpoint?: string;
+  /** Abort the request after this many milliseconds. Defaults to 10000. */
+  timeoutMs?: number;
+  /** Number of attempts for this call. Defaults to 2. */
+  maxAttempts?: number;
+  /** Base backoff between attempts in ms. Defaults to 200. */
+  baseDelayMs?: number;
+  /** Upper bound on backoff in ms. Defaults to 2000. */
+  maxDelayMs?: number;
+  /** Optional fetch implementation for testing or alternate transports. */
+  fetchImpl?: typeof fetch;
+  /** Optional absort signal for caller-driven cancellation. */
+  signal?: AbortSignal;
+};
+
+const DEFAULT_ENDPOINT = '/api/milestones';
+const DEFAULT_TIMEOUT_MS = 10_000;
+const DEFAULT_MAX_ATTEMPTS = 2;
+const DEFAULT_BASE_DELAY_MS = 200;
+const DEFAULT_MAX_DELAY_MS = 2_000;
+
+const VALID_STATUSES: readonly MilestoneStatus[] = [
+  'not-started',
+  'in-progress',
+  'completed',
+  'at-risk',
+];
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function normalizeStatus(value: unknown): MilestoneStatus | null {
+  if (typeof value === 'string' && (VALID_STATUSES as readonly string[]).includes(value)) {
+    return value as MilestoneStatus;
+  }
+  return null;
+}
+
+function normalizeProgress(value: unknown): number {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return Math.min(100, Math.max(0, Math.round(value)));
+  }
+  return 0;
+}
+
+function normalizeMilestone(value: unknown, index: number): Milestone | null {
+  if (!isRecord(value)) return null;
+
+  const id = typeof value.id === 'string' && value.id.length > 0 ? value.id : null;
+  const title = typeof value.title === 'string' ? value.title : null;
+  const status = normalizeStatus(value.status);
+
+  if (id === null || title === null || status === null) {
+    return null;
+  }
+
+  const dueDate =
+    typeof value.dueDate === 'string' && value.dueDate.length > 0
+      ? value.dueDate
+      : null;
+
+  return {
+    id,
+    title,
+    description: typeof value.description === 'string' ? value.description : '',
+    status,
+    dueDate,
+    progress: normalizeProgress(value.progress),
+    updatedAt:
+      typeof value.updatedAt === 'string' && value.updatedAt.length > 0
+        ? value.updatedAt
+        : new Date(0).toISOString(),
+  } || null;
+}
+
+function extractItems(value: unknown): unknown[] {
+  if (Array.isArray(value)) return value;
+  if (isRecord(value)) {
+    const candidate = value.milestones ?? value.data ?? value.items;
+    if (Array.isArray(candidate)) return candidate;
+  }
+  return [];
+}
+
+function normalizePayload(value: unknown): Milestone[] {
+  const items = extractItems(value);
+  const normalized: Milestone[] = [];
+  for (let index = 0; index < items.length; index += 1) {
+    const next = normalizeMilestone(items[index], index);
+    if (next) {
+      normalized.push(next);
+    }
+  }
+  return normalized;
+}
+
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new DOMException('Aborted', 'AbortError'));
+      return;
+    }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(new DOMException('Aborted', 'AbortError'));
+    };
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
+function computeBackoff(attempt: number, baseDelayMs: number, maxDelayMs: number): number {
+  const raw = baseDelayMs * 2 ** Math.max(0, attempt - 1);
+  return Math.min(maxDelayMs, raw);
+}
+
+async function requestOnce(
+  endpoint: string,
+  timeoutMs: number,
+  fetchImpl: typeof fetch,
+  signal: AbortSignal | undefined,
+): Promise<unknown> {
+  const controller = new AbortController();
+  const onAbort = () => controller.abort();
+  if (signal) {
+    if (signal.aborted) {
+      controller.abort();
+    } else {
+      signal.addEventListener('abort', onAbort, { once: true });
+    }
+  }
+
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetchImpl(endpoint, {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+      credentials: 'same-origin',
+      cache: 'no-store',
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      const retryable = response.status >= 500 || response.status === 429;
+      throw new MilestonesApiError('Unable to load milestones.', {
+        code: 'MILESTONES_FETCH_FAILED',
+        status: response.status,
+        retryable,
+      });
+    }
+
+    try {
+      return await response.json();
+    } catch (cause) {
+      throw new MilestonesApiError('The milestones response was not valid JSON.', {
+        code: 'MILESTONES_INVALID_RESPONSE',
+        status: response.status,
+        retryable: false,
+        cause,
+      });
+    }
+  } catch (cause) {
+    if (cause instanceof MilestonesApiError) throw cause;
+    if (cause instanceof DOMException && cause.name === 'AbortError') {
+      if (signal?.aborted) {
+        throw cause;
+      }
+      throw new MilestonesApiError('The milestones request timed out.', {
+        code: 'MILESTONES_TIMEOUT',
+        retryable: true,
+        cause,
+      });
+    }
+    throw new MilestonesApiError('Unable to reach the milestones service.', {
+      code: 'MILESTONES_NETWORK_ERROR',
+      retryable: true,
+      cause,
+    });
+  } finally {
+    clearTimeout(timeout);
+    signal?.removeEventListener('abort', onAbort);
+  }
+}
+
+/**
+ * Fetch and normalize the milestones list.
+ *
+ * The function is deterministic for a given set of inputs:
+ *   - it attempts at most `maxAttempts` times for retryable failures;
+ *   - it never retries a non-retryable failure (4-xx client errors, malformed body);
+ *   - it throws a typed MilestonesApiError on every failure path.
+ */
+export async function fetchMilestones(
+  options: FetchMilestonesOptions = {},
+): Promise<Milestone[]> {
+  const endpoint = options.endpoint ?? DEFAULT_ENDPOINT;
+  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const maxAttempts = Math.max(1, Math.floor(options.maxAttempts ?? DEFAULT_MAX_ATTEMPTS ));
+  const baseDelayMs = options.baseDelayMs ?? DEFAULT_BASE_DELAY_MS;
+  const maxDelayMs = options.maxDelayMs ?? DEFAULT_MAX_DELAY_MS;
+  const fetchImpl = options.fetchImpl ?? (typeof fetch === 'function' ? fetch : undefined);
+
+  if (!fetchImpl) {
+    throw new MilestonesApiError('Milestones data is not available in this environment.', {
+      code: 'MILESTONES_NETWORK_ERROR',
+      retryable: false,
+    });
+  }
+
+  let lastError: MilestonesApiError | null = null;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      const payload = await requestOnce(endpoint, timeoutMs, fetchImpl, options.signal);
+      const normalized = normalizePayload(payload);
+      return normalized;
+    } catch (cause) {
+      if (cause instanceof DOMException && cause.name === 'AbortError' && options.signal?.aborted) {
+        // Caller-driven cancellation is not a retryable failure.
+        throw cause;
+      }
+
+      const apiError =
+        cause instanceof MilestonesApiError
+          ? cause
+          : new MilestonesApiError('Unable to load milestones.', {
+              code: 'MILESTONES_FETCH_FAILED',
+              retryable: true,
+              cause,
+            });
+
+      lastError = apiError;
+
+      if (!apiError.retryable || attempt === maxAttempts) {
+        throw apiError;
+      }
+
+      const delay = computeBackoff(attempt, baseDelayMs, maxDelayMs);
+      await sleep(delay, options.signal);
+    }
+  }
+
+  // Unreachable in normal flow, but keeps the contract explicit for the type system.
+  throw (
+    lastError ??
+    new MilestonesApiError('Unable to load milestones.', {
+      code: 'MILESTONES_FETCH_FAILED',
+      retryable: true,
+    })
+  );
+}

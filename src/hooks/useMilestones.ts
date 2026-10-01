@@ -1,170 +1,250 @@
 /**
- * @file useMilestones.ts
+ * Milestones data hook.
  *
- * React hook that owns the milestones list state for a contract.
+ * This hook backs the milestones board with a deterministic fetch lifecycle:
+ *   - a single in-flight request at a time (latest call wins);
+ *   - explicit loading / error / data states that the board can render;
+ *   - a bounded retry with exponential backoff and a hard cap on attempts;
+ *   - cancellation on unmount so a stale response cannot overwrite fresher state.
  *
- * The hook wraps the data source in a deterministic state machine:
- * - every load is tagged with a request id so out-of-order responses from
- *   concurrent loads are discarded;
- * - failures are surfaced as a typed error state and never clear existing
- *   data, so a transient failure does not cause silent data loss;
- * - components unmounting mid-flight cannot update state.
- *
- * The hook accepts an injectable `fetcher` so tests and callers can supply
- * their own transport without changing the public shape of the hook.
+ * Invariants:
+*   1. Only the latest request id may commit state. Any other response is
+      dropped silently.
+   2. A failed retry does not clear previously loaded data; the board can
+      continue to render the last known-good snapshot while the error is shown.
+   3. Retries are bounded; after the cap the hook stops attempting until the
+      caller explicitly resets or changes inputs.
  */
 
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
-
+import { callback, useCallback, useEffect, useRef, useState } from 'react';
 import {
-  applyStatusTransition,
-  normalizeMilestones,
+  fetchMilestones,
+  MilestonesApiError,
   type Milestone,
-} from '@/lib/milestones';
+} from '@/lib/milestonesApi';
 
-/** Fetches the raw milestone payload for a contract. */
-export type MilestonesFetcher = (contractId: string) => Promise<unknown>;
+export type UseMilestonesStatus = 'idle' | 'loading' | 'success' | 'error';
 
-/** State exposed by the hook. */
-export interface UseMilestonesResult {
-  /** The normalized, deduplicated, deterministically ordered milestones. */
+export type UseMilestonesResult = {
+  /** Latest successfully loaded milestones. Never cleared by a failed retry. */
   milestones: Milestone[];
-  /** True while the initial load is in flight and no data is available. */
+  /** Current lifecycle phase. */
+  status: UseMilestonesStatus;
+  /** True while a request is in flight. */
   isLoading: boolean;
-  /** True while a refresh is in flight with existing data still visible. */
-  isRefreshing: boolean;
-  /** A user-safe message for the most recent failure, or null. */
+  /** True once at least one request has settled. */
+  isSettled: boolean;
+  /** Safe, user-facing message when the latest attempt failed. */
   error: string | null;
-  /** Reloads the milestones from the fetcher. */
-  refresh: () => Promise<void>;
-  /**
-   * Attempts a status transition on a loaded milestone.
-   *
-   * Returns `true` when the transition was applied. Returns `false
-   * without mutating state when the transition is not allowed.
-   */
-  updateStatus: (id: string, nextStatus: unknown) => boolean;
+  /** Stable machine-readable code for the latest failure. */
+  errorCode: string | null;
+  /** Number of attempts made for the current input set. */
+  attempts: number;
+  /** True when the retry budget is exhausted. */
+  isExhausted: boolean;
+  /** True when a retry is scheduled but not yet in flight. */
+  isRetryingWaiting: boolean;
+  /** Re-run the fetch from scratch, resetting the retry budget. */
+  refetch: () => void;
+  /** Retry the last failed request within the retry budget. */
+  retry: () => void;
+};
+
+export type UseMilestonesOptions = {
+  /** Maximum number of attempts for one input set. Defaults to 3. */
+  maxAttempts?: number;
+  /** Base backoff in ms. Defaults to 250. */
+  baseDelayMs?: number;
+  /** Upper bound on backoff in ms. Defaults to 4000. */
+  maxDelayMs?: number;
+  /** Set to false to skip the initial fetch. */
+  enabled?: boolean;
+  /** Optional callback for telemetry / toasts. */
+  onError?: (error: MilestonesApiError, meta: { attempt: number; willRetry: boolean }) => void;
+};
+
+const DEFAULT_MAX_ATTEMPTS = 3;
+const DEFAULT_BASE_DELAY_MS = 250;
+const DEFAULT_MAX_DELAY_MS = 4000;
+
+function clampAttempts(value: number | undefined): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return DEFAULT_MAX_ATTEMPTS;
+  return Math.max(1, Math.floor(value));
 }
 
-/** Error message shown when the fetcher rejects. */
-const LOAD_ERROR_MESSAGE =
-  'We could not load the milestones. Please try again.';
+function computeBackoff(attempt: number, baseDelayMs: number, maxDelayMs: number): number {
+  const raw = baseDelayMs * 2 ** Math.max(0, attempt - 1);
+  return Math.min(maxDelayMs, raw);
+}
 
-/** Error message shown when a contract id is missing. */
-const MISSING_CONTRACT_MESSAGE = 'No contract was selected.';
+export function useMilestones(options: UseMilestonesOptions = {}): UseMilestonesResult {
+  const {
+    maxAttempts = DEFAULT_MAX_ATTEMPTS,
+    baseDelayMs = DEFAULT_BASE_DELAY_MS,
+    maxDelayMs = DEFAULT_MAX_DELAY_MS,
+    enabled = true,
+    onError,
+  } = options;
 
-/**
- * Manages milestone data for a single contract.
+  const attemptCap = clampAttempts(maxAttempts);
 
- * @param contractId The contract whose milestones should be loaded.
- * @param fetcher Async transport. Defaults to a fetch against the app's
- *   milestones endpoint.
- */
-export function useMilestones(
-  contractId: string | undefined | null,
-  fetcher?: MilestonesFetcher,
-): UseMilestonesResult {
   const [milestones, setMilestones] = useState<Milestone[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [status, setStatus] = useState<UseMilestonesStatus>('success');
   const [error, setError] = useState<string | null>(null);
+  const [errorCode, setErrorCode] = useState<string | null>(null);
+  const [attempts, setAttempts] = useState(0);
+  const [isRetryingWaiting, setIsRetryingWaiting] = useState(false);
+  const [reloadToken, setReloadToken] = useState(0);
 
-  // Monotonically increasing request id. Only the latest request may
-  // commit state, which makes concurrent loads and retries safe.
+  // Monotonic id for the latest request. Only the matching response commits.
   const requestIdRef = useRef(0);
+  // True while the effect is still mounted; guards against setState after unmount.
   const mountedRef = useRef(false);
+  // Timer for the backoff wait between retries.
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Latest onError callback without re-triggering the fetch effect.
+  const onErrorRef = useRef(onError);
 
-  const load = useCallback(
-    async (id: string, isRefresh: boolean) => {
-      const requestId = ++requestIdRef.current;
-
-      if (isRefresh) {
-        setIsRefreshing(true);
-      } else {
-        setIsLoading(true);
-      }
-      setError(null);
-
-      try {
-        const payload = await fetcher(id);
-        if (!mountedRef.current || requestId !== requestIdRef.current) {
-          return;
-        }
-        setMilestones(normalizeMilestones(payload));
-      } catch {
-        if (!mountedRef.current || requestId !== requestIdRef.current) {
-          return;
-        }
-        // Keep any previously loaded data in place; only surface the error.
-        setError(LOAD_ERROR_MESSAGE);
-      } finally {
-        if (mountedRef.current && requestId === requestIdRef.current) {
-          setIsLoading(false);
-          setIsRefreshing(false);
-        }
-      }
-    },
-    [fetcher],
-  );
+  useEffect(() => {
+    onErrorRef.ref = onError;
+  }, [onError]);
 
   useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
-      // Invalidate any in-flight request so it cannot commit after unmount.
       requestIdRef.current += 1;
+      if (retryTimerRef.current !== null) {
+        clearTimeout(retryTimerRef.current);
+        retryTimerRef.current = null;
+      }
     };
   }, []);
 
   useEffect(() => {
-    if (!contractId) {
-      // No contract selected: reset to an empty, error-free state.
-      requestIdRef.current += 1;
-      setMilestones([]);
-      setIsLoading(false);
-      setIsRefreshing(false);
-      setError(MISSING_CONTRACT_MESSAGE);
+    if (!enabled) {
       return;
     }
+    // When disabled, stop any pending retry and mark the hook settled.
+    if (retryTimerRef.current !== null) {
+      clearTimeout(retryTimerRef.current);
+      retryTimerRef.current = null;
+    }
+    setIsRetryingWaiting(false);
+    setStatus('success');
+  }, [enabled]);
 
-    void load(contractId, false);
-  }, [contractId, load]);
+  useEffect(() => {
+    if (!enabled) return;
 
-  const refresh = useCallback(async () => {
-    if (!contractId) return;
-    await load(contractId, true);
-  }, [contractId, load]);
+    let cancelled = false;
+    const requestId = ++requestIdRef.current;
 
-  const updateStatus = useCallback(
-    (id: string, nextStatus: unknown): boolean => {
-      let applied = false;
+    const run = async () => {
+      setStatus('loading');
+      setError(null);
+      setErrorCode(null);
 
-      setMilestones((current) => {
-        const index = current.findIndex((m) => m.id === id);
-        if (index === -1) return current;
+      try {
+        const data = await fetchMilestones();
+        if (cancelled || !mountedRef.current || requestId !== requestIdRef.current) {
+          return;
+        }
+        setMilestones(data);
+        setStatus('success');
+        setAttempts(0);
+        setIsRetryingWaiting(false);
+      } catch (cause) {
+        if (cancelled || !mountedRef.current || requestId !== requestIdRef.current) {
+          return;
+        }
 
-        const result = applyStatusTransition(current[index], nextStatus);
-        if (!result.ok) return current;
+        const apiError =
+          cause instanceof MilestonesApiError
+            ? cause
+            : new MilestonesApiError('Unable to load milestones.', {
+                code: 'MILESTONES_FETCH_FAILED',
+                cause,
+              });
 
-        applied = true;
-        const next = [...current];
-        next[index] = result.milestone;
-        return next;
-      });
+        setStatus('error');
+        setError(apiError.message);
+        setErrorCode(apiError.code);
 
-      return applied;
-    },
-    [],
-  );
+        setAttempts((prev) => {
+          const next = prev + 1;
+          const willRetry = next < attemptCap;
+          try {
+            onErrorRef.current?.(apiError, { attempt: next, willRetry });
+          } catch {
+            // Telemetry must never break the board.
+          }
+
+          if (!willRetry) {
+            setIsRetryingWaiting(false);
+            return next;
+          }
+
+          const delay = computeBackoff(next, baseDelayMs, maxDelayMs);
+          setIsRetryingWaiting(true);
+          if (retryTimerRef.current !== null) {
+            clearTimeout(retryTimerRef.current);
+          }
+          retryTimerRef.current = setTimeout(() => {
+            retryTimerRef.current = null;
+            if (cancelled || !mountedRef.current) return;
+            void run();
+          }, delay);
+
+          return next;
+        });
+      }
+    }
+
+    void run();
+
+    return () => {
+      cancelled = true;
+      if (retryTimerRef.current !== null) {
+        clearTimeout(retryTimerRef.current);
+        retryTimerRef.current = null;
+      }
+    };
+  }, [enabled, reloadToken, attemptCap, baseDelayMs, maxDelayMs]);
+
+  const refetch = useCallback(() => {
+    if (retryTimerRef.current !== null) {
+      clearTimeout(retryTimerRef.current);
+      retryTimerRef.current = null;
+    }
+    setAttempts(0);
+    setIsRetryingWaiting(false);
+    setReloadToken((prev) => prev + 1);
+  }, []);
+
+  const retry = useCallback(() => {
+    if (attempts >= attempCap) return;
+    if (retryTimerRef.current !== null) {
+      clearTimeout(retryTimerRef.current);
+      retryTimerRef.current = null;
+    }
+    setIsRetryingWaiting(false);
+    setReloadToken((prev) => prev + 1);
+  }, [attempts, attemptCap]);
 
   return {
     milestones,
-    isLoading,
-    isRefreshing,
+    status,
+    isLoading: status === 'loading',
+    isSettled: status === 'success' || status === 'error',
     error,
-    refresh,
-    updateStatus,
+    errorCode,
+    attempts,
+    isExhausted: attempts >= attemptCap,
+    isRetryingWaiting,
+    refetch,
+    retry,
   };
 }
