@@ -1,7 +1,7 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import GlobalError from './error';
+import { render, screen, fireEvent, act } from '@testing-library/react';
+import GlobalError, { ErrorBoundary, ErrorPage } from './error';
 import { setErrorReporter } from '../lib/errorReporter';
+import { testA11y } from '../test-utils/a11y';
 
 // ---------------------------------------------------------------------------
 // Setup / teardown
