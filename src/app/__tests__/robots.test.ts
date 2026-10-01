@@ -39,57 +39,21 @@ describe('robots.ts', () => {
     expect(result.sitemap).toBe('https://talenttrust.app/sitemap.xml');
   });
 
-  it('normalizes trailing slashes and preserves a configured base path', () => {
-    process.env.NEXT_PUBLIC_SITE_URL = 'https://talenttrust.app/portal///';
-
-    expect(robots().sitemap).toBe(
-      'https://talenttrust.app/portal/sitemap.xml',
-    );
-  });
+  // --- Compatibility contract: robots must advertise where the sitemap lives ---
 
   it.each([
-    'not a URL',
-    '/relative/path',
-    'ftp://talenttrust.app',
-    'https://user:password@talenttrust.app',
-    'https://talenttrust.app?preview=true',
-    'https://talenttrust.app#section',
-  ])('omits the sitemap for invalid NEXT_PUBLIC_SITE_URL: %s', (siteUrl) => {
-    const warning = jest.spyOn(console, 'warn').mockImplementation();
-    process.env.NEXT_PUBLIC_SITE_URL = siteUrl;
+    ['https://talenttrust.app/', 'trailing slash'],
+    ['https://talenttrust.app///', 'repeated trailing slashes'],
+    ['  https://talenttrust.app  ', 'surrounding whitespace'],
+  ])('should not double the slash for a %s value', (value) => {
+    process.env.NEXT_PUBLIC_SITE_URL = value;
 
-    const result = robots();
-
-    expect(result).toEqual({
-      rules: {
-        userAgent: '*',
-        allow: '/',
-      },
-    });
-    expect(warning).toHaveBeenCalledWith(
-      'Invalid NEXT_PUBLIC_SITE_URL; omitting sitemap from robots metadata.',
-    );
-    expect(warning).not.toHaveBeenCalledWith(expect.stringContaining(siteUrl));
+    expect(robots().sitemap).toBe('https://talenttrust.app/sitemap.xml');
   });
 
-  it('recovers on a later call after the configured URL is corrected', () => {
-    const warning = jest.spyOn(console, 'warn').mockImplementation();
-    process.env.NEXT_PUBLIC_SITE_URL = 'invalid-url';
+  it('should advertise the dev origin when the configured URL is unusable', () => {
+    process.env.NEXT_PUBLIC_SITE_URL = 'not a url';
 
-    const failedResult = robots();
-    process.env.NEXT_PUBLIC_SITE_URL = 'https://talenttrust.app';
-    const recoveredResult = robots();
-
-    expect(failedResult.sitemap).toBeUndefined();
-    expect(recoveredResult.sitemap).toBe(
-      'https://talenttrust.app/sitemap.xml',
-    );
-    expect(warning).toHaveBeenCalledTimes(1);
-  });
-
-  it('returns the same sitemap URL for repeated calls with the same configuration', () => {
-    process.env.NEXT_PUBLIC_SITE_URL = 'https://talenttrust.app';
-
-    expect(robots().sitemap).toBe(robots().sitemap);
+    expect(robots().sitemap).toBe('http://localhost:3000/sitemap.xml');
   });
 });

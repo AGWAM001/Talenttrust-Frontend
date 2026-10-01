@@ -72,13 +72,8 @@ export default class MilestonesErrorBoundary extends Component<
   // Lifecycle
   // ------------------------------------------------------------------
 
-  static getDerivedStateFromError(): Partial<State> {
-    // React merges the returned object into the existing state, so `retryKey`
-    // is deliberately left untouched. The caught error is not stored: it is
-    // already surfaced via `componentDidCatch` (reportError + the optional
-    // `onError` prop), and the fallback UI must not render raw messages or
-    // stack traces.
-    return { hasError: true };
+  static getDerivedStateFromError(_error: Error): State {
+    return { hasError: true, retryKey: 0 };
   }
 
   componentDidCatch(error: Error, info: React.ErrorInfo): void {

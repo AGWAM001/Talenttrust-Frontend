@@ -1,55 +1,10 @@
 import type { Metadata } from 'next';
 import './globals.css';
 import { ToastProvider } from '@/components/toast/toast-provider';
-import { resolveSiteUrl } from '@/lib/site-url';
+import { resolveSiteUrl } from '@/lib/siteMetadata';
 
-/**
- * State invariants for the root layout module.
- *
- * This module owns a small amount of module-level state that is shared by
- * every render of the application shell:
- *
- *  1. `siteUrl` / `metadataBase` — resolved exactly once at module load.
- *     The value MUST be a valid absolute URL with an http(s) protocol so
- *     that `new URL()` cannot throw during metadata construction and so
- *     that Open Graph / Twitter / canonical URLs are always well-formed.
- *     Invalid or missing configuration falls back to a safe default
- *     instead of crashing the whole app or emitting a relative URL.
- *
- *  2. `registerDefaultCommands()` — a global side effect that mutates the
- *     command registry. It MUST run exactly once per process, even under
- *     React Fast Refresh, concurrent module evaluation, or repeated
- *     imports. Re-registration would duplicate commands and corrupt the
- *     palette's state; skipping it would leave the palette empty.
- *
- * Both invariants are enforced below with pure, deterministic helpers so
- * that valid, invalid, duplicate, and boundary inputs all converge on a
- * single well-defined state.
- */
-
-const DEFAULT_SITE_URL = 'http://localhost:3000';
-
-/**
- * Resolve a site URL from configuration, guaranteeing an absolute http(s)
- * URL. Invalid, empty, relative, or non-http(s) values fall back to the
- * default rather than throwing or producing a relative metadataBase.
- */
-function resolveSiteUrl(raw: string | undefined): string {
-  const candidate = (raw ?? '').trim();
-  if (candidate.length === 0) {
-    return DEFAULT_SITE_URL;
-  }
-  try {
-    const parsed = new URL(candidate);
-    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-      return DEFAULT_SITE_URL;
-    }
-    return parsed.toString();
-  } catch {
-    return DEFAULT_SITE_URL;
-  }
-}
-
+// Normalized so `new URL` below cannot throw and so `openGraph.url` matches the
+// origins `sitemap.ts` and `robots.ts` advertise for the same deployment.
 const siteUrl = resolveSiteUrl(process.env.NEXT_PUBLIC_SITE_URL);
 const metadataBase = new URL(siteUrl);
 // Social preview image used by Open Graph and Twitter cards lives in public/.
