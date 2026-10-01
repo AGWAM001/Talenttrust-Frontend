@@ -237,3 +237,65 @@ describe('NotFound page', () => {
     expect(container.firstChild).toMatchSnapshot();
   });
 });
+
+/**
+ * Compatibility-contract wiring.
+ *
+ * These tests pin the 404 page to the validated contract module so an upgrade
+ * or a malformed/empty upstream list cannot silently change (or drop) the
+ * public recovery navigation.
+ */
+describe('NotFound page compatibility contract', () => {
+  it('renders exactly the contract quick links in declaration order', () => {
+    render(<NotFound />);
+
+    const rendered = screen
+      .getAllByRole('link')
+      .filter((link) => link.getAttribute('href')?.startsWith('/'));
+    const contract = getNotFoundQuickLinks();
+
+    const quickLinkHrefs = rendered
+      .map((link) => link.getAttribute('href'))
+      .filter((href) => href !== NOT_FOUND_HOME_HREF);
+
+    expect(quickLinkHrefs).toEqual(contract.map((link) => link.href));
+    contract.forEach((link) => {
+      expect(
+        screen.getByRole('link', { name: new RegExp(link.label, 'i') }),
+      ).toHaveAttribute('href', link.href);
+    });
+  });
+
+  it('renders the documented default links (regression guard)', () => {
+    render(<NotFound />);
+    DEFAULT_NOT_FOUND_QUICK_LINKS.forEach((link) => {
+      expect(screen.getByText(link.label)).toBeInTheDocument();
+      expect(screen.getByText(link.description)).toBeInTheDocument();
+    });
+  });
+
+  it('uses the contract home and support hrefs', () => {
+    render(<NotFound />);
+    expect(screen.getByRole('link', { name: /go home/i })).toHaveAttribute(
+      'href',
+      NOT_FOUND_HOME_HREF,
+    );
+    expect(
+      screen.getByRole('link', { name: /contact support/i }),
+    ).toHaveAttribute('href', NOT_FOUND_SUPPORT_HREF);
+  });
+
+  it('never renders an off-site or protocol-relative anchor', () => {
+    render(<NotFound />);
+    screen.getAllByRole('link').forEach((link) => {
+      const href = link.getAttribute('href') ?? '';
+      expect(href.startsWith('//')).toBe(false);
+      expect(href.startsWith('http')).toBe(false);
+    });
+  });
+
+  it('has no detectable accessibility violations', async () => {
+    const { container } = render(<NotFound />);
+    await assertNoA11yViolations(container);
+  });
+});

@@ -89,6 +89,19 @@ describe('ReputationLoading – loading skeleton', () => {
   it('does NOT render an alert role (error state indicator)', () => {
     expect(document.querySelector('[role="alert"]')).toBeNull();
   });
+
+  it('ensures all history event row skeleton items carry shimmer and reduced-motion classes', () => {
+    const list = document.querySelector('ol');
+    const items = list?.querySelectorAll('li') || [];
+    expect(items.length).toBe(3);
+    items.forEach((item) => {
+      const shimmersInside = item.querySelectorAll('.animate-shimmer');
+      expect(shimmersInside.length).toBeGreaterThan(0);
+      shimmersInside.forEach((el) => {
+        expect(el).toHaveClass('motion-reduce:animate-none');
+      });
+    });
+  });
 });
 
 describe('ReputationLoading – accessibility', () => {

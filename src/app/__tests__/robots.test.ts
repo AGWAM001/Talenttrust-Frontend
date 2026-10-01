@@ -10,6 +10,7 @@ describe('robots.ts', () => {
 
   afterEach(() => {
     process.env = originalEnv;
+    jest.restoreAllMocks();
   });
 
   it('should use default localhost URL when no NEXT_PUBLIC_SITE_URL is set', () => {
@@ -21,6 +22,14 @@ describe('robots.ts', () => {
       userAgent: '*',
       allow: '/',
     });
+  });
+
+  it('uses the default URL when NEXT_PUBLIC_SITE_URL is blank', () => {
+    const warning = jest.spyOn(console, 'warn').mockImplementation();
+    process.env.NEXT_PUBLIC_SITE_URL = '   ';
+
+    expect(robots().sitemap).toBe('http://localhost:3000/sitemap.xml');
+    expect(warning).not.toHaveBeenCalled();
   });
 
   it('should use provided NEXT_PUBLIC_SITE_URL when set', () => {
