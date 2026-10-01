@@ -3,10 +3,36 @@ import './globals.css';
 import { ToastProvider } from '@/components/toast/toast-provider';
 import { resolveSiteUrl } from '@/lib/siteMetadata';
 
-// Normalized so `new URL` below cannot throw and so `openGraph.url` matches the
-// origins `sitemap.ts` and `robots.ts` advertise for the same deployment.
-const siteUrl = resolveSiteUrl(process.env.NEXT_PUBLIC_SITE_URL);
-const metadataBase = new URL(siteUrl);
+const DEFAULT_SITE_URL = 'http://localhost:3000';
+
+/**
+ * Metadata must remain buildable even when a deployment supplies a malformed
+ * public URL. Only public HTTP(S) origins are accepted; credentials and
+ * non-network schemes must never become metadata or social-preview URLs.
+ */
+export function resolveMetadataBase(value: string | undefined): URL {
+  if (!value?.trim()) return new URL(DEFAULT_SITE_URL);
+
+  try {
+    const candidate = new URL(value.trim());
+    if (
+      (candidate.protocol !== 'http:' && candidate.protocol !== 'https:') ||
+      !candidate.hostname ||
+      candidate.username ||
+      candidate.password
+    ) {
+      throw new Error('unsupported metadata URL');
+    }
+    return candidate;
+  } catch {
+    // Do not include the invalid value in logs: it may contain credentials.
+    console.warn('[metadata] invalid NEXT_PUBLIC_SITE_URL; using the default site URL');
+    return new URL(DEFAULT_SITE_URL);
+  }
+}
+
+const metadataBase = resolveMetadataBase(process.env.NEXT_PUBLIC_SITE_URL);
+const siteUrl = metadataBase.toString().replace(/\/$/, '');
 // Social preview image used by Open Graph and Twitter cards lives in public/.
 const socialPreviewImage = '/og-preview.svg';
 
