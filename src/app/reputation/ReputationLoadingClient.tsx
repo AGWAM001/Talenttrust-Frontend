@@ -1,17 +1,119 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import React, { Component, type ReactNode } from 'react';
+import Link from 'next/link';
+import { reportError } from '@/lib/errorReporter';
 import ReputationLoading from './loading';
 
+// ---------------------------------------------------------------------------
+// Error Codes & Constants
+// ---------------------------------------------------------------------------
+
+/** Public error code for render errors caught during reputation loading. */
+export const REPUTATION_LOADING_ERROR_CODE = 'REPUTATION_LOADING_FAILED' as const;
+
+/** Public error code when loading exceeds the configured timeout threshold. */
+export const REPUTATION_LOADING_TIMEOUT_CODE = 'REPUTATION_LOADING_TIMEOUT' as const;
+
+/** Public error code when a retry operation fails. */
+export const REPUTATION_LOADING_RETRY_FAILED_CODE = 'REPUTATION_LOADING_RETRY_FAILED' as const;
+
+/** Public error code when a custom fallback render prop throws. */
+export const REPUTATION_LOADING_FALLBACK_FAILED_CODE = 'REPUTATION_LOADING_FALLBACK_FAILED' as const;
+
+/** Default maximum number of retry attempts before entering the exhausted state. */
+export const DEFAULT_MAX_RETRIES = 3;
+
+/** Valid state machine statuses for ReputationLoadingClient. */
+export type ReputationLoadingStatus = 'loading' | 'error' | 'recovering' | 'exhausted';
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+export interface ReputationLoadingFallbackProps {
+  /** Normalized error object, or null. */
+  error: Error | null;
+  /** Function to trigger a retry. */
+  retry: () => void;
+  /** Number of retry attempts completed so far. */
+  retryCount: number;
+  /** Whether the retry limit has been exhausted. */
+  isExhausted: boolean;
+  /** Whether an asynchronous retry is currently in flight. */
+  isRetrying: boolean;
+}
+
+export interface ReputationLoadingClientProps {
+  /**
+   * Optional custom child content to render while in the loading state.
+   * Defaults to `<ReputationLoading />`.
+   */
+  children?: ReactNode;
+  /**
+   * Optional custom fallback UI. When supplied as a function, receives
+   * {@link ReputationLoadingFallbackProps}. When supplied as a ReactNode, replaces
+   * the built-in fallback directly.
+   */
+  fallback?: ReactNode | ((props: ReputationLoadingFallbackProps) => ReactNode);
+  /**
+   * Accessible heading title displayed in the built-in fallback alert.
+   * Defaults to "Unable to load reputation".
+   */
+  fallbackTitle?: string;
+  /**
+   * Callback fired whenever an error is encountered (render catch, timeout, or retry error).
+   */
+  onError?: (error: Error, errorInfo?: React.ErrorInfo) => void;
+  /**
+   * Callback fired when a retry is initiated. Can be synchronous or return a Promise.
+   * While the promise is pending, the component enters the 'recovering' state.
+   */
+  onRetry?: () => void | Promise<void>;
+  /**
+   * Callback fired when a retry operation successfully resolves and content is restored.
+   */
+  onRecover?: () => void;
+  /**
+   * Maximum allowed retry attempts before entering the exhausted state.
+   * Defaults to 3. Must be a non-negative integer.
+   */
+  maxRetries?: number;
+  /**
+   * Optional timeout in milliseconds. If loading does not settle within this window,
+   * the component transitions deterministically to an error state.
+   */
+  timeoutMs?: number | null;
+  /**
+   * Initial error to simulate or propagate an error immediately on mount.
+   */
+  initialError?: Error | string | null;
+  /**
+   * Class name for the root `<main>` element.
+   * Defaults to "min-h-screen p-8".
+   */
+  className?: string;
+  /**
+   * Optional data-testid for the root element.
+   */
+  'data-testid'?: string;
+}
+
+export interface ReputationLoadingClientState {
+  status: ReputationLoadingStatus;
+  error: Error | null;
+  retryCount: number;
+  retryKey: number;
+  isRetrying: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Input Normalization Helpers
+// ---------------------------------------------------------------------------
+
 /**
- * Client wrapper for the reputation loading state that manages focus on mount.
- * 
- * When the reputation page is in a loading state, this component:
- * 1. Stores the previously focused element (for potential restoration)
- * 2. Focuses the main content area for keyboard and screen-reader users
- * 
- * This ensures that users navigating to the reputation page during loading
- * have a predictable focus target, improving accessibility and UX.
+ * Normalizes any caught or passed value into an Error instance.
+ * Ensures non-Error throws (strings, objects, null, undefined) produce a safe Error.
  */
 export default function ReputationLoadingClient() {
   const mainRef = useRef<HTMLElement>(null);
@@ -50,6 +152,7 @@ export default function ReputationLoadingClient() {
 
       focusTimerRef.current = null;
     }, 100);
+  }
 
     return () => {
       if (focusTimerRef.current !== null) {
@@ -58,11 +161,115 @@ export default function ReputationLoadingClient() {
       }
       // Note: Focus restoration is handled by RouteAnnouncer on navigation away.
     };
-  }, []);
 
-  return (
-    <main ref={mainRef} className="min-h-screen p-8" tabIndex={-1} aria-busy="true">
-      <ReputationLoading />
-    </main>
-  );
+    void execute();
+  };
+
+  // ---------------------------------------------------------------------------
+  // Render
+  // ---------------------------------------------------------------------------
+
+  private renderFallback(): ReactNode {
+    const { fallback, fallbackTitle } = this.props;
+    const { error, retryCount, status } = this.state;
+    const maxRetries = normalizeMaxRetries(this.props.maxRetries);
+    const isExhausted = status === 'exhausted' || retryCount >= maxRetries;
+    const isRetrying = this.state.isRetrying || this.isRetryingLock || status === 'recovering';
+
+    if (fallback !== undefined) {
+      if (typeof fallback === 'function') {
+        try {
+          return fallback({
+            error,
+            retry: this.handleRetry,
+            retryCount,
+            isExhausted,
+            isRetrying,
+          });
+        } catch (fallbackError) {
+          reportError(fallbackError, 'ReputationLoadingClient', 'error', {
+            code: REPUTATION_LOADING_FALLBACK_FAILED_CODE,
+          });
+          // Gracefully fall through to built-in fallback
+        }
+      } else {
+        return fallback;
+      }
+    }
+
+    const title =
+      typeof fallbackTitle === 'string' && fallbackTitle.trim().length > 0
+        ? fallbackTitle.trim()
+        : 'Unable to load reputation';
+
+    const description = isExhausted
+      ? 'Unable to load reputation after multiple attempts. Please return home or contact support if the problem persists.'
+      : 'A problem occurred while loading reputation data. You can try again.';
+
+    return (
+      <div
+        ref={this.alertRef}
+        role="alert"
+        aria-live="assertive"
+        aria-atomic="true"
+        tabIndex={-1}
+        className="mx-auto my-8 max-w-lg rounded-3xl border border-red-200 bg-red-50 p-6 text-center shadow-sm sm:p-8"
+      >
+        <h2 className="text-xl font-bold text-red-900">{title}</h2>
+        <p className="mt-2 text-sm text-red-700">{description}</p>
+        <div className="mt-6 flex flex-col justify-center gap-3 sm:flex-row">
+          {!isExhausted && (
+            <button
+              ref={this.retryButtonRef}
+              type="button"
+              onClick={this.handleRetry}
+              disabled={isRetrying}
+              className="rounded-xl bg-red-700 px-4 py-2 font-semibold text-white transition hover:bg-red-800 focus-visible:outline focus-visible:outline-4 focus-visible:outline-offset-2 focus-visible:outline-red-600 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {isRetrying ? 'Retrying…' : 'Try again'}
+            </button>
+          )}
+          <Link
+            href="/"
+            className="rounded-xl border border-red-300 px-4 py-2 font-semibold text-red-700 transition hover:bg-red-100 focus-visible:outline focus-visible:outline-4 focus-visible:outline-offset-2 focus-visible:outline-red-600"
+          >
+            Go Home
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  render(): ReactNode {
+    const { status, retryKey } = this.state;
+    const maxRetries = normalizeMaxRetries(this.props.maxRetries);
+    const isExhausted = status === 'exhausted' || this.state.retryCount >= maxRetries;
+    const isRecovering = status === 'recovering';
+    const hasError = status === 'error' || isExhausted;
+    const shouldShowFallback = hasError || isRecovering;
+    const isBusy = status === 'loading' || isRecovering;
+
+    const childContent =
+      this.props.children !== undefined ? (
+        this.props.children
+      ) : (
+        <ReputationLoading />
+      );
+
+    return (
+      <main
+        ref={this.mainRef}
+        className={this.props.className ?? 'min-h-screen p-8'}
+        tabIndex={-1}
+        aria-busy={isBusy ? 'true' : 'false'}
+        data-testid={this.props['data-testid']}
+      >
+        {shouldShowFallback ? (
+          this.renderFallback()
+        ) : (
+          <React.Fragment key={retryKey}>{childContent}</React.Fragment>
+        )}
+      </main>
+    );
+  }
 }

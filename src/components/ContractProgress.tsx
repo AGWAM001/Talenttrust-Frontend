@@ -44,8 +44,26 @@ export interface ContractProgressProps {
  */
 const ContractProgress = ({ milestones }: ContractProgressProps) => {
   const { formatAmount } = usePreferences();
+
+  // Data-integrity invariant: Ensure milestones is an array to prevent crashes
+  const safeMilestones = Array.isArray(milestones) ? milestones : [];
+
   const { completedCount, totalCount, paidAmount, outstandingAmount, progressPercent, currency } =
-    useContractProgress(milestones);
+    useContractProgress(safeMilestones);
+
+  // State-transition and data-integrity invariants:
+  // 1. Counts must be non-negative, and completed cannot exceed total
+  const safeTotalCount = Math.max(0, totalCount);
+  const safeCompletedCount = Math.max(0, Math.min(completedCount, safeTotalCount));
+
+  // 2. Progress percentage must be bounded between 0 and 100 and be a valid number
+  const safeProgressPercent = Number.isFinite(progressPercent)
+    ? Math.max(0, Math.min(progressPercent, 100))
+    : 0;
+
+  // 3. Financial values should remain non-negative in the UI display
+  const safePaidAmount = Math.max(0, paidAmount);
+  const safeOutstandingAmount = Math.max(0, outstandingAmount);
 
   /**
    * Empty-state branch: no milestones have been added to this contract yet.
@@ -56,7 +74,7 @@ const ContractProgress = ({ milestones }: ContractProgressProps) => {
    * consistent and the section still communicates "nothing paid, nothing
    * outstanding" rather than showing no financial context at all.
    */
-  const isEmpty = totalCount === 0;
+  const isEmpty = safeTotalCount === 0;
 
   return (
     <section
@@ -79,23 +97,23 @@ const ContractProgress = ({ milestones }: ContractProgressProps) => {
             <div className="flex items-center justify-between text-sm text-slate-600">
               <span>Milestones completed</span>
               <span className="font-semibold text-slate-900">
-                {completedCount} / {totalCount}
+                {safeCompletedCount} / {safeTotalCount}
               </span>
             </div>
             <div className="mt-3">
               <div
                 role="progressbar"
-                aria-valuenow={progressPercent}
+                aria-valuenow={safeProgressPercent}
                 aria-valuemin={0}
                 aria-valuemax={100}
-                aria-label={`${completedCount} of ${totalCount} milestones completed, ${progressPercent}%`}
+                aria-label={`${safeCompletedCount} of ${safeTotalCount} milestones completed, ${safeProgressPercent}%`}
                 className="relative h-3 w-full overflow-hidden rounded-full bg-slate-200"
               >
                 <div
                   className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-emerald-600 transition-all duration-500"
-                  style={{ width: `${progressPercent}%` }}
+                  style={{ width: `${safeProgressPercent}%` }}
                 >
-                  <span className="sr-only">{progressPercent}% complete</span>
+                  <span className="sr-only">{safeProgressPercent}% complete</span>
                 </div>
               </div>
             </div>
@@ -107,13 +125,13 @@ const ContractProgress = ({ milestones }: ContractProgressProps) => {
           <div className="rounded-2xl bg-emerald-50 p-4">
             <p className="text-sm text-emerald-700 font-medium">Paid</p>
             <p className="mt-2 text-2xl font-semibold text-emerald-900">
-              {formatAmount(paidAmount, currency)}
+              {formatAmount(safePaidAmount, currency)}
             </p>
           </div>
           <div className="rounded-2xl bg-amber-50 p-4">
             <p className="text-sm text-amber-700 font-medium">Outstanding</p>
             <p className="mt-2 text-2xl font-semibold text-amber-900">
-              {formatAmount(outstandingAmount, currency)}
+              {formatAmount(safeOutstandingAmount, currency)}
             </p>
           </div>
         </div>
