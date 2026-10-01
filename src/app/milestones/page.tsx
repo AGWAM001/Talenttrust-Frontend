@@ -29,7 +29,7 @@ import { useOfflineMilestones } from '@/hooks/useOfflineMilestones';
 import { SAMPLE_MILESTONES, SAMPLE_DISMISSED_KEY } from './constants';
 import type { Milestone } from '@/types/domain';
 import { useOptimisticMilestoneMutation } from '@/hooks/useOptimisticMilestoneMutation';
-import { normalizeMilestoneStatus } from '@/lib/milestoneStatus';
+import { reportMilestoneFailure } from '@/lib/milestoneDiagnostics';
 
 const UNPAGINATED_LIST_SIZE = 9999;
 
@@ -85,7 +85,9 @@ const MilestonesContent: React.FC = () => {
   const router = useRouter();
   const headingRef = useRef<HTMLHeadingElement | null>(null);
   const startFromScratchRef = useRef<HTMLButtonElement | null>(null);
-  const loadEpochRef = useRef<symbol>(MILESTONE_LOAD_EPOCH);
+  // Guards against overlapping recovery attempts so a burst of failures
+  // cannot interleave and produce a non-deterministic final state.
+  const recoveryInFlightRef = useRef<boolean>(false);
 
   const initialStatus = getValidStatus(searchParams.get(CANONICAL_STATUS_PARAM));
   const [statusFilter, setStatusFilter] =
@@ -100,6 +102,37 @@ const MilestonesContent: React.FC = () => {
     if (loadEpochRef.current !== MILESTONE_LOAD_EPOCH) return;
     setMilestones(listMilestones());
   }, []);
+
+  /**
+   * Deterministic failure recovery.
+   *
+   * Invariants:
+   *  - Only one recovery may run at a time (recoveryInFlightRef).
+   *  - Recovery always reconciles from the repository, which is the source
+   *    of truth, so partial in-memory mutations cannot survive a failure.
+   *  - Failures are reported (observable) without leaking milestone payloads.
+   *  - Recovery never throws; callers receive a boolean outcome.
+   */
+  const recoverFromFailure = useCallback(
+    (operation: string, error: unknown): boolean => {
+      if (recoveryInFlightRef.current) {
+        reportMilestoneFailure(operation, 'recovery_skipped_in_flight', error);
+        return false;
+      }
+      recoveryInFlightRef.current = true;
+      try {
+        reconcileFromRepo();
+        reportMilestoneFailure(operation, 'recovered', error);
+        return true;
+      } catch (recoveryError) {
+        reportMilestoneFailure(operation, 'recovery_failed', recoveryError);
+        return false;
+      } finally {
+        recoveryInFlightRef.current = false;
+      }
+    },
+    [reconcileFromRepo],
+  );
   const offline = useOfflineMilestones(reconcileFromRepo);
   const { optimisticCreate, optimisticUpdate } = useOptimisticMilestoneMutation(
     milestones,
@@ -242,6 +275,7 @@ const MilestonesContent: React.FC = () => {
   const handleSubmitMilestone = useCallback((milestone: Milestone) => {
     const result = optimisticCreate({ ...milestone, status: normalizeMilestoneStatus(milestone.status) });
     if (!result.ok) {
+      recoverFromFailure('create', result.error);
       showError({
         title: 'Unable to create milestone',
         description: result.error,
@@ -250,10 +284,7 @@ const MilestonesContent: React.FC = () => {
     }
     setShowForm(false);
     setIsDismissed(true);
-    } finally {
-      releaseMutationLock(milestone.id);
-    }
-  }, [optimisticCreate, showError]);
+  }, [optimisticCreate, recoverFromFailure, showError]);
   const handleCancelForm = useCallback(() => {
     setShowForm(false);
   }, []);
@@ -263,6 +294,7 @@ const MilestonesContent: React.FC = () => {
       const normalizedPatch = patch.status ? { ...patch, status: normalizeMilestoneStatus(patch.status) } : patch;
       const result = optimisticUpdate(id, normalizedPatch);
       if (result.ok) return true;
+      recoverFromFailure('update', result.error);
       showError({
         title: 'Unable to update milestone',
         description: result.error,
@@ -272,7 +304,7 @@ const MilestonesContent: React.FC = () => {
         releaseMutationLock(id);
       }
     },
-    [optimisticUpdate, showError],
+    [optimisticUpdate, recoverFromFailure, showError],
   );
 
   return (
