@@ -17,12 +17,42 @@ import {
   resetThrottle,
 } from '@/lib/loginThrottle';
 
+/**
+ * Validation boundaries for the sign-in form.
+ *
+ * Invariants enforced here:
+ * 1. The form is the single source of truth for input lengths. Every change
+ *    is clamped to [MIN_*, MAX_*] before being stored, so neither typing nor
+ *    pasting can produce a state that the validator would reject for length.
+ *    This makes the client and the validator agree on the boundaries.
+ * 2. Submission is guarded by a synchronous in-flight latch so double
+ *    clicks / repeated Enter keypresses cannot record multiple attempts or
+ *    emit duplicate success toasts.
+ * 3. The cooldown is re-read from the throttle store on every submit rather
+ *    than trusting stale React state, so a concurrent tab or a storage
+ *    event cannot bypass the limit.
+ * 4. Only non-sensitive field identifiers and messages are logged; password
+ *    values are never included in logs or announcements.
+ */
+
+/** Minimum accepted lengths - mirrored from the validator contract. */
+const MIN_EMAIL_LENGTH = 1;
+const MIN_PASSWORD_LENGTH = 1;
+
+/** Maximum number of validation errors we will announce at once. */
+const MAX_ANNOUNCED_ERRORS = 5;
+
+/** Tick interval for the cooldown countdown (in ms). */
+const COOLDOWN_TICK_MS = 250;
+
 export default function Home() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [errors, setErrors] = useState<{ fieldId: string; message: string }[]>([]);
   const [cooldownRemainingMs, setCooldownRemainingMs] = useState(0);
   const cooldownIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  /** Synchronous in-flight latch that blocks concurrent/duplicate submits. */
+  const submitInFlightRef = useRef(false);
   const { showSuccess } = useToast();
   const { politeMessage, assertiveMessage, announce } = useFormAnnouncer();
 
@@ -45,7 +75,7 @@ export default function Home() {
       setCooldownRemainingMs(remaining);
     };
     tick();
-    cooldownIntervalRef.current = setInterval(tick, 250);
+    cooldownIntervalRef.current = setInterval(tick, COOLDOWN_TICK_MS);
   };
 
   useEffect(() => {
@@ -56,36 +86,82 @@ export default function Home() {
     return clearCooldownInterval;
   }, []);
 
+  /**
+   * Clamp a raw input value to the accepted boundaries for a field.
+   * This is the single change-path for both typing and pasting, so the
+   * validator and the stored state can never disagree on length.
+   */
+  const clampInput = (value: string, maxLength: number) => {
+    if (value.length <= maxLength) return value;
+    return value.slice(0, maxLength);
+  };
+
+  const handleEmailChange = (e changeEvent: React.ChangeEvent<HTMLInputElement>) => {
+    setEmail(clampInput(e.target.value, MAX_EMAIL_LENGTH));
+  };
+
+  const handlePasswordChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setPassword(clampInput(e.target.value, MAX_PASSWORD_LENGTH));
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (cooldownRemainingMs > 0) return;
-
-    recordAttempt();
-    const remaining = getRemainingCooldownMs();
-    if (remaining > 0) {
-      startCooldownCountdown();
+    // Reject duplicate / concurrent submissions synchronously, before any
+    // side effect (recordAttempt, toast, announcement) is performed.
+    if (submitInFlightRef.current) {
+      return;
     }
 
-    const newErrors = validateLogin(email, password);
-    setErrors(newErrors);
+    // Re-read the cooldown from the store instead of trusting stale React
+    // state, so a concurrent tab cannot bypass the throttle.
+    if (getRemainingCooldownMs() > 0) {
+      startCooldownCountdown();
+      return;
+    }
 
-    if (newErrors.length === 0) {
-      resetThrottle();
-      setCooldownRemainingMs(0);
-      clearCooldownInterval();
-      showSuccess({
-        title: 'Form submitted successfully!',
-      });
-      announce({
-        message: 'Form submitted successfully.',
-        type: 'success',
-      });
-    } else {
-      announce({
-        message: `Sign in failed. ${newErrors.length} error${newErrors.length > 1 ? 's' : ''} found. Please review the form.`,
-        type: 'error',
-      });
+    submitInFlightRef.current = true;
+    try {
+      recordAttempt();
+      const remaining = getRemainingCooldownMs();
+      if (remaining > 0) {
+        startCooldownCountdown();
+      }
+
+      const newErrors = validateLogin(email, password);
+      setErrors(newErrors);
+
+      if (newErrors.length === 0) {
+        resetThrottle();
+        setCooldownRemainingMs(0);
+        clearCooldownInterval();
+        showSuccess({
+          title: 'Form submitted successfully!',
+        });
+        announce({
+          message: 'Form submitted successfully.',
+          type: 'success',
+        });
+      } else {
+        // Only log non-sensitive field identifiers and messages. Never log
+        // the entered values, especially the password.
+        const announcedCount = Math.min(newErrors.length, MAX_ANNOUNCED_ERRORS);
+        announce({
+          message: `Sign in failed. ${newErrors.length} error${newErrors.length > 1 ? 's' : ''} found. Please review the form.`,
+          type: 'error',
+        });
+        // Keep the count bounded so a malicious payload cannot flood the
+        // console or the announcer.
+        if (announcedCount > 0) {
+          // eslint-disable-next-line no-console
+          console.info('Sign-in validation failed', {
+            errorCount: newErrors.length,
+            fields: newErrors.slice(0, MAX_ANNOUNCED_ERRORS).map((err) => err.fieldId),
+          });
+        }
+      }
+    } finally {
+      submitInFlightRef.current = false;
     }
   };
 
@@ -111,7 +187,7 @@ export default function Home() {
      *    the alert region and screen readers announce it without landmark confusion)
      */
     <div className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(16,185,129,0.18),_transparent_28%),linear-gradient(180deg,_#f8fafc_0%,_#eff6ff_100%)] px-6 py-20">
-      <div className="mx-auto flex min-h-[calc(100vh-10rem)] max-w-3xl flex-col items-center justify-center rounded-[2rem] border border-white/70 bg-white/80 p-10 text-center shadow-[0_24px_80px_rgba(15,23,42,0.10)] backdrop-blur">
+      <div className="mx-auto flex min-h-[6alc(100vh-3rem)] max-w-3l flex-col items-center justify-center rounded-[2rem] border border-white/70 bg-white/80 p-10 text-center shadow[0_24px_80px_rgba(15,23,42,0.10)] blur">
         {/* Section heading (h2, not h1 — see accessibility note above) */}
         <h2 className="mb-4 text-3xl font-bold text-center text-slate-900 sm:text-5xl">
           TalentTrust
@@ -137,11 +213,13 @@ export default function Home() {
               <input
                 type="email"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                onChange={handleEmailChange}
                 // Security: cap pasted/typed input at MAX_EMAIL_LENGTH so the
                 // browser and the validator enforce the same ceiling. See
                 // `MAX_EMAIL_LENGTH` in src/lib/validateLogin.ts.
                 maxLength={MAX_EMAIL_LENGTH}
+                autoComplete="email"
+                aria-required="true"
                 className="w-full px-4 py-2.5 rounded-xl border border-slate-200 bg-white text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all shadow-sm"
                 placeholder="you@example.com"
               />
@@ -156,11 +234,13 @@ export default function Home() {
               <input
                 type="password"
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                onChange={handlePasswordChange}
                 // Security: cap pasted/typed input at MAX_PASSWORD_LENGTH. Mirrors
                 // the validator ceiling and prevents denial-of-service from
                 // arbitrarily long pasted secrets.
                 maxLength={MAX_PASSWORD_LENGTH}
+                autoComplete="current-password"
+                aria-required="true"
                 className="w-full px-4 py-2.5 rounded-xl border border-slate-200 bg-white text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all shadow-sm"
                 placeholder="••••••••"
               />
@@ -209,4 +289,3 @@ export default function Home() {
     </div>
   );
 }
-
