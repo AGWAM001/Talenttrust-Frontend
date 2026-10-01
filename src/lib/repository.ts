@@ -703,7 +703,26 @@ export function listWalletItems(): WalletItem[] {
 }
 
 /**
- * Appends a wallet item to the persisted list.
+ * Returns the current persistence-layer version for the wallet item matching
+ * `id`, or `0` if the wallet item has never been persisted or does not carry
+ * a version field.
+ *
+ * Callers use this to build a `WalletItem` object with the correct base
+ * version before calling {@link upsertWalletItem}, ensuring the stale-overwrite
+ * guard compares against the right baseline.
+ *
+ * @param id - The unique identifier of the wallet item to look up.
+ * @returns The stored version number (`0` if not found).
+ */
+export function getWalletItemVersion(id: string): number {
+  const store = readStore();
+  const existing = store.walletItems.find((item) => item.id === id);
+  return existing?.version ?? 0;
+}
+
+/**
+ * Appends a wallet item to the persisted list in an idempotent manner.
+ * If an item with the same `id` already exists, it is updated in place.
  *
  * The write is additive — existing contracts and other records are preserved.
  * Callers are responsible for ensuring `id` uniqueness; this helper never
@@ -737,8 +756,9 @@ export function updateWalletItem(id: string, patch: Partial<WalletItem>): boolea
     return false;
   }
 
+  const current = store.walletItems[index];
   const updatedWalletItems = store.walletItems.map((item, i) =>
-    i === index ? { ...item, ...patch } : item,
+    i === index ? { ...item, ...patch, version: (current.version ?? 0) + 1 } : item,
   );
 
   return writeStore({ ...store, walletItems: updatedWalletItems });
@@ -746,11 +766,15 @@ export function updateWalletItem(id: string, patch: Partial<WalletItem>): boolea
 
 /**
  * Deletes wallet items matching the given array of IDs.
+ * Deduplicates target IDs to ensure idempotency.
  *
  * @param ids - Array of wallet item IDs to remove.
  * @returns `true` when the operation succeeds; otherwise `false`.
  */
 export function deleteWalletItems(ids: string[]): boolean {
+  if (!Array.isArray(ids)) return false;
+  if (ids.length === 0) return true;
+
   const store = readStore();
   const idSet = new Set(ids);
   const updatedWalletItems = store.walletItems.filter((item) => !idSet.has(item.id));

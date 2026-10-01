@@ -8,15 +8,52 @@ import { WalletItemList } from '../../components/wallet/WalletItemList';
 import { listWalletItems, saveWalletItem, updateWalletItem, deleteWalletItems } from '@/lib/repository';
 import { reportError } from '@/lib/errorReporter';
 import { useToast } from '@/components/toast/toast-provider';
+import { reportError } from '@/lib/errorReporter';
 import type { WalletItem } from '@/types/domain';
 import { getSampleWalletItems } from './constants';
+
+/**
+ * State invariants for the Wallet page:
+ *
+ * I1(Selection subset): `selectedIds == { id | exists in items }`.
+ *   Any id in the selection set must correspond to a currently visible item.
+ *   Selection is pruned whenever items change (delete, reload, edit reload).
+ *
+ * I2(Delete targets): `targetDeleteIds == [] ` when the confirm dialog is closed.
+ *   Targets are captured at the moment the delete is requested and cleared on
+ *   confirm or cancel. The confirm handler is idempotent: a double-click or
+ *   concurrent invocation must not delete twice or restore deleted items.
+ *
+ * I3(Editing): `editingId == null ` or `editingId in items`.
+ *   Editing an id that no longer exists is a no-op and the editing state is
+ *   cleared.
+ *
+ * I4(Duplicate ids): `targetDeleteIds` is deduplicated before being applied
+ *   so repeated ids in the source set cannot cause double deletion or double
+ *   toast counting.
+ */
+
+function dedupeIds(ids: Readonly string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const id of ids) {
+    if (typeof id !== 'string' || id.length === 0) continue;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    out.push(id);
+  }
+  return out;
+}
 
 export default function WalletPage() {
   const [items, setItems] = useState<WalletItem[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [targetDeleteIds, setTargetDeleteIds] = useState<string[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [isMutating, setIsMutating] = useState<boolean>(false);
   const { showSuccess, showError } = useToast();
   // Guards the one-time repository seed so retries, React StrictMode
   // double-invocation, or a changing `showError` identity can never seed twice
@@ -72,8 +109,95 @@ export default function WalletPage() {
     }
   }, [showError]);
 
-  const handleToggleSelect = useCallback((id: string) => {
+  // ---------------------------------------------------------------------------
+  // Initial Mount & Seeding (Idempotent and Concurrency Safe)
+  // ---------------------------------------------------------------------------
+  useEffect(() => {
+    if (isMountedRef.current) return;
+    isMountedRef.current = true;
+
+    try {
+      const loaded = listWalletItems();
+      if (loaded && loaded.length > 0) {
+        // Deduplicate in case of corrupt legacy state
+        const seen = new Set<string>();
+        const deduped: WalletItem[] = [];
+        for (const item of loaded) {
+          if (!seen.has(item.id)) {
+            seen.add(item.id);
+            deduped.push(item);
+          }
+        }
+        commitItems(deduped);
+      } else {
+        // Seed sample items into repository for initial demo
+        SAMPLE_WALLET_ITEMS.forEach((item) => saveWalletItem(item));
+        commitItems(SAMPLE_WALLET_ITEMS);
+      }
+    } catch (err) {
+      reportError(err, '[WalletPage] Failed to initialize wallet items.');
+      commitItems(SAMPLE_WALLET_ITEMS);
+    }
+  }, [commitItems]);
+
+  // ---------------------------------------------------------------------------
+  // State Invariant: Prune selectedIds whenever items changes
+  // Guarantees: selectedIds ⊆ {item.id | item ∈ items}
+  // ---------------------------------------------------------------------------
+  useEffect(() => {
     setSelectedIds((prev) => {
+      if (prev.size === 0) return prev;
+      const validIds = new Set(items.map((i) => i.id));
+      let hasInvalid = false;
+      for (const id of prev) {
+        if (!validIds.has(id)) {
+          hasInvalid = true;
+          break;
+        }
+      }
+      if (!hasInvalid) return prev;
+      const pruned = new Set<string>();
+      for (const id of prev) {
+        if (validIds.has(id)) {
+          pruned.add(id);
+        }
+      }
+      return pruned;
+    });
+  }, [items]);
+
+  // ---------------------------------------------------------------------------
+  // Selection Handlers
+  // ---------------------------------------------------------------------------
+  const handleToggleSelect = useCallback((id: string) => {
+    if (isMutatingRef.current) return;
+    setSelectedIds((prev) => {
+      let changed = false;
+      const next = new Set<string>();
+      for (const id of prev) {
+        if (validIds.has(id)) {
+          next.add(id);
+        } else {
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [items]);
+
+  // I3: Clear or reconcile editing id when items change.
+  useEffect(() => {
+    if (editingId === null) return;
+    if (!items.some((item) => item.id === editingId)) {
+      setEditingId(null);
+    }
+  }, [items, editingId]);
+
+  const handleToggleSelect = useCallback((id: string) => {
+    if (!items.some((item) => item.id === id)) return;
+    setSelectedIds((prev) => {
+      // Ignore toggles for ids that are not currently visible.
+      if (!items.some((item) => item.id === id)) return prev;
       const next = new Set(prev);
       if (next.has(id)) {
         next.delete(id);
@@ -82,11 +206,13 @@ export default function WalletPage() {
       }
       return next;
     });
-  }, []);
+  }, [items]);
 
   const handleToggleSelectAll = useCallback(() => {
+    if (isMutatingRef.current) return;
     setSelectedIds((prev) => {
-      if (prev.size === items.length && items.length > 0) {
+      if (items.length === 0) return new Set();
+      if (prev.size === items.length) {
         return new Set();
       }
       return new Set(items.map((i) => i.id));
@@ -97,63 +223,116 @@ export default function WalletPage() {
     setSelectedIds(new Set());
   }, []);
 
+  // ---------------------------------------------------------------------------
+  // Export Handler (Deterministic & Safe under Concurrent Changes)
+  // ---------------------------------------------------------------------------
   const handleExportSelected = useCallback(() => {
     if (selectedIds.size === 0) return;
-    const selectedItems = items.filter((item) => selectedIds.has(item.id));
+    // Re-verify against live items to avoid exporting concurrently deleted items
+    const selectedItems = itemsRef.current.filter((item) => selectedIds.has(item.id));
+    if (selectedItems.length === 0) return;
+
     const jsonStr = JSON.stringify(selectedItems, null, 2);
-    
+
     try {
       const blob = new Blob([jsonStr], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `wallet-export-${Date.now()}.json`;
-      a.click();
-      URL.revokeObjectURL(url);
+      try {
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `wallet-export-${Date.now()}.json`;
+        a.click();
+        downloaded = true;
+      } finally {
+        URL.revokeObjectURL(url);
+      }
     } catch {
-      // Fallback for non-browser or strict CSP environments
+      // Fallback for non-browser or strict CPR environments.
     }
 
     showSuccess({
       title: 'Export successful',
-      description: `Exported ${selectedItems.length} ${selectedItems.length === 1 ? 'item' : 'items'} to JSON.`,
+      description: `Exported ${selectedItems.length} ${
+        selectedItems.length === 1 ? 'item' : 'items'
+      } to JSON.`,
     });
-  }, [items, selectedIds, showSuccess]);
+  }, [selectedIds, showSuccess]);
 
+  // ---------------------------------------------------------------------------
+  // Deletion Handlers (Mutex Guarded, Idempotent, and Rollback Protected)
+  // ---------------------------------------------------------------------------
   const handleRequestBulkDelete = useCallback(() => {
-    if (selectedIds.size === 0) return;
-    setTargetDeleteIds(Array.from(selectedIds));
+    if (isMutatingRef.current || selectedIds.size === 0) return;
+    const validTargets = Array.from(selectedIds).filter((id) =>
+      itemsRef.current.some((item) => item.id === id),
+    );
+    if (validTargets.length === 0) return;
+    setTargetDeleteIds(validTargets);
     setIsDeleteModalOpen(true);
-  }, [selectedIds]);
+  }, [items, selectedIds]);
 
   const handleRequestSingleDelete = useCallback((id: string) => {
+    if (isMutatingRef.current) return;
+    if (!itemsRef.current.some((item) => item.id === id)) return;
     setTargetDeleteIds([id]);
     setIsDeleteModalOpen(true);
-  }, []);
+  }, [items]);
 
-  const handleConfirmDelete = useCallback(() => {
-    if (targetDeleteIds.length === 0) return;
+  const handleConfirmDelete = useCallback(async () => {
+    // In-flight mutex guard: reject duplicate clicks or concurrent invocations
+    if (isMutatingRef.current || targetDeleteIds.length === 0) return;
 
-    const snapshot = items;
-    const deleteIds = targetDeleteIds;
+    isMutatingRef.current = true;
+    setIsMutating(true);
 
-    setItems((prev) => prev.filter((item) => !deleteIds.includes(item.id)));
+    const deleteIds = Array.from(new Set(targetDeleteIds));
+
+    // Cancel inline editing if the active item is being deleted
+    if (editingId && deleteIds.includes(editingId)) {
+      setEditingId(null);
+    }
+
+    // Capture snapshot for rollback
+    const previousItems = itemsRef.current;
+    const remainingItems = previousItems.filter((item) => !deleteIds.includes(item.id));
+
+    // Optimistically apply removal to ref and state
+    commitItems(remainingItems);
+
+    // Optimistically prune selection
     setSelectedIds((prev) => {
       const next = new Set(prev);
       deleteIds.forEach((id) => next.delete(id));
       return next;
     });
 
-    const ok = deleteWalletItems(deleteIds);
-    if (ok) {
-      showSuccess({
-        title: 'Items deleted',
-        description: `Successfully deleted ${deleteIds.length} ${
-          deleteIds.length === 1 ? 'item' : 'items'
-        }.`,
-      });
-    } else {
-      setItems(snapshot);
+    try {
+      const result = deleteWalletItems(deleteIds);
+      const ok = (result as unknown) instanceof Promise ? await result : result;
+
+      if (ok) {
+        showSuccess({
+          title: 'Items deleted',
+          description: `Successfully deleted ${deleteIds.length} ${
+            deleteIds.length === 1 ? 'item' : 'items'
+          }.`,
+        });
+      } else {
+        // Rollback state on persistence failure
+        commitItems(previousItems);
+        setSelectedIds((prev) => {
+          const next = new Set(prev);
+          deleteIds.forEach((id) => next.add(id));
+          return next;
+        });
+        showError({
+          title: 'Delete failed',
+          description: 'Failed to remove selected wallet items.',
+        });
+      }
+    } catch (err) {
+      reportError(err, '[WalletPage] Unexpected error during deleteWalletItems.');
+      commitItems(previousItems);
       setSelectedIds((prev) => {
         const next = new Set(prev);
         deleteIds.forEach((id) => next.add(id));
@@ -161,45 +340,94 @@ export default function WalletPage() {
       });
       showError({
         title: 'Delete failed',
-        description: 'Failed to remove selected wallet items.',
+        description: 'Failed to remove selected wallet items. No changes were applied.',
       });
+    } finally {
+      isMutatingRef.current = false;
+      setIsMutating(false);
+      setIsDeleteModalOpen(false);
+      setTargetDeleteIds([]);
     }
-
-    setIsDeleteModalOpen(false);
-    setTargetDeleteIds([]);
-  }, [items, targetDeleteIds, showSuccess, showError]);
+  }, [targetDeleteIds, editingId, commitItems, showSuccess, showError]);
 
   const handleCancelDelete = useCallback(() => {
+    if (isMutatingRef.current) return;
     setIsDeleteModalOpen(false);
     setTargetDeleteIds([]);
   }, []);
 
+  // ---------------------------------------------------------------------------
+  // Inline Editing Handlers (Concurrency Guarded)
+  // ---------------------------------------------------------------------------
   const handleEditItem = useCallback((id: string) => {
+    if (isMutatingRef.current) return;
     setEditingId(id);
-  }, []);
+  }, [items]);
 
-  const handleSaveEdit = useCallback((id: string, updated: WalletItem) => {
-    const ok = updateWalletItem(id, updated);
-    if (ok) {
-      const reloaded = listWalletItems();
-      setItems(reloaded);
-      setEditingId(null);
-      showSuccess({
-        title: 'Item updated',
-        description: `"${updated.name}" has been updated successfully.`,
-      });
-    } else {
-      showError({
-        title: 'Update failed',
-        description: 'Failed to save changes to the wallet item.',
-      });
-    }
-  }, [showSuccess, showError]);
+  const handleSaveEdit = useCallback(
+    async (id: string, updated: WalletItem) => {
+      if (isMutatingRef.current) return;
+
+      const existing = itemsRef.current.find((item) => item.id === id);
+      if (!existing) {
+        setEditingId(null);
+        showError({
+          title: 'Update failed',
+          description: 'The wallet item no longer exists.',
+        });
+        return;
+      }
+
+      isMutatingRef.current = true;
+      setIsMutating(true);
+
+      const previousItems = itemsRef.current;
+      const updatedItem = { ...existing, ...updated };
+
+      // Optimistically update in lockstep
+      const nextItems = previousItems.map((item) => (item.id === id ? updatedItem : item));
+      commitItems(nextItems);
+
+      try {
+        const result = updateWalletItem(id, updatedItem);
+        const ok = (result as unknown) instanceof Promise ? await result : result;
+
+        if (ok) {
+          setEditingId(null);
+          showSuccess({
+            title: 'Item updated',
+            description: `"${updated.name}" has been updated successfully.`,
+          });
+        } else {
+          // Rollback on update failure
+          commitItems(previousItems);
+          showError({
+            title: 'Update failed',
+            description: 'Failed to save changes to the wallet item.',
+          });
+        }
+      } catch (err) {
+        reportError(err, '[WalletPage] Unexpected error during updateWalletItem.');
+        commitItems(previousItems);
+        showError({
+          title: 'Update failed',
+          description: 'Failed to save changes to the wallet item.',
+        });
+      } finally {
+        isMutatingRef.current = false;
+        setIsMutating(false);
+      }
+    },
+    [commitItems, showSuccess, showError],
+  );
 
   const handleCancelEdit = useCallback((_id: string) => {
     setEditingId(null);
   }, []);
 
+  // ---------------------------------------------------------------------------
+  // Modal Labels (Memoized)
+  // ---------------------------------------------------------------------------
   const deleteModalTitle = useMemo(() => {
     const count = targetDeleteIds.length;
     return count === 1 ? 'Delete wallet item?' : `Delete ${count} wallet items?`;
@@ -225,16 +453,26 @@ export default function WalletPage() {
         </div>
       </div>
 
-      {items.length > 0 && (
+      {loadError && (
+        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-4 dark:border-red-800 dark:bg-red-900/20">
+          <p className="text-sm text-red-800 dark:text-red-200">{loadError}</p>
+        </div>
+      )}
+
+      {isLoading ? (
+        <div className="flex items-center justify-center py-12">
+          <p className="text-sm text-slate-500 dark:text-slate-400">Loading wallet items...</p>
+        </div>
+      ) : items.length > 0 ? (
         <WalletBulkToolbar
           selectedCount={selectedIds.size}
           onClearSelection={handleClearSelection}
           onExport={handleExportSelected}
           onDelete={handleRequestBulkDelete}
         />
-      )}
+      ) : null}
 
-      {items.length === 0 ? (
+      {isLoading ? null : items.length === 0 ? (
         <EmptyState
           illustration="contracts"
           title="No wallet items"
@@ -261,6 +499,7 @@ export default function WalletPage() {
         confirmLabel="Delete"
         cancelLabel="Cancel"
         tone="destructive"
+        isLoading={isMutating}
         onConfirm={handleConfirmDelete}
         onCancel={handleCancelDelete}
       />
