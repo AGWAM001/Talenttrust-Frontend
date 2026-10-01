@@ -66,12 +66,17 @@ describe('sitemap.ts', () => {
   beforeEach(() => {
     jest.resetModules();
     process.env = { ...originalEnv };
+    warnings = [];
+    setErrorReporter((error, _context, level) => {
+      if (level === 'warn') warnings.push(String(error));
+    });
     // Freeze time for consistent lastModified testing
     jest.useFakeTimers().setSystemTime(new Date('2024-01-01T00:00:00.000Z'));
   });
 
   afterEach(() => {
     process.env = originalEnv;
+    setErrorReporter(null);
     jest.useRealTimers();
   });
 

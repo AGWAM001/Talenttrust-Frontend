@@ -1,6 +1,8 @@
+import React from 'react';
+
 /**
- * loading.tsx – /contracts
- *
+ * loading.tsx - /contracts
+*
  * App Router Suspense boundary rendered while the contracts list page streams
  * in. It shows the shared `ContractsSkeleton` (heading + "Create Contract"
  * button + contract-card rows) so the route-level fallback and the in-page
@@ -22,6 +24,11 @@
  * wallet items and preferences survive a failure/retry cycle intact. Its
  * invariants are documented in ContractsLoadingBoundary.tsx.
  *
+ * Invariants:
+ * - Pure and Stateless: This component is purely presentational and side-effect free.
+ * - Concurrency Safe: Uses `React.useId()` for deterministic, hydration-safe list keys,
+ *   ensuring concurrent or repeated execution never produces stale or inconsistent DOM state.
+ *
  * Accessibility:
  * - The root layout owns the single `<main id="main-content">` landmark, so
  *   this fallback renders a `<div aria-busy="true">` rather than a second
@@ -32,6 +39,46 @@
  * - Shimmer blocks are suppressed for `prefers-reduced-motion` by the
  *   project-wide rule in globals.css plus `motion-reduce:animate-none`.
  */
+const SKELETON_CARD_COUNT = 5;
+
+/** Minimum number of skeleton cards rendered. */
+export const MIN_SKELETON_COUNT = 1;
+
+/** Maximum number of skeleton cards rendered. */
+export const MAX_SKELETON_COUNT = 20;
+
+/** Default number of skeleton cards rendered in production. */
+const DEFAULT_SKELETON_COUNT = 5;
+
+/**
+ * Normalize a requested skeleton count into a deterministic, bounded integer.
+ *
+ * Accepted input: any number or undefined.
+ * - `undefined` -> `DEFAULT_SKELETON_COUNT`.
+ * - `NaN`, `Infinity`, `-Infinity`, non-numbers -> `DEFAULT_SKELETON_COUNT`.
+ * - Fractional values -> truncated toward zero.
+ * - Out-of-range values -> clamped to [`MIN_SKELETON_COUNT`, `MAX_SKELETON_COUNT`].
+ *
+ * The result is always an integer in [`MIN_SKELETON_COUNT`, `MAX_SKELETON_COUNT`],
+ * so the rendered output is always deterministic and cannot throw.
+ */
+export function normalizeSkeletonCount(count?: number): number {
+  if (count === undefined || !Number.isFinite(count)) {
+    return DEFAULT_SKELETON_COUNT;
+  }
+
+  const truncated = Math.trunc(count);
+
+  if (truncated < MIN_SKELETON_COUNT) {
+    return MIN_SKELETON_COUNT;
+  }
+
+  if (truncated > MAX_SKELETON_COUNT) {
+    return MAX_SKELETON_COUNT;
+  }
+
+  return truncated;
+}
 
 import ContractsLoadingBoundary, {
   CONTRACTS_LOADING_SKELETON_ROWS,
@@ -39,6 +86,8 @@ import ContractsLoadingBoundary, {
 import { ContractsSkeleton } from '@/components/contracts/ContractsSkeleton';
 
 export default function ContractsLoading() {
+  const id = React.useId();
+
   return (
     <ContractsLoadingBoundary>
       <ContractsSkeleton count={CONTRACTS_LOADING_SKELETON_ROWS} />

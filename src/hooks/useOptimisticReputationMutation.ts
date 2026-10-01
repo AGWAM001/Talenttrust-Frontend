@@ -22,11 +22,9 @@ export function useOptimisticReputationMutation(
   events: ReputationEvent[],
   setEvents: React.Dispatch<React.SetStateAction<ReputationEvent[]>>,
 ) {
-  /**
-   * Snapshot of the events array taken right before an optimistic mutation.
-   * Restored on persistence failure to roll back the UI.
-   */
-  const rollbackRef = useRef<ReputationEvent[]>([]);
+  // Keep the latest optimistic snapshot available to same-turn repeated calls.
+  const eventsRef = useRef(events);
+  eventsRef.current = events;
 
   // ---------------------------------------------------------------------------
   // Optimistic create
@@ -34,16 +32,22 @@ export function useOptimisticReputationMutation(
 
   const optimisticCreate = useCallback(
     (event: ReputationEvent): OptimisticResult => {
-      rollbackRef.current = events;
-      setEvents((prev) => [...prev, event]);
+      const previousEvents = eventsRef.current;
+      const existingIndex = previousEvents.findIndex((current) => current.id === event.id);
+      const nextEvents =
+        existingIndex === -1
+          ? [...previousEvents, event]
+          : previousEvents.map((current) =>
+              current.id === event.id ? event : current,
+            );
+      eventsRef.current = nextEvents;
+      setEvents(() => nextEvents);
 
       const result = upsertReputationEvent(event);
 
       if (!result.success) {
-        if (rollbackRef.current) {
-          setEvents(rollbackRef.current);
-        }
-        rollbackRef.current = [];
+        eventsRef.current = previousEvents;
+        setEvents(previousEvents);
         return result.stale
           ? {
               ok: false,
@@ -59,10 +63,9 @@ export function useOptimisticReputationMutation(
             };
       }
 
-      rollbackRef.current = [];
       return { ok: true };
     },
-    [events, setEvents],
+    [setEvents],
   );
 
   // ---------------------------------------------------------------------------
@@ -71,19 +74,18 @@ export function useOptimisticReputationMutation(
 
   const optimisticUpdate = useCallback(
     (id: string, patch: Partial<ReputationEvent>): OptimisticResult => {
-      rollbackRef.current = events;
-      setEvents((prev) =>
-        prev.map((e) => (e.id === id ? { ...e, ...patch } : e)),
+      const previousEvents = eventsRef.current;
+      const existing = previousEvents.find((event) => event.id === id);
+      const nextEvents = previousEvents.map((event) =>
+        event.id === id ? { ...event, ...patch, id } : event,
       );
+      eventsRef.current = nextEvents;
+      setEvents(() => nextEvents);
 
-      const version = getReputationEventVersion(id);
-      const existing = events.find((e) => e.id === id);
       if (!existing) {
         // Event not found in current state – roll back and warn.
-        if (rollbackRef.current) {
-          setEvents(rollbackRef.current);
-        }
-        rollbackRef.current = [];
+        eventsRef.current = previousEvents;
+        setEvents(previousEvents);
         return {
           ok: false,
           stale: false,
@@ -91,14 +93,13 @@ export function useOptimisticReputationMutation(
         };
       }
 
-      const updatedEvent: ReputationEvent = { ...existing, ...patch, version };
+      const version = getReputationEventVersion(id);
+      const updatedEvent: ReputationEvent = { ...existing, ...patch, id, version };
       const result = upsertReputationEvent(updatedEvent);
 
       if (!result.success) {
-        if (rollbackRef.current) {
-          setEvents(rollbackRef.current);
-        }
-        rollbackRef.current = [];
+        eventsRef.current = previousEvents;
+        setEvents(previousEvents);
         return result.stale
           ? {
               ok: false,
@@ -114,10 +115,9 @@ export function useOptimisticReputationMutation(
             };
       }
 
-      rollbackRef.current = [];
       return { ok: true };
     },
-    [events, setEvents],
+    [setEvents],
   );
 
   // ---------------------------------------------------------------------------
@@ -126,28 +126,31 @@ export function useOptimisticReputationMutation(
 
   const optimisticDelete = useCallback(
     (ids: string[]): OptimisticResult => {
-      rollbackRef.current = events;
-      setEvents((prev) => prev.filter((e) => !ids.includes(e.id)));
+      const uniqueIds = [...new Set(ids)];
+      if (uniqueIds.length === 0) return { ok: true };
 
-      const removed = deleteReputationEvents(ids);
+      const previousEvents = eventsRef.current;
+      const idsToDelete = new Set(uniqueIds);
+      const nextEvents = previousEvents.filter((event) => !idsToDelete.has(event.id));
+      eventsRef.current = nextEvents;
+      setEvents(() => nextEvents);
 
-      if (removed === 0 && ids.length > 0) {
+      const removed = deleteReputationEvents(uniqueIds);
+
+      if (removed === 0) {
         // Nothing was actually deleted — roll back.
-        if (rollbackRef.current) {
-          setEvents(rollbackRef.current);
-        }
-        rollbackRef.current = [];
+        eventsRef.current = previousEvents;
+        setEvents(previousEvents);
         return {
           ok: false,
           stale: false,
-          error: 'No reputation events were found to delete. Please reload and try again.',
+          error: 'No reputation events were deleted. They may have changed or storage may be unavailable. Please reload and try again.',
         };
       }
 
-      rollbackRef.current = [];
       return { ok: true };
     },
-    [events, setEvents],
+    [setEvents],
   );
 
   return { optimisticCreate, optimisticUpdate, optimisticDelete };

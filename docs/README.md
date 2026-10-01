@@ -49,6 +49,7 @@ Reference documentation for components, hooks, contexts, and library utilities.
 | [useDialogFocusTrap.md](./hooks/useDialogFocusTrap.md) | Focus management for dialogs |
 | [useFormAnnouncer.md](./hooks/useFormAnnouncer.md) | ARIA announcements for forms |
 | [useMediaQuery.md](./hooks/useMediaQuery.md) | SSR-safe media query hook |
+| [useMilestonesRouteError.md](./hooks/useMilestonesRouteError.md) | Milestones route error recovery — report dedupe, single-flight reset, graceful degradation |
 
 > The `useDialogFocusTrap` hook is documented in [Dialogs.md](./components/Dialogs.md#usedialogfocustrap-hook).
 
@@ -69,7 +70,9 @@ Reference documentation for components, hooks, contexts, and library utilities.
 | [currencyMismatch.md](./lib/currencyMismatch.md) | Currency mismatch detection helper |
 | [dueSoon.md](./lib/dueSoon.md) | Due-soon date helpers |
 | [milestoneStatusTally.md](./lib/milestoneStatusTally.md) | Milestone status count helper |
+| [milestonesRouteError.md](./lib/milestonesRouteError.md) | Sanitized milestones route-failure metadata |
 | [validate-login.md](./lib/validate-login.md) | Login form validation |
+| [webAppManifest.md](./lib/webAppManifest.md) | Web app manifest contract — canonical icons, validation, bounded fallbacks, immutable output, diagnostics |
 
 ---
 
