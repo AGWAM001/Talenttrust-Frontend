@@ -105,6 +105,16 @@ describe('ReputationPageContent', () => {
       expect(screen.queryByTestId('empty-state')).toBeInTheDocument();
     });
 
+    it.each([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY])(
+      'renders EmptyState when score is non-finite (%s)',
+      (score) => {
+        render(<ReputationPageContent reputationData={{ score, history: [] }} />);
+
+        expect(screen.getByText('No reputation yet')).toBeInTheDocument();
+        expect(screen.queryByTestId('reputation-profile')).not.toBeInTheDocument();
+      },
+    );
+
     it('does not render ReputationProfile when there is no reputation data', () => {
       render(<ReputationPageContent />);
 

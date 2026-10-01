@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { listReputationEvents } from '@/lib/repository';
+import { reportError } from '@/lib/errorReporter';
 import type { Reputation } from '@/types/domain';
 import { ReputationPageContent } from './ReputationPageContent';
 

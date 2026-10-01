@@ -6,6 +6,22 @@
  * Meets WCAG 2.1 AA requirements.
  */
 
+export type StatusType = 'Active' | 'Completed' | 'Disputed' | 'Pending' | 'Paid' | 'Archived';
+
+/**
+ * Canonical set of acceptable statuses. Hoisted as a constant so the
+ * bundler can inline membership checks and DCE the dev-only warning path.
+ */
+const KNOWN_STATUSES: ReadonlySet<StatusType> = new Set<StatusType>([
+  'Active',
+  'Completed',
+  'Disputed',
+  'Pending',
+  'Paid',
+  // `Archived` is a canonical StatusType with dedicated colour/icon entries,
+  // so it must resolve through the known-status path, not the fallback.
+  'Archived',
+]);
 export type StatusType = 'Active' | 'Completed' | 'Disputed' | 'Pending' | 'Paid';
 
 export interface StatusBadgeProps {
