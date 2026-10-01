@@ -31,6 +31,27 @@ export interface BreadcrumbsProps extends React.HTMLAttributes<HTMLElement> {
 export const BREADCRUMBS_NAV_CLASS = '';
 export const BREADCRUMBS_OL_CLASS = 'flex flex-wrap items-center gap-1 text-sm text-slate-500';
 
+const SAFE_HREF_PROTOCOLS = new Set(['http:', 'https:', 'mailto:', 'tel:']);
+
+const isSafeHref = (href: string): boolean => {
+  if (href.trim().length === 0) return false;
+
+  try {
+    const url = new URL(href, 'https://breadcrumbs.invalid');
+    return SAFE_HREF_PROTOCOLS.has(url.protocol);
+  } catch {
+    return false;
+  }
+};
+
+const isBreadcrumbItem = (item: unknown): item is BreadcrumbItem => {
+  if (typeof item !== 'object' || item === null || !('label' in item)) return false;
+  if (typeof item.label !== 'string' || item.label.trim().length === 0) return false;
+  if (!('href' in item) || item.href === undefined) return true;
+
+  return typeof item.href === 'string' && isSafeHref(item.href);
+};
+
 /**
  * Deterministically humanizes a raw path segment into an accessible label.
  */

@@ -53,9 +53,9 @@ describe('GlobalError page', () => {
   it('invokes the pluggable error reporter when rendered', () => {
     const mockReporter = jest.fn();
     setErrorReporter(mockReporter);
-    
+
     render(<GlobalError error={testError} reset={mockReset} />);
-    
+
     expect(mockReporter).toHaveBeenCalledTimes(1);
     expect(mockReporter).toHaveBeenCalledWith(testError, 'Global Error Boundary', undefined, undefined);
   });
@@ -63,5 +63,77 @@ describe('GlobalError page', () => {
   it('is accessible and clean of violations via jest-axe', async () => {
     // Render and check for accessibility violations
     await testA11y(<GlobalError error={testError} reset={mockReset} />);
+  });
+
+  it('does not report the same error twice across re-renders', () => {
+    const mockReporter = jest.fn();
+    setErrorReporter(mockReporter);
+
+    const { rerender } = render(<GlobalError error={testError} reset={mockReset} />);
+    rerender(<GlobalError error={testError} reset={mockReset} />);
+    rerender(<GlobalError error ={testError} reset={mockReset} />);
+
+    expect(mockReporter).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports a new error instance when the error changes', () => {
+    const mockReporter = jest.fn();
+    setErrorReporter(mockReporter);
+
+    const { rerender } = render(<GlobalError error={testError} reset={mockReset} />);
+    const nextError = Object.assign(new Error('Second crash'), { digest: 'abc123' });
+    rerender(<GlobalError error={nextError} reset={mockReset} />);
+
+    expect(mockReporter).toHaveBeenCalledTimes(2);
+    expect(mockReporter).toHaveBeenLastCalledWith(nextError, 'Global Error Boundary', undefined, undefined);
+  });
+
+  it('swallows reporter failures and still renders the fallback UI', () => {
+    const mockReporter = jest.fn(() => {
+      throw new Error('reporter down');
+    });
+    setErrorReporter(mockReporter);
+
+    expect(() => render(<GlobalError error={testError} reset={mockReset} />)).not.toThrow();
+    expect(screen.getByRole('heading', { name: /critical error/i })).toBeInTheDocument();
+  });
+
+  it('only invokes reset once for repeated clicks', () => {
+    const resetSpy = jest.fn();
+    render(<GlobalError error={testError} reset={resetSpy} />);
+
+    const button = screen.getByRole('button', { name: /try again/i });
+    fireEvent.click(button);
+    fireEvent.click(button);
+    fireEvent.click(button);
+
+    expect(resetSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('allows reset again after a new error arrives', () => {
+    const resetSpy = jest.fn();
+    const { rerender } = render(<GlobalError error={testError} reset={resetSpy} />);
+
+    fireEvent.click(screen.getByRole('button', { name: /try again/i }));
+    expect(resetSpy).toHaveBeenCalledTimes(1);
+
+    const nextError = Object.assign(new Error('Second crash'), { digest: 'abc123' });
+    rerender(<GlobalError error={nextError} reset={resetSpy} />);
+
+    fireEvent.click(screen.getByRole('button', { name: /try again/i }));
+    expect(resetSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it('re-allows reset if the reset call throws', () => {
+    const resetSpy = jest.fn().mockImplementationOnce(() => {
+      throw new Error('reset failed');
+    });
+    render(<GlobalError error={testError} reset={resetSpy} />);
+
+    const button = screen.getByRole('button', { name: /try again/i });
+    expect(() => fireEvent.click(button)).not.toThrow();
+    fireEvent.click(button);
+
+    expect(resetSpy).toHaveBeenCalledTimes(2);
   });
 });

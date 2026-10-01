@@ -72,7 +72,9 @@ export default class MilestonesErrorBoundary extends Component<
   // Lifecycle
   // ------------------------------------------------------------------
 
-  static getDerivedStateFromError(error: Error): State {
+  // A partial state keeps the current `retryKey`, so the next retry still
+  // remounts a fresh subtree.
+  static getDerivedStateFromError(error: Error): Partial<State> {
     return { hasError: true, error };
   }
 
