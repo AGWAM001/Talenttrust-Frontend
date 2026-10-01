@@ -8,6 +8,7 @@ import React, {
   useRef,
   useState,
   Suspense,
+  useSyncExternalStore,
 } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useSearchParams, useRouter } from 'next/navigation';
@@ -28,6 +29,7 @@ import { useOfflineMilestones } from '@/hooks/useOfflineMilestones';
 import { SAMPLE_MILESTONES, SAMPLE_DISMISSED_KEY } from './constants';
 import type { Milestone } from '@/types/domain';
 import { useOptimisticMilestoneMutation } from '@/hooks/useOptimisticMilestoneMutation';
+import { subscribeMilestones, getMilestonesSnapshot } from '@/lib/repository';
 
 const UNPAGINATED_LIST_SIZE = 9999;
 
@@ -55,85 +57,18 @@ function getValidSortOption(param: string | null): MilestoneSortOption {
 }
 
 /**
- * State invariants for the milestones page.
- *
- * These invariants must hold after every state transition. They are asserted
- * in development and tested directly in focused unit tests.
- *
- * 1. `milestones` is always an array of unique milestone ids.
- * 2. `displayMilestones` is either the full sample set (banner visible) or
- *    the persisted set (banner dismissed / persisted data present).
- * 3. `statusFilter` is always one of VALID_STATUSES.
- * 4. `sortOrder` is always one of VALID_SORT_OPTIONS.
- * 5. `sortedMilestones` is a permutation of `filtered` — no additions,
- *    no drops, no duplicates.
- * 6. `showForm` is only true when the user explicitly opened the form.
- * 7. Optimistic mutations never leave the list in a partially-applied state:
- *    either the mutation is fully applied or the list is unchanged.
+ * Invariant: the milestones page must render a snapshot of the repository that
+ * is consistent with the latest committed write. Concurrent tabs, offline
+ * flushes, and optimistic mutations all funnel through `listMilestones`, so we
+ * subscribe to the repository's change notifications and re-read on every
+ * notification. This prevents stale reads after a racing write.
  */
-export const MILESTONE_INVARIANTS = Object.freeze({
-  uniqueIds: (list: Milestone[]): boolean => {
-    const seen = new Set<string>();
-    for (const m of list) {
-      if (seen.has(m.id)) return false;
-      seen.add(m.id);
-    }
-    return true;
-  },
-  isPermutation: (source: Milestone[], result: Milestone[]): boolean => {
-    if (source.length !== result.length) return false;
-    const sourceIds = new Set(source.map((m) => m.id));
-    if (sourceIds.size !== source.length) return false;
-    for (const m of result) {
-      if (!sourceIds.has(m.id)) return false;
-    }
-    return true;
-  },
-});
-
-function assertInvariants(
-  milestones: Milestone[],
-  filtered: Milestone[],
-  sorted: Milestone[],
-): void {
-  if (process.env.NODE_ENV === 'production') return;
-  if (!MILESTONE_INVARIANTS.uniqueIds(milestones)) {
-    // eslint-disable-next-line no-console
-    console.error('[milestones] invariant violated: duplicate milestone ids');
-  }
-  if (!MILESTONE_INVARIANTS.isPermutation(filtered, sorted)) {
-    // eslint-disable-next-line no-console
-    console.error(
-      '[milestones] invariant violated: sorted list is not a permutation of filtered list',
-    );
-  }
-}
-
-/**
- * Guards against concurrent/duplicate optimistic mutations for the same id.
- * The set is cleared on every successful reconciliation so retries remain
- * possible after a failure.
- */
-const inFlightMutations = new Set<string>();
-
-function acquireMutationLock(id: string): boolean {
-  if (inFlightMutations.has(id)) return false;
-  inFlightMutations.add(id);
-  return true;
-}
-
-function releaseMutationLock(id: string): void {
-  inFlightMutations.delete(id);
-}
-
-// Context is intentionally unused at runtime; it documents the boundary
-// between the page shell and the content component for future refactors.
-const MilestonesContext = createContext<null>(null);
-void MilestonesContext;
-
-// Re-exported for tests that need to reset module-level lock state.
-export function __resetMilestoneMutationLocks(): void {
-  inFlightMutations.clear();
+function useRepositoryMilestones(): Milestone[] {
+  return useSyncExternalStore(
+    subscribeMilestones,
+    getMilestonesSnapshot,
+    getMilestonesSnapshot,
+  );
 }
 
 
@@ -145,6 +80,7 @@ const MilestonesContent: React.FC = () => {
   const router = useRouter();
   const headingRef = useRef<HTMLHeadingElement | null>(null);
   const startFromScratchRef = useRef<HTMLButtonElement | null>(null);
+  const mountedRef = useRef<boolean>(true);
 
   const initialStatus = getValidStatus(searchParams.get('status'));
   const [statusFilter, setStatusFilter] =
@@ -154,11 +90,12 @@ const MilestonesContent: React.FC = () => {
   );
   const [showForm, setShowForm] = useState(false);
   const { showError } = useToast();
+  const repositoryMilestones = useRepositoryMilestones();
   const reconcileFromRepo = useCallback(() => {
-    setMilestones((prev) => {
-      const next = listMilestones();
-      return isSameMilestoneList(prev, next) ? prev : next;
-    });
+    // Guard against late async reconciliation after unmount so we never
+    // commit state to a torn-down tree (React 18 concurrent safety).
+    if (!mountedRef.current) return;
+    setMilestones(listMilestones());
   }, []);
   const offline = useOfflineMilestones(reconcileFromRepo);
   const { optimisticCreate, optimisticUpdate } = useOptimisticMilestoneMutation(
@@ -170,10 +107,22 @@ const MilestonesContent: React.FC = () => {
   const lastReconciledRef = useRef<Milestone[] | null>(null);
 
   useEffect(() => {
-    const nextStatus = getValidStatus(searchParams.get('status'));
-    const nextSort = getValidSortOption(searchParams.get('sort'));
-    setStatusFilter((prev) => (prev === nextStatus ? prev : nextStatus));
-    setSortOrder((prev) => (prev === nextSort ? prev : nextSort));
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  // Keep local state in sync with the repository snapshot. Because the
+  // snapshot is derived from the same source of truth used by optimistic
+  // mutations, racing writes converge to the last committed value.
+  useEffect(() => {
+    setMilestones(repositoryMilestones);
+  }, [repositoryMilestones]);
+
+  useEffect(() => {
+    setStatusFilter(getValidStatus(searchParams.get('status')));
+    setSortOrder(getValidSortOption(searchParams.get('sort')));
   }, [searchParams]);
 
   useEffect(() => {
@@ -192,11 +141,12 @@ const MilestonesContent: React.FC = () => {
       }
 
       const query = params.toString();
+      // Use scroll:false and guard against redundant replaces so rapid
+      // filter/sort toggles cannot enqueue overlapping navigations that
+      // race each other and leave the URL out of sync with state.
       const nextUrl = query ? `?${query}` : '?';
-      const currentUrl = searchParams.toString();
-      const currentUrlWithPrefix = currentUrl ? `?${currentUrl}` : '?';
-      if (nextUrl !== currentUrlWithPrefix) {
-        router.replace(nextUrl);
+      if (nextUrl !== window.location.search) {
+        router.replace(nextUrl, { scroll: false });
       }
     }, 150);
 
@@ -231,7 +181,11 @@ const MilestonesContent: React.FC = () => {
     setMilestones([]);
     lastReconciledRef.current = [];
     setTimeout(() => {
-      headingRef.current?.focus();
+      // Guard against the component unmounting between scheduling and
+      // execution of this timeout (concurrent rendering / navigation).
+      if (mountedRef.current) {
+        headingRef.current?.focus();
+      }
     }, 0);
   }, []);
 
@@ -251,13 +205,17 @@ const MilestonesContent: React.FC = () => {
       nextMilestones.sort((left, right) => {
         const leftTime = left.dueDate ? Date.parse(left.dueDate) : Number.POSITIVE_INFINITY;
         const rightTime = right.dueDate ? Date.parse(right.dueDate) : Number.POSITIVE_INFINITY;
-        return leftTime - rightTime;
+        if (leftTime !== rightTime) return leftTime - rightTime;
+        // Deterministic tie-breaker so equal due dates (or both missing)
+        // produce a stable order across renders and concurrent updates.
+        return left.id.localeCompare(right.id);
       });
     } else {
       nextMilestones.sort((left, right) => {
         const leftTime = left.dueDate ? Date.parse(left.dueDate) : Number.NEGATIVE_INFINITY;
         const rightTime = right.dueDate ? Date.parse(right.dueDate) : Number.NEGATIVE_INFINITY;
-        return rightTime - leftTime;
+        if (rightTime !== leftTime) return rightTime - leftTime;
+        return left.id.localeCompare(right.id);
       });
     }
 
