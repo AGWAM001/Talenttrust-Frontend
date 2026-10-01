@@ -158,6 +158,152 @@ describe('StatusBadge', () => {
     });
   });
 
+  describe('unknown status fallback', () => {
+    // StatusBadge is strictly typed for StatusType at the prop boundary,
+    // but the runtime needs to handle values that slip through (e.g. data
+    // from an API that hasn't been validated). The unknown-status path
+    // must be safe, accessible, and visually distinct from the canonical
+    // five statuses.
+
+    let warnSpy: jest.SpyInstance;
+
+    beforeEach(() => {
+      warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+      warnSpy.mockRestore();
+    });
+
+    it('does not throw when status is not in StatusType', () => {
+      expect(() =>
+        render(
+          <StatusBadge status={'Cancelled' as unknown as StatusType} />,
+        ),
+      ).not.toThrow();
+    });
+
+    it('renders neutral styling classes for an unknown status', () => {
+      const { container } = render(
+        <StatusBadge status={'Cancelled' as unknown as StatusType} />,
+      );
+      const span = container.querySelector('span');
+      expect(span?.className).toContain('bg-[var(--status-neutral-bg)]');
+      expect(span?.className).toContain('text-[var(--status-neutral-foreground)]');
+    });
+
+    it('renders no known-status colour tokens for an unknown status', () => {
+      const { container } = render(
+        <StatusBadge status={'OnHold' as unknown as StatusType} />,
+      );
+      const span = container.querySelector('span');
+      expect(span?.className).not.toMatch(/var\(--status-(success|info|error|warning)-/);
+    });
+
+    // NOTE: `Archived` is a canonical StatusType, so the fallback path is
+    // exercised with a value that is genuinely outside the union instead.
+    it('renders the fallback question mark icon for an unknown status', () => {
+      const { container } = render(
+        <StatusBadge status={'OnHold' as unknown as StatusType} />,
+      );
+      const iconSpan = container.querySelector('span[aria-hidden="true"]');
+      expect(iconSpan?.textContent).toBe('?');
+    });
+
+    it('uses a fallback aria-label that names the unknown status', () => {
+      render(
+        <StatusBadge status={'OnHold' as unknown as StatusType} />,
+      );
+      const badge = screen.getByRole('status', {
+        name: 'Status: Unknown — value "OnHold"',
+      });
+      expect(badge).toBeInTheDocument();
+    });
+
+    it('preserves the raw status string in the visible label', () => {
+      const { container } = render(
+        <StatusBadge status={'OnHold' as unknown as StatusType} />,
+      );
+      expect(container).toHaveTextContent('OnHold');
+      expect(container).toHaveTextContent('Unknown');
+    });
+
+    it('still applies base badge styles with unknown status', () => {
+      const { container } = render(
+        <StatusBadge status={'OnHold' as unknown as StatusType} />,
+      );
+      const span = container.querySelector('span');
+      expect(span?.className).toContain('inline-flex');
+      expect(span?.className).toContain('rounded-full');
+      expect(span?.className).toContain('px-3');
+      expect(span?.className).toContain('py-1');
+      expect(span?.className).toContain('font-semibold');
+    });
+
+    it('keeps the fallback neutral styling when additional className is supplied', () => {
+      const { container } = render(
+        <StatusBadge
+          status={'OnHold' as unknown as StatusType}
+          className="ml-2"
+        />,
+      );
+      const span = container.querySelector('span');
+      expect(span?.className).toContain('bg-[var(--status-neutral-bg)]');
+      expect(span?.className).toContain('ml-2');
+    });
+
+    it('warns once in development when status is unknown', () => {
+      render(<StatusBadge status={'Cancelled' as unknown as StatusType} />);
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('[StatusBadge] Unknown status value: "Cancelled".'),
+      );
+    });
+
+    it('handles empty-string status without crashing', () => {
+      // Single render covers both the "does not throw" assertion (render
+      // throws synchronously when the component throws) and the visible
+      // output checks. Visible label is `Unknown ()` for empty-string
+      // status so the unknown indicator is still rendered.
+      const { container } = render(
+        <StatusBadge status={'' as unknown as StatusType} />,
+      );
+      const span = container.querySelector('span');
+      expect(span?.className).toContain('bg-[var(--status-neutral-bg)]');
+      expect(container).toHaveTextContent('Unknown ()');
+    });
+
+    it('handles numeric status without crashing', () => {
+      // Single render: if the component threw, render would itself throw.
+      const { container } = render(
+        <StatusBadge status={42 as unknown as StatusType} />,
+      );
+      expect(container).toHaveTextContent('Unknown (42)');
+    });
+  });
+
+  describe('isKnownStatus type-guard', () => {
+    it('returns true for each canonical status', () => {
+      (['Active', 'Completed', 'Disputed', 'Pending', 'Paid'] as StatusType[])
+        .forEach((status) => {
+          expect(isKnownStatus(status)).toBe(true);
+        });
+    });
+
+    it('returns false for unknown strings', () => {
+      expect(isKnownStatus('Cancelled')).toBe(false);
+      expect(isKnownStatus('OnHold')).toBe(false);
+      expect(isKnownStatus('')).toBe(false);
+    });
+
+    it('returns false for non-string values', () => {
+      expect(isKnownStatus(undefined)).toBe(false);
+      expect(isKnownStatus(null)).toBe(false);
+      expect(isKnownStatus(42)).toBe(false);
+      expect(isKnownStatus({})).toBe(false);
+    });
+  });
+
   describe('snapshot tests', () => {
     it('matches snapshot for Active status', () => {
       const { container } = render(<StatusBadge status="Active" />);

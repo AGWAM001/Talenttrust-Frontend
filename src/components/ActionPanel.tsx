@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useWallet } from '@/contexts/WalletContext';
 import { ConfirmDialog } from './ConfirmDialog';
 import { DISPUTE_REASON_MAX_LENGTH, validateDisputeReason } from '@/lib/disputeReason';
@@ -34,6 +34,12 @@ export type ActionPanelDisabledReasons = {
 };
 
 /**
+ * The action name passed to `onActionError` and `onActionStart`.
+ * Identifies which callback failed or was initiated.
+ */
+export type ActionName = 'submitMilestone' | 'releaseFunds' | 'dispute';
+
+/**
  * Props for the ActionPanel component.
  */
 export type ActionPanelProps = {
@@ -44,15 +50,22 @@ export type ActionPanelProps = {
    * read-only "View Summary" surface rather than exposing a mutation.
    */
   status: 'Active' | 'Completed' | 'Disputed' | 'Pending';
-  /** Callback triggered when the user initiates a milestone submission. */
-  onSubmitMilestone?: () => void;
+  /**
+   * Callback triggered when the user initiates a milestone submission.
+   * May be synchronous or async; errors are caught and surfaced via `onActionError`.
+   */
+  onSubmitMilestone?: () => void | Promise<void>;
   /**
    * Callback triggered when the user confirms a dispute with a reason.
    * Receives the trimmed, non-empty reason string (max 500 chars).
+   * May be synchronous or async; errors are caught and surfaced via `onActionError`.
    */
-  onDispute?: (reason: string) => void;
-  /** Callback triggered when the user releases funds to the freelancer. */
-  onReleaseFunds?: () => void;
+  onDispute?: (reason: string) => void | Promise<void>;
+  /**
+   * Callback triggered when the user releases funds to the freelancer.
+   * May be synchronous or async; errors are caught and surfaced via `onActionError`.
+   */
+  onReleaseFunds?: () => void | Promise<void>;
   /** Callback triggered to view the summary of a completed contract. */
   onViewSummary?: () => void;
   /**
@@ -64,6 +77,8 @@ export type ActionPanelProps = {
   /**
    * Render a `role="alert"` region above the actions to announce transient
    * errors (like network failures) to assistive technologies.
+   * This is managed externally; ActionPanel also maintains its own `internalError`
+   * banner for callback failures that the parent did not handle.
    */
   errorMessage?: string;
   /**
@@ -204,6 +219,29 @@ const ActionPanel = ({
   const mutationsDisabledMsg = disableMutations ? 'Actions disabled while offline or viewing stale data' : undefined;
   const panelRef = useRef<HTMLElement | null>(null);
 
+  /**
+   * Guards against concurrent / duplicate mutation dispatch. The ref is the
+   * source of truth for synchronous re-entrancy checks (state updates are
+   * async and would allow two clicks in the same tick to both pass), while the
+   * state mirrors it for rendering (disabling buttons, aria-busy).
+   */
+  const mutationInFlightRef = useRef(false);
+  const [mutationInFlight, setMutationInFlight] = useState(false);
+  const [mutationError, setMutationError] = useState('');
+
+  const beginMutation = useCallback((): boolean => {
+    if (mutationInFlightRef.current) return false;
+    mutationInFlightRef.current = true;
+    setMutationInFlight(true);
+    setMutationError('');
+    return true;
+  }, []);
+
+  const endMutation = useCallback(() => {
+    mutationInFlightRef.current = false;
+    setMutationInFlight(false);
+  }, []);
+
   const describedBy = (perActionId: string | undefined) =>
     isLoading ? LOADING_DESCRIPTION_ID : perActionId;
   const describedById = (key: keyof ActionPanelDisabledReasons) =>
@@ -326,6 +364,21 @@ const ActionPanel = ({
     setConfirmAction(action);
   };
 
+  /**
+   * Executes the callback for the confirmed action.
+   *
+   * Guards:
+   *   1. disableMutations is re-checked at execution time (handles the window
+   *      between dialog-open and dialog-confirm where the prop may have flipped).
+   *   2. A ref-based synchronous guard (`pendingActionRef`) prevents duplicate
+   *      invocations even before the state update has propagated.
+   *   3. Both synchronous throws and async rejections are caught; sync throws
+   *      are wrapped in a rejected Promise so they do not escape React's event
+   *      system unhandled.
+   *   4. `pendingAction` state (for UI) is set only when the callback returns a
+   *      Promise (i.e., the operation is async), so synchronous callers do not
+   *      see a flash of disabled buttons.
+   */
   const handleConfirm = () => {
     // Nothing is open: nothing to confirm.
     if (confirmAction === null) return;
@@ -369,6 +422,62 @@ const ActionPanel = ({
     }
     setConfirmBlockError(null);
     setConfirmAction(null);
+    // Clear any previous internal error; a new attempt is being made.
+    setInternalError(null);
+    onActionStart?.(action);
+
+    // Set the ref immediately (synchronous re-entrance guard).
+    pendingActionRef.current = action;
+
+    /**
+     * Invokes the action callback and always returns a Promise.
+     * Synchronous throws are caught here and converted to rejected Promises
+     * so they never escape to React's event system as uncaught exceptions.
+     */
+    const invokeCallback = (): { promise: Promise<void>; isAsync: boolean } => {
+      let returnValue: void | Promise<void>;
+      try {
+        if (action === 'submitMilestone') {
+          returnValue = onSubmitMilestone?.();
+        } else if (action === 'releaseFunds') {
+          returnValue = onReleaseFunds?.();
+        } else {
+          // action === 'dispute' (legacy confirm flow)
+          returnValue = onDispute?.('Dispute opened from action panel.');
+        }
+      } catch (syncErr) {
+        return { promise: Promise.reject(syncErr), isAsync: false };
+      }
+      const isAsync = returnValue instanceof Promise;
+      return { promise: Promise.resolve(returnValue), isAsync };
+    };
+
+    const { promise, isAsync } = invokeCallback();
+
+    // Only show the in-flight UI (disabled buttons) for genuinely async callbacks.
+    // For sync callbacks: clear the ref immediately so subsequent synchronous
+    // interactions are not blocked by a stale ref that would only clear after a
+    // microtask. The promise .then still clears it again (idempotently) for safety.
+    if (isAsync) {
+      setPendingAction(action);
+    } else {
+      pendingActionRef.current = null;
+    }
+
+    promise.then(
+      () => {
+        pendingActionRef.current = null;
+        setPendingAction(null);
+      },
+      (err: unknown) => {
+        pendingActionRef.current = null;
+        setPendingAction(null);
+        const message =
+          err instanceof Error ? err.message : 'An unexpected error occurred. Please try again.';
+        setInternalError(message);
+        onActionError?.(action, err);
+      },
+    );
   };
 
   const handleCancel = () => {
@@ -544,6 +653,47 @@ const ActionPanel = ({
     consumeSurface();
     onDispute?.(disputeReason.trim());
     closeDisputeForm();
+
+    // Set the ref immediately (synchronous re-entrance guard).
+    pendingActionRef.current = 'dispute';
+
+    let returnValue: void | Promise<void>;
+    let invokeError: unknown;
+    let didThrow = false;
+    try {
+      returnValue = onDispute?.(trimmedReason);
+    } catch (syncErr) {
+      invokeError = syncErr;
+      didThrow = true;
+    }
+
+    const isAsync = returnValue instanceof Promise;
+
+    // Only show in-flight UI for async callbacks; clear ref immediately for sync.
+    if (isAsync) {
+      setPendingAction('dispute');
+    } else {
+      pendingActionRef.current = null;
+    }
+
+    const promise: Promise<void> = didThrow
+      ? Promise.reject(invokeError)
+      : Promise.resolve(returnValue);
+
+    promise.then(
+      () => {
+        pendingActionRef.current = null;
+        setPendingAction(null);
+      },
+      (err: unknown) => {
+        pendingActionRef.current = null;
+        setPendingAction(null);
+        const message =
+          err instanceof Error ? err.message : 'An unexpected error occurred. Please try again.';
+        setInternalError(message);
+        onActionError?.('dispute', err);
+      },
+    );
   };
 
   const remainingChars = DISPUTE_REASON_MAX_LENGTH - disputeReason.length;
@@ -569,6 +719,13 @@ const ActionPanel = ({
         {errorMessage && (
           <p role="alert" className="mt-2 rounded-lg border border-rose-200 bg-rose-50 p-2 text-sm text-rose-700">
             {errorMessage}
+          </p>
+        )}
+        {/* Internal error banner: surfaces callback failures that the parent did not handle.
+            Shown only when there is no external errorMessage to avoid a double banner. */}
+        {internalError && !errorMessage && (
+          <p role="alert" className="mt-2 rounded-lg border border-rose-200 bg-rose-50 p-2 text-sm text-rose-700">
+            {internalError}
           </p>
         )}
         {isLoading && (
@@ -636,8 +793,8 @@ const ActionPanel = ({
               disabled={!gates.disputeTrigger.allowed}
               title={!isWalletConnected ? noWalletMsg : mutationsDisabledMsg}
               aria-label="Open a dispute for this contract"
-              aria-expanded={disputeFormOpen}
-              aria-controls={disputeFormOpen ? 'dispute-reason-form' : undefined}
+              aria-expanded={_disputeFlow === 'inline' ? disputeFormOpen : undefined}
+              aria-controls={_disputeFlow === 'inline' && disputeFormOpen ? 'dispute-reason-form' : undefined}
               aria-describedby={describedBy(describedById('dispute'))}
               className={`w-full rounded-2xl bg-rose-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-rose-700 disabled:opacity-50 disabled:cursor-not-allowed ${focusRingClass}`}
             >
@@ -647,7 +804,7 @@ const ActionPanel = ({
             {/* Inline dispute reason form — rendered below the trigger button,
                 visible only when the user clicks "Dispute". The form is not a
                 modal so the rest of the page remains accessible. */}
-            {disputeFormOpen && (
+            {_disputeFlow === 'inline' && disputeFormOpen && (
               <div
                 id="dispute-reason-form"
                 role="group"
@@ -735,6 +892,7 @@ const ActionPanel = ({
                   <div className="flex gap-2 mt-3">
                     <button
                       type="submit"
+                      disabled={pendingAction !== null}
                       className={`flex-1 rounded-xl bg-rose-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-rose-700 disabled:opacity-50 disabled:cursor-not-allowed ${focusRingClass}`}
                     >
                       Confirm Dispute
@@ -742,6 +900,7 @@ const ActionPanel = ({
                     <button
                       type="button"
                       onClick={closeDisputeForm}
+                      disabled={mutationInFlight}
                       className={`flex-1 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-900 transition hover:border-slate-400 ${focusRingClass}`}
                     >
                       Cancel
@@ -780,6 +939,7 @@ const ActionPanel = ({
         tone={confirmAction === 'release' || confirmAction === 'dispute' ? 'destructive' : 'default'}
         error={confirmBlockError ?? undefined}
         onConfirm={handleConfirm}
+        isConfirming={mutationInFlight}
         onCancel={handleCancel}
       />
     </aside>
