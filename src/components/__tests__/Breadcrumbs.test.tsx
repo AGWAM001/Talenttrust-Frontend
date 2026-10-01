@@ -47,6 +47,11 @@ describe('Breadcrumbs — structure and ARIA', () => {
     const { container } = render(<Breadcrumbs items={[]} />);
     expect(container.firstChild).toBeNull();
   });
+
+  it('exposes a data-testid="breadcrumbs" attribute for targeted test selectors', () => {
+    render(<Breadcrumbs items={THREE_CRUMBS} />);
+    expect(screen.getByTestId('breadcrumbs')).toBeInTheDocument();
+  });
 });
 
 // ----------------------------------------------------------------------------

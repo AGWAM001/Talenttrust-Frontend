@@ -1,21 +1,49 @@
 import React from 'react';
 import Link from 'next/link';
 
+// ---------------------------------------------------------------------------
+// Public types — these form the compatibility contract for all callers.
+// Do NOT remove or rename exported members without a migration path.
+// ---------------------------------------------------------------------------
+
 /** A single breadcrumb entry. Omit `href` for the current (final) crumb. */
 export type BreadcrumbItem = {
-  /** Visible label for this crumb. */
+  /** Visible label for this crumb. Must be a non-empty, non-whitespace-only string. */
   label: string;
   /**
    * Navigation target. When provided the crumb renders as a Next.js `<Link>`.
-   * Omit for the final crumb, which renders as plain text with `aria-current="page"`.
+   * Omit (or pass `undefined`) for the final crumb, which renders as plain text
+   * with `aria-current="page"`.
+   *
+   * **Invariant**: if an ancestor crumb (any crumb that is not the last item)
+   * has no `href`, the component falls back to `"/"` so navigation is never
+   * broken silently.
    */
   href?: string;
+  /** Optional unique identifier for stable key assignment under concurrent re-renders. */
+  id?: string;
+  [key: string]: unknown;
 };
 
 export type BreadcrumbsProps = {
-  /** Ordered list of crumbs from root to current page. */
+  /**
+   * Ordered list of crumbs from root to current page.
+   *
+   * **Invariants enforced at runtime (all are no-ops or filtered, never thrown):**
+   * - `null` / `undefined` entries are silently dropped.
+   * - Items whose `label` trims to an empty string are silently dropped.
+   * - Consecutive duplicate items (same `label` + same `href`) are deduplicated;
+   *   only the first occurrence is kept.
+   * - An empty array (or an array that is entirely invalid) returns `null`.
+   * - React auto-escapes string content inside JSX, so labels containing HTML
+   *   special characters are rendered as text — XSS via `label` is not possible.
+   */
   items: BreadcrumbItem[];
 };
+
+// ---------------------------------------------------------------------------
+// Internal helpers
+// ---------------------------------------------------------------------------
 
 /**
  * Result of normalizing the input items into a deterministic,
@@ -162,17 +190,20 @@ const Breadcrumbs = ({ items }: BreadcrumbsProps) => {
   if (normalizedItems.length === 0) return null;
 
   return (
-    <nav aria-label="Breadcrumb">
+    <nav aria-label="Breadcrumb" data-testid="breadcrumbs">
       <ol className="flex flex-wrap items-center gap-1 text-sm text-slate-500">
         {normalizedItems.map((item, index) => {
           const isLast = index === normalizedItems.length - 1;
 
           return (
-            <li key={`${item.label}-${index}`} className="flex items-center gap-1">
+            // Stable key: use index on the already-filtered list.
+            // Labels are not used in keys to avoid ambiguity when two crumbs
+            // share the same visible text.
+            <li key={index} className="flex items-center gap-1">
               {/* Separator — hidden from screen readers */}
               {index > 0 && (
                 <span aria-hidden="true" className="select-none text-slate-400">
-                  /
+                  {separator}
                 </span>
               )}
 
@@ -183,15 +214,17 @@ const Breadcrumbs = ({ items }: BreadcrumbsProps) => {
                   aria-current={isLast ? 'page' : undefined}
                   className="font-medium text-slate-900 truncate max-w-[16rem]"
                 >
-                  {item.label}
+                  {label}
                 </span>
               ) : (
-                // Ancestor: linked crumb
+                // Ancestor: linked crumb.
+                // Invariant: missing href falls back to "/" — navigation is
+                // never silently broken.
                 <Link
                   href={item.href}
                   className="truncate max-w-[16rem] transition hover:text-slate-900 hover:underline rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-2"
                 >
-                  {item.label}
+                  {label}
                 </Link>
               )}
             </li>
@@ -202,4 +235,5 @@ const Breadcrumbs = ({ items }: BreadcrumbsProps) => {
   );
 };
 
+export const Breadcrumbs = React.memo(BreadcrumbsComponent);
 export default Breadcrumbs;
