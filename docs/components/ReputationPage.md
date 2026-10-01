@@ -112,47 +112,36 @@ Example:
 ## Data Flow
 
 ```
-UserReputation (API/mock)
-    ←
-shapeReputationData() → ReputationProfileProps
-    ←
-useMemo (memoized)
-    ↑
-hasReputation check → Routing
-    ↑
-enforceInvariants() → Normalized props
-
-    ←
-EmptyState OR ReputationProfile
+localStorage (reputation event store)
+    ↓  listReputationEvents()  — read only inside the mount effect (never during render/SSR)
+    ↓  guarded by checkStorageAvailability()
+shapeReputationData(events) → Reputation | null
+    ↓
+status machine → loading | success | unavailable
+    ↓
+ReputationPageContent → EmptyState | ReputationSummaryCard + ReputationProfile
 ```
 
 ### Data Shaping Helper
 
-The `shapeReputationData()` helper ensures type safety and provides sensible defaults. It is deterministic for valid, invalid, duplicate, and boundary-case inputs:
+The route renders through the single tested `ReputationPageContent`
+implementation (exported from `ReputationPageContent.tsx`, re-exported from
+`page.tsx`) — it no longer carries a route-local copy of that component, which
+would silently drop the `SafeBoundary` and the history `Suspense` wrapper.
+
+`shapeReputationData()` (defined next to the component) turns the persisted
+events into the page model. The score is seeded until the documented API
+integration below replaces it; the level is **always** derived from the score
+bands via `resolveReputationLevel`, never a caller-supplied literal, so score
+and level cannot disagree:
 
 ```typescript
-interface UserReputation {
-  score?: number | null;
-  level?: string;
-  history?: ReputationEvent[];
-}
+export const REPUTATION_DEMO_SCORE = 4.5;
 
-function shapeReputationData(
-  reputationData: UserReputation | null | undefined,
-  userName: string = 'User'
-): ReputationProfileProps {
-  const rawScore = reputationData?.score;
-  const score =
-    typeof rawScore === 'number' && Number.isFinite(rawScore) && rawScore >= 0
-      ? rawScore
-      : null;
-
-  const history = normalizeHistory(reputationData?.history);
-
+export function shapeReputationData(history: ReputationEvent[]): Reputation {
   return {
-    name: userName,
-    score,
-    level: reputationData?.level ?? 'Community Member',
+    score: REPUTATION_DEMO_SCORE,
+    level: resolveReputationLevel(REPUTATION_DEMO_SCORE, 5), // "Expert"
     history,
   };
 }
@@ -172,10 +161,32 @@ function normalizeHistory(history: unknown): ReputationEvent[] {
 }
 ```
 
-**Defaults:**
-- `score`: null (triggers EmptyState)
-- `level`: "Community Member"
-- `history`: [] (empty array)
+When a caller passes no reputation data (`null`/`undefined`) or a negative
+score, `ReputationPageContent` renders the empty state; an event array is
+required for the full profile.
+
+### Route compatibility contracts
+
+`page.tsx` exposes a stable surface that `__tests__/page-contracts.test.tsx`
+pins against regressions:
+
+- **Surface** — the default route component takes no props, and the
+  `ReputationPageContent` / `ReputationPageContentProps` re-exports resolve to
+  the canonical module (`toBe` the module's own bindings), so a caller can never
+  bind to a divergent copy.
+- **Determinism** — persistence is read once per mount; malformed events
+  (missing/blank `id`) are dropped rather than rendered; a stable read returns
+  the same profile on every rerender.
+- **Degraded reads** — when storage is unavailable or the read throws, the route
+  shows a recoverable `role="alert"` with a Retry control and **no profile**,
+  and reports via `reportError`; a silent fallback is never presented as
+  trustworthy reputation data. The alert text carries no stored identifiers.
+- **Concurrency** — each read is tagged with a generation token and applied in a
+  microtask; only the newest generation replaces state, so overlapping retries
+  cannot land out of order.
+- **Accessibility** — exactly one `<main>` landmark and one `<h1>`; the history
+  profile stays inside a `Suspense` boundary so `?type`/`?dir` URL sync remains
+  shareable; focus moves to `<main>` (`tabIndex={-1}`) ~100ms after mount.
 
 ---
 
@@ -289,16 +300,15 @@ npm test -- --testPathPattern="reputation-filter-url|reputationUrlState"
 - ✓ Heading hierarchy
 - ✓ ReputationProfile not rendered when no data
 - ✓ Restore filter/sort from URL; invalid params ignored; debounced shareable updates
-- ✓ Negative / `NaN` / `Infinity` scores fall back to EmptyState
-- ✓ Duplicate history event `id`s are deduplicated deterministically
-- ✓ Non-array history values are normalized to `[]`
-- ✓ Rapid filter/sort changes only produce one debounced URL write
-- ✓ Pending URL writes are cancelled on unmount
+- ✓ Route contracts: stable export surface, malformed-event dropping, degraded
+  read alert + Retry, overlapping-read generation guard, single landmark/h1,
+  focus-on-mount (`__tests__/page-contracts.test.tsx`)
 
 ### Running Tests
 
 ```bash
 npm test -- src/app/reputation/__tests__/page.test.tsx
+npm test -- src/app/reputation/__tests__/page-contracts.test.tsx
 npm test -- --testPathPattern="reputation-filter-url|reputationUrlState|ReputationProfile.test"
 ```
 
@@ -308,9 +318,11 @@ npm test -- --testPathPattern="reputation-filter-url|reputationUrlState|Reputati
 
 - **Client Entry:** `src/app/reputation/ReputationPageClient.tsx`
 - **Page:** `src/app/reputation/page.tsx`
+- **Content (single tested implementation):** `src/app/reputation/ReputationPageContent.tsx`
 - **Component:** `src/components/ReputationProfile.tsx`
 - **URL helpers:** `src/lib/reputationUrlState.ts`
 - **Tests:** `src/app/reputation/__tests__/page.test.tsx`
+- **Route contract tests:** `src/app/reputation/__tests__/page-contracts.test.tsx`
 - **Component Tests:** `src/components/ReputationProfile.test.tsx`
 - **URL Tests:** `src/app/__tests__/reputation-filter-url.test.tsx`
 - **Helper Tests:** `src/lib/__tests__/reputationUrlState.test.ts`
