@@ -100,35 +100,29 @@ import CommandPalette, { CommandPaletteProvider } from '@/components/CommandPale
 import RouteAnnouncer from '@/components/RouteAnnouncer';
 import Navbar from '@/components/Navbar';
 import HeaderActions from '@/components/HeaderActions';
+import SafeBoundary from '@/components/SafeBoundary';
 import { registerDefaultCommands } from '@/lib/commands/defaultCommands';
+import { reportError } from '@/lib/errorReporter';
 
 /**
- * Idempotent guard for the default-command registration side effect.
+ * Guard the module-level command-registration call so that a failure in
+ * the registry (e.g. a duplicate-id violation or an unexpected throw) is
+ * captured and reported without aborting the server-render of the root
+ * layout. The palette will simply start empty, which is recoverable — the
+ * page still loads and every other feature continues to function.
  *
- * The registry is process-global, so we track registration on a symbol
- * keyed off `globalThis` to survive module re-evaluation (HMR, multiple
- * bundles, concurrent imports). This makes the transition
- * "unregistered -> registered" run at most once and never partially,
- * which keeps the command palette's state consistent.
+ * Invariant: this is the only call site; the commands are registered once
+ * at module initialisation time. Concurrent or duplicate calls cannot
+ * produce inconsistent state because registerCommand uses a Map (last
+ * write wins) and the function is idempotent by id.
  */
-const REGISTERED_FLAG = Symbol.for(
-  'talenttrust.layout.defaultCommandsRegistered',
-);
-
-type GlobalWithFlag = typeof globalThis & {
-  [REGISTERED_FLAG]?: boolean;
-};
-
-function ensureDefaultCommandsRegistered(): void {
-  const g = globalThis as GlobalWithFlag;
-  if (g[REGISTERED_FLAG]) {
-    return;
-  }
+try {
   registerDefaultCommands();
-  g[REGISTERED_FLAG] = true;
+} catch (err) {
+  reportError(err, 'registerDefaultCommands', 'error', {
+    location: 'layout module initialisation',
+  });
 }
-
-ensureDefaultCommandsRegistered();
 
 export default function RootLayout({
   children,
@@ -168,14 +162,35 @@ export default function RootLayout({
                         TalentTrust
                       </span>
                     </div>
-                    <Navbar />
-                    <HeaderActions />
+                    {/*
+                     * Navbar and HeaderActions are wrapped in independent SafeBoundary
+                     * instances so that a render failure in one does not cascade to
+                     * the other, and neither can kill the surrounding header chrome.
+                     *
+                     * Invariant: each boundary is independent — a throw inside Navbar
+                     * cannot enter the HeaderActions subtree, and vice versa.
+                     */}
+                    <SafeBoundary fallbackTitle="Navigation failed to load.">
+                      <Navbar />
+                    </SafeBoundary>
+                    <SafeBoundary fallbackTitle="Header actions failed to load.">
+                      <HeaderActions />
+                    </SafeBoundary>
                   </header>
-                  {/* `tabIndex={-1}` is required so the skip link target
-                      is programmatically focusable without entering the
-                      tab order. Do not remove. */}
+                  {/*
+                   * Page content is isolated in its own SafeBoundary so that a
+                   * route-level render crash does not take down the sticky header,
+                   * navigation, or wallet controls. The user can still navigate
+                   * away after a main-content failure.
+                   *
+                   * Invariant: SafeBoundary calls reportError via componentDidCatch,
+                   * so every caught exception is observable in logs/metrics without
+                   * exposing the raw error message in the UI.
+                   */}
                   <main className="flex-1 p-6" tabIndex={-1} id="main-content">
-                    {children}
+                    <SafeBoundary fallbackTitle="This page failed to load.">
+                      {children}
+                    </SafeBoundary>
                   </main>
                 </div>
                 <CommandPalette />
