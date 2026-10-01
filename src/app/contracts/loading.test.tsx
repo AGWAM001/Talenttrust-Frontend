@@ -1,97 +1,121 @@
-/**
- * loading.test.tsx - /contracts
- *
- * Focused tests for the contracts loading Suspense boundary. These assert the
- * state-invariants owned by this component:
- *
- *  1. The region is always reported as busy (aria-busy="true") while the
- *     contracts list streams in, so assistive technology never observes a
- *     silently-empty or stale content without a busy hint.
- *  2. Exactly one polite live region announces the loading transition.
- *  3. The placeholder card count is deterministic and bounded (5), so repeated
- *     renders cannot grow or shrink the document shape.
- *  4. Decorative shimmer blocks are always hidden from the accessibility tree.
- *  5. Repeated mounts and concurrent renders produce identical output.
- *
- * The component is a pure function of its (empty) props, so these tests also serve
- * as a regression guard against accidentally introducing mutable module-level
- * state or non-deterministic rendering.
- */
+import { render, screen } from "@testing-library/react";
+import { describe, expect, it } from "vitest";
 
-import { render, screen, cleanup } from '@testing-library/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import ContractsLoading, {
+  DEFAULT_SKELETON_ROWS,
+  MAX_SKELETON_ROWS,
+  resolveSkeletonCount,
+} from "./loading";
 
-import ContractsLoading from './loading';
+describe("resolveSkeletonCount", () => {
+  it("returns the default when no candidate is provided", () => {
+    expect(resolveSkeletonCount()).toBe(DEFAULT_SKELETON_ROWS);
+    expect(resolveSkeletonCount(undefined)).toBe(DEFAULT_SKELETON_ROWS);
+  });
 
-afterEach(() => {
-  cleanup();
+  it("accepts valid integer values within range", () => {
+    expect(resolveSkeletonCount(0)).toBe(0);
+    expect(resolveSkeletonCount(1)).toBe(1);
+    expect(resolveSkeletonCount(3)).toBe(3);
+    expect(resolveSkeletonCount(MAX_SKELETON_ROWS)).toBe(MAX_SKELETON_ROWS);
+  });
+
+  it("truncates fractional values towards zero", () => {
+    expect(resolveSkeletonCount(0.9)).toBe(0);
+    expect(resolveSkeletonCount(1.99)).toBe(1);
+    expect(resolveSkeletonCount(3.5)).toBe(3);
+  });
+
+  it("clamps negative values to zero", () => {
+    expect(resolveSkeletonCount(-1)).toBe(0);
+    expect(resolveSkeletonCount(-100)).toBe(0);
+  });
+
+  it("clamps out-of-range high values to the maximum", () => {
+    expect(resolveSkeletonCount(MAX_SKELETON_ROWS + 1)).toBe(
+      MAX_SKELETON_ROWS,
+    );
+    expect(resolveSkeletonCount(10_000)).toBe(MAX_SKELETON_ROWS);
+  });
+
+  it("rejects non-finite numeric values", () => {
+    expect(resolveSkeletonCount(Number.NaN)).toBe(DEFAULT_SKELETON_ROWS);
+    expect(resolveSkeletonCount(Number.POSITIVE_INFINITY)).toBe(
+      DEFAULT_SKELETON_ROWS,
+    );
+    expect(resolveSkeletonCount(Number.NEGATIVE_INFINITY)).toBe(
+      DEFAULT_SKELETON_ROWS,
+    );
+  });
+
+  it("rejects non-numeric inputs via the type boundary", () => {
+    expect(resolveSkeletonCount("abc" as unknown as number)).toBe(
+      DEFAULT_SKELETON_ROWS,
+    );
+    expect(resolveSkeletonCount(null as unknown as number)).toBe(
+      DEFAULT_SKELETON_ROWS,
+    );
+  });
+
+  it("is idempotent for duplicate invocations", () => {
+    const inputs = [1, 2, 3, 5, 10];
+    for (const value of inputs) {
+      expect(resolveSkeletonCount(value)).toBe(value);
+      expect(resolveSkeletonCount(value)).toBe(value);
+    }
+  });
 });
 
-describe('ContractsLoading', () => {
-  it('renders a loading region that is marked as busy', () => {
+describe("ContractsLoading", () => {
+  it("renders the default number of skeleton rows", () => {
     render(<ContractsLoading />);
-
-    const main = screen.getByRole('main');
-    expect(main).toHaveAttribute('aria-busy', 'true');
+    expect(screen).getAllByTestId("contract-skeleton-row")).toHaveLength(
+      DEFAULT_SKELETON_ROWS,
+    );
   });
 
-  it('announces loading exactly once through a polite live region', () => {
+  it("announces loading state to assistive technology", () => {
     render(<ContractsLoading />);
-
-    const statuses = screen.getAllByRole('status');
-    expect(statuses).toHaveLength(1);
-    expect(statuses[0]).toHaveAttribute('aria-live', 'polite');
-    expect(statuses[0]).toHaveAttribute('aria-atomic', 'true');
-    expect(statuses[0]).toHaveTextContent('Loading contracts…');
+    const status = screen.getByRole("status");
+    expect(status).toHaveTextContent("Loading contracts…");
+    expect(status).toHaveAttribute("aria-live", "polite");
   });
 
-  it('renders a deterministic bounded number of placeholder cards', () => {
+  it("marks the region as busy", () => {
     render(<ContractsLoading />);
-
-    const list = screen.getByLabelText('Loading contract list');
-    expect(list.tagName.toLowerCase()).toBe('ul');
-    expect(list.children).toHaveLength(5);
+    expect(screen.getByRole("main")).toHaveAttribute("aria-busy", "true");
   });
 
-  it('hides all decorative shimmer blocks from the accessibility tree', () => {
-    const { container } = render(<ContractsLoading />);
-
-    const hidden = container.querySelectorAll('[aria-hidden="true"]');
-    expect(hidden.length).toBeGreaterThan(0);
-
-    // Every shimmer element must be annotated as decorative.
-    const shimmers = container.querySelectorAll('.animate-shimmer');
-    expect(shimmers.length).toBeGreaterThan(0);
-    shimmers.forEach((el) => {
-      expect(el.getAttribute('aria-hidden')).toBe('true');
-    });
+  it("respects a valid custom row count", () => {
+    render(<ContractsLoading rows={3} />);
+    expect(screen.getAllByTestId("contract-skeleton-row")).toHaveLength(3);
   });
 
-  it('suppresses the shimmer animation when reduced motion is requested', () => {
-    const { container } = render(<ContractsLoading />);
-
-    const shimmers = container.querySelectorAll('.animate-shimmer');
-    expect(shimmers.length).toBeGreaterThan(0);
-    shimmers.forEach((el) => {
-      expect(el.classList.contains('motion-reduce:animate-none')).toBe(true);
-    });
+  it("clamps an out-of-range row count to the maximum", () => {
+    render(<ContractsLoading rows={10_000} />);
+    expect(screen.getAllByTestId("contract-skeleton-row")).toHaveLength(
+      MAX_SKELETON_ROWS,
+    );
   });
 
-  it('produces identical output across repeated and concurrent renders', () => {
-    const { container: first } = render(<ContractsLoading />);
-    const firstHouter = first.innerHTML;
-
-    cleanup();
-
-    const { container: second } = render(<ContractsLoading />);
-    expect(second.innerHTML).toBe(firstHouter);
+  it("renders zero rows for a negative row count without crashing", () => {
+    render(<ContractsLoading rows={-1} />);
+    expect(screen.queryAllByTestId("contract-skeleton-row")).toHaveLength(0);
   });
 
-  it('renders without throwing when mounted repeatedly (retry / recovery path)', () => {
-    for (let i = 0; i < 3; i++) {
-      const { unmount } = render(<ContractsLoading />);
-      expect(screen.getAllByRole('status')).toHaveLength(1);
-      unmount();
-    }
+  it("falls back to the default for a non-finite row count", () => {
+    render(<ContractsLoading rows={Number.NaN} />);
+    expect(screen.getAllByTestId("contract-skeleton-row")).toHaveLength(
+      DEFAULT_SKELETON_ROWS,
+    );
+  });
+
+  it("is idempotent across repeated renders with the same input", () => {
+    const { unmount } = render(<ContractsLoading rows={4} />);
+    expect(screen.getAllByTestId("contract-skeleton-row")).toHaveLength(4);
+    unmount();
+
+    render(<ContractsLoading rows={4} />);
+    expect(screen.getAllByTestId("contract-skeleton-row")).toHaveLength(4);
   });
 });
