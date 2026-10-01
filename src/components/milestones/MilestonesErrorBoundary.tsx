@@ -66,14 +66,14 @@ export default class MilestonesErrorBoundary extends Component<
   MilestonesErrorBoundaryProps,
   State
 > {
-  state: State = { hasError: false, retryKey: 0 };
+  state: State = { hasError: false, retryKey: 0, error: undefined };
 
   // ------------------------------------------------------------------
   // Lifecycle
   // ------------------------------------------------------------------
 
   static getDerivedStateFromError(error: Error): State {
-    return { hasError: true, error };
+    return { hasError: true, retryKey: 0, error };
   }
 
   componentDidCatch(error: Error, info: React.ErrorInfo): void {
