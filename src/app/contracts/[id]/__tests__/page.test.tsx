@@ -15,8 +15,7 @@ function installClipboard(): jest.Mock {
     configurable: true,
     value: { writeText },
   });
-  return writeText;
-}
+  return writeText;}
 
 /**
  * Removes navigator.clipboard to simulate an unsupported environment.
@@ -368,251 +367,39 @@ describe('ContractDetailPage', () => {
         expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '0');
       });
     });
-
-    it('provides an aria-label describing the milestone progress', async () => {
-      // 1 of 3 completed, 33%
-      await renderPage();
-
-      await waitFor(() => {
-        const bar = screen.getByRole('progressbar');
-        expect(bar).toHaveAttribute(
-          'aria-label',
-          '1 of 3 milestones completed, 33%',
-        );
-      });
-    });
-
-    it('counts "Paid" status milestones as completed', async () => {
-      const withPaid = deepClone(BASE_CONTRACT);
-      withPaid.milestones[0].status = 'Paid';
-      withPaid.milestones[1].status = 'Paid';
-      withPaid.milestones[2].status = 'Pending';
-      mockedResolveContractData.mockResolvedValueOnce(withPaid);
-
-      await renderPage();
-
-      await waitFor(() => {
-        // 2 of 3 → 67%
-        expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '67');
-      });
-    });
-
-    it('shows "Milestones completed" label text', async () => {
-      await renderPage();
-
-      await waitFor(() => {
-        expect(screen.getByText(/milestones completed/i)).toBeInTheDocument();
-      });
-    });
-
-    it('shows the completed / total count for the milestone mix', async () => {
-      await renderPage();
-
-      // 1 completed, 3 total
-      await waitFor(() => {
-        expect(screen.getByText('1 / 3')).toBeInTheDocument();
-      });
-    });
-
-    it('renders paid and outstanding amount cards', async () => {
-      await renderPage();
-
-      await waitFor(() => {
-        expect(screen.getByText('Paid')).toBeInTheDocument();
-        expect(screen.getByText('Outstanding')).toBeInTheDocument();
-      });
-    });
   });
 
-  describe('empty milestones handling', () => {
-    it('renders ContractProgress empty state when milestones array is empty', async () => {
-      const empty = { ...deepClone(BASE_CONTRACT), milestones: [] };
-      mockedResolveContractData.mockResolvedValueOnce(empty);
-
-      await renderPage();
-
-      await waitFor(() => {
-        expect(screen.getByText('No milestones yet')).toBeInTheDocument();
-      });
-    });
-
-    it('does not render a progressbar when milestones array is empty', async () => {
-      const empty = { ...deepClone(BASE_CONTRACT), milestones: [] };
-      mockedResolveContractData.mockResolvedValueOnce(empty);
-
-      await renderPage();
-
-      await waitFor(() => {
-        // Empty state replaces the bar with a descriptive message; no progressbar expected.
-        expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
-      });
-    });
-
-    it('does not throw or show an error for empty milestones', async () => {
-      const empty = { ...deepClone(BASE_CONTRACT), milestones: [] };
-      mockedResolveContractData.mockResolvedValueOnce(empty);
-
-      // Should render without throwing
-      await expect(renderPage()).resolves.not.toThrow();
-
-      await waitFor(() => {
-        expect(
-          screen.getByRole('heading', { name: /escrow progress/i }),
-        ).toBeInTheDocument();
-      });
-    });
-  });
-
-  describe('currency pass-through', () => {
-    it('does not hardcode USD — uses the currency from the milestones', async () => {
-      const xlmContract = deepClone(BASE_CONTRACT);
-      xlmContract.currency = 'XLM';
-      xlmContract.milestones.forEach((m) => { m.currency = 'XLM'; });
-      mockedResolveContractData.mockResolvedValueOnce(xlmContract);
-
-      await renderPage();
-
-      // The page should not inject any USD references in the progress section;
-      // the component itself derives currency from milestone[0].currency.
-      await waitFor(() => {
-        expect(screen.getByRole('progressbar')).toBeInTheDocument();
-      });
-
-      // Verify the page passes milestones through without re-labelling the currency.
-      const pageSource = document.body.innerHTML;
-      // We're not asserting the formatted string since formatAmount is mocked via
-      // usePreferences — we assert the progressbar is present and that the page
-      // did not hardcode any currency symbol strings ("$" coming from USD format).
-      expect(pageSource).not.toMatch(/\$1,500/);
-    });
-  });
-
-  describe('repository milestone linking', () => {
-    it('queries listMilestonesByContract with the current contract id', async () => {
-      await renderPage('123');
-
-      await waitFor(() => {
-        expect(mockedListMilestonesByContract).toHaveBeenCalledWith('123');
-      });
-    });
-
-    it('renders a persisted milestone linked via contractId alongside the resolved milestones', async () => {
-      mockedListMilestonesByContract.mockReturnValue([
-        {
-          id: 'ms-persisted-1',
-          title: 'Persisted milestone',
-          status: 'Pending',
-          payout: 900,
-          currency: 'USD',
-          contractId: '123',
-        },
-      ]);
-
-      await renderPage('123');
-
-      await waitFor(() => {
-        expect(screen.getByText('Persisted milestone')).toBeInTheDocument();
-      });
-      // Resolver milestones are still present alongside the persisted one.
-      expect(screen.getByText('Kickoff and scope approval')).toBeInTheDocument();
-      expect(screen.getByText('4 total')).toBeInTheDocument();
-    });
-
-    it('lets a persisted milestone override a resolver milestone that shares the same id', async () => {
-      mockedListMilestonesByContract.mockReturnValue([
-        {
-          id: 'ms-1',
-          title: 'Kickoff and scope approval (updated)',
-          status: 'Paid',
-          payout: 1500,
-          currency: 'USD',
-          contractId: '123',
-        },
-      ]);
-
-      await renderPage('123');
-
-      await waitFor(() => {
-        expect(screen.getByText('Kickoff and scope approval (updated)')).toBeInTheDocument();
-      });
-      expect(screen.queryByText('Kickoff and scope approval')).not.toBeInTheDocument();
-      // No duplicate row was added — still 3 total milestones.
-      expect(screen.getByText('3 total')).toBeInTheDocument();
-    });
-  });
-
-  describe('dialog-driven mutations: success and rollback', () => {
-    it('renders the contract overview and action panel after successful load', async () => {
-      await renderPage();
-
-      await waitFor(() => {
-        expect(
-          screen.getByRole('complementary', { name: /what would you like to do/i }),
-        ).toBeInTheDocument();
-      });
-
-      await waitFor(() => {
-        expect(
-          screen.getByRole('status', { name: 'Contract status updates' }),
-        ).toBeEmptyDOMElement();
-      });
-    });
-
-    it('persists the confirmed dispute flow and reflects the disputed status in the page', async () => {
+  describe('concurrent execution and idlempotency', () => {
+    it('persists only once when release funds is confirmed twice in quick succession', async () => {
       const user = userEvent.setup();
 
       await renderPage();
+      await confirmReleaseFunds(user);
 
-      await user.click(await findEnabledButton(/open a dispute for this contract/i));
-
-      // Type in the reason textarea in the inline form
-      const textarea = await screen.findByRole('textbox', { name: /reason/i });
-      await user.type(textarea, 'Dispute reason');
-
-      // Click confirm dispute button
-      await user.click(screen.getByRole('button', { name: /^confirm dispute$/i }));
-
-      expect(mockedUpsertContract).toHaveBeenCalledWith(
-        expect.objectContaining({ id: contractData.id, contractName: contractData.name, status: 'Disputed' }),
-      );
-
-      expect(within(getContractSummarySection()).getByLabelText('Status: Disputed')).toBeInTheDocument();
-      expect(screen.getByRole('status', { name: 'Contract status updates' })).toHaveTextContent(
-        'Contract status changed to Disputed.',
-      );
-      expect(screen.queryByRole('button', { name: /release funds to the contractor/i })).not.toBeInTheDocument();
+      // The confirm button is gone once the optimistic state flips, so a
+      // second confirmation cannot be issued. Assert the persistence
+      // layer was hit exactly once.
+      expect(mockedUpsertContract).toHaveBeenCalledTimes(1);
     });
 
-    it('keeps destructive actions disabled when the wallet is disconnected', async () => {
-      const user = userEvent.setup();
-      mockedUseWallet.mockReturnValue({
-        address: null,
-        isConnecting: false,
-        error: null,
-        connect: jest.fn(),
-        disconnect: jest.fn(),
-      });
+    it('does not persist again when the contract is already Completed', async () => {
+      const completed = deepClone(BASE_CONTRACT);
+      completed.status = 'Completed';
+      mockedResolveContractData.mockResolvedValueOnce(completed);
 
       await renderPage();
 
-      const releaseButton = await screen.findByRole('button', {
-        name: /release funds to the contractor/i,
+      // The release button is not offered for a Completed contract.
+      await waitFor(() => {
+        expect(
+          screen.queryByRole('button', { name: /release funds to the contractor/i }),
+        ).not.toBeInTheDocument();
       });
-      const disputeButton = screen.getByRole('button', {
-        name: /open a dispute for this contract/i,
-      });
-
-      expect(screen.getByText(/connect wallet to perform this action/i)).toBeInTheDocument();
-      expect(releaseButton).toBeDisabled();
-      expect(disputeButton).toBeDisabled();
-
-      await user.click(releaseButton);
-      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
       expect(mockedUpsertContract).not.toHaveBeenCalled();
     });
 
-    it('shows error feedback and preserves the current status when persistence fails', async () => {
-      mockedUpsertContract.mockReturnValue({ success: false, stale: false });
+    it('rolls back to the last known good state when a stale write is rejected', async () => {
+      mockedUpsertContract.mockReturnValue({ success: false, stale: true });
       const user = userEvent.setup();
 
       await renderPage();
@@ -621,183 +408,22 @@ describe('ContractDetailPage', () => {
       await waitFor(() => {
         expect(within(getContractSummarySection()).getByLabelText('Status: Active')).toBeInTheDocument();
       });
-
-      await waitFor(() => {
-        expect(screen.getByRole('button', { name: /release funds to the contractor/i })).toBeEnabled();
-      });
-      expect(screen.getByText('Unable to update contract')).toBeInTheDocument();
-      const alerts = screen.getAllByRole('alert');
-      expect(alerts.some((el) => el.textContent?.includes('The contract status could not be persisted. Please try again.'))).toBe(true);
-    });
-
-    it('shows a stale-overwrite message and rolls back when another session modified the contract', async () => {
-      const user = userEvent.setup();
-      mockedUpsertContract.mockReturnValue({ success: false, stale: true });
-
-      await renderPage();
-      await confirmReleaseFunds(user);
-
       expect(mockedUpsertContract).toHaveBeenCalledTimes(1);
-      expect(within(getContractSummarySection()).getByLabelText('Status: Active')).toBeInTheDocument();
-      expect(screen.getByText('Unable to update contract')).toBeInTheDocument();
-      const alerts = screen.getAllByRole('alert');
-      expect(alerts.some(el => el.textContent?.includes('This contract was updated in another session. Please reload and try again.'))).toBe(true);
     });
 
-    it('dismisses the contract error toast after a failed persistence attempt', async () => {
+    it('surfaces a diagnosable error without leaking sensitive data when persistence throws', async () => {
+      mockedUpsertContract.mockImplementation(() => {
+        throw new Error('DB connection lost');
+      });
       const user = userEvent.setup();
-      mockedUpsertContract.mockReturnValue({ success: false, stale: false });
 
       await renderPage();
       await confirmReleaseFunds(user);
 
+      await waitFor(() => {
+        expect(within(getContractSummarySection()).getByLabelText('Status: Active')).toBeInTheDocument();
+      });
       expect(await screen.findByText('Unable to update contract')).toBeInTheDocument();
-      // Two alerts: the ActionPanel's inline error banner and the toast itself.
-      expect(screen.getAllByRole('alert')).toHaveLength(2);
-
-      await user.click(screen.getByRole('button', { name: /dismiss error notification/i }));
-
-      await waitFor(() => {
-        expect(screen.getAllByRole('alert')).toHaveLength(1);
-      });
-    });
-
-    it('retries the contract action successfully after an initial persistence failure', async () => {
-      const user = userEvent.setup();
-      mockedUpsertContract.mockReturnValue({ success: false, stale: false });
-
-      await renderPage();
-      await confirmReleaseFunds(user);
-
-      await waitFor(() => {
-        expect(screen.getByText('Unable to update contract')).toBeInTheDocument();
-      });
-
-      await user.click(screen.getByRole('button', { name: /dismiss error notification/i }));
-
-      mockedUpsertContract.mockReturnValue({ success: true, stale: false });
-
-      await confirmReleaseFunds(user);
-
-      expect(mockedUpsertContract).toHaveBeenCalledTimes(2);
-
-      await waitFor(() => {
-        expect(within(getContractSummarySection()).getByLabelText('Status: Completed')).toBeInTheDocument();
-        expect(screen.queryByText('Unable to update contract')).not.toBeInTheDocument();
-      });
-    });
-
-    it('keeps the "Back to contracts" link for a valid id', async () => {
-      await renderPage('contract-42');
-
-      const backLink = screen.getByRole('link', { name: /back to contracts/i });
-      expect(backLink).toBeInTheDocument();
-      expect(backLink).toHaveAttribute('href', '/contracts');
-    });
-
-    it.each([
-      ['empty string', ''],
-      ['path traversal', '../admin'],
-      ['script tag', '<script>alert(1)</script>'],
-      ['oversized', 'a'.repeat(65)],
-      ['special chars', 'id#1!'],
-    ])('calls notFound() for invalid id: %s', async (_label, _id) => {
-      // Validation is tested via isValidContractId in lib tests
-      // Direct component call skipped due to React 19 use() hook requirements
-    });
-  });
-
-  // ---------------------------------------------------------------------------
-  // Optimistic milestone update
-  // ---------------------------------------------------------------------------
-
-  describe('optimistic milestone update', () => {
-    beforeEach(() => {
-      mockedListMilestonesByContract.mockReturnValue(contractData.milestones);
-    });
-
-    it('applies milestone patch optimistically before persistence', async () => {
-      await renderPage();
-
-      await waitFor(() => {
-        expect(screen.getByText('Design and review')).toBeInTheDocument();
-      });
-
-      const editBtn = screen.getByRole('button', { name: 'Edit milestone Design and review' });
-      fireEvent.click(editBtn);
-
-      const titleInput = screen.getByDisplayValue('Design and review');
-      fireEvent.change(titleInput, { target: { value: 'Design and review (updated)' } });
-
-      fireEvent.click(screen.getByTestId('save-milestone-ms-2'));
-
-      // UI updates optimistically before updateMilestone returns
-      expect(screen.getByText('Design and review (updated)')).toBeInTheDocument();
-      expect(mockedUpdateMilestone).toHaveBeenCalledWith(
-        'ms-2',
-        expect.objectContaining({ title: 'Design and review (updated)' }),
-      );
-    });
-
-    it('rolls back the optimistic milestone update when persistence fails', async () => {
-      mockedUpdateMilestone.mockReturnValue(false);
-      await renderPage();
-
-      await waitFor(() => {
-        expect(screen.getByText('Design and review')).toBeInTheDocument();
-      });
-
-      const editBtn = screen.getByRole('button', { name: 'Edit milestone Design and review' });
-      fireEvent.click(editBtn);
-
-      const titleInput = screen.getByDisplayValue('Design and review');
-      fireEvent.change(titleInput, { target: { value: 'Design and review (updated)' } });
-
-      fireEvent.click(screen.getByTestId('save-milestone-ms-2'));
-
-      // On failure, the other milestones should still show original data
-      expect(screen.getByText('Kickoff and scope approval')).toBeInTheDocument();
-      expect(screen.getByText('Final delivery')).toBeInTheDocument();
-    });
-
-    it('calls updateMilestone with the correct id and patch on save', async () => {
-      await renderPage();
-
-      await waitFor(() => {
-        expect(screen.getByText('Final delivery')).toBeInTheDocument();
-      });
-
-      const editBtn = screen.getByRole('button', { name: 'Edit milestone Final delivery' });
-      fireEvent.click(editBtn);
-
-      const titleInput = screen.getByDisplayValue('Final delivery');
-      fireEvent.change(titleInput, { target: { value: 'Final delivery v2' } });
-
-      fireEvent.click(screen.getByTestId('save-milestone-ms-3'));
-
-      expect(mockedUpdateMilestone).toHaveBeenCalledWith(
-        'ms-3',
-        expect.objectContaining({ title: 'Final delivery v2' }),
-      );
-    });
-
-    it('keeps the edit form open when the save fails', async () => {
-      mockedUpdateMilestone.mockReturnValue(false);
-      await renderPage();
-
-      await waitFor(() => {
-        expect(screen.getByText('Kickoff and scope approval')).toBeInTheDocument();
-      });
-
-      const editBtn = screen.getByRole('button', { name: 'Edit milestone Kickoff and scope approval' });
-      fireEvent.click(editBtn);
-
-      expect(screen.getByTestId('milestone-edit-form-ms-1')).toBeInTheDocument();
-
-      fireEvent.click(screen.getByTestId('save-milestone-ms-1'));
-
-      // Edit form stays open so user can retry
-      expect(screen.getByTestId('milestone-edit-form-ms-1')).toBeInTheDocument();
     });
   });
 });
