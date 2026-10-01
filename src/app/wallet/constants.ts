@@ -1,137 +1,304 @@
+/**
+ * @file constants.ts
+ *
+ * Sample wallet items used to seed the wallet page on first load and drive tests.
+ *
+ * ## State invariants
+ *
+ * Every item in SAMPLE_WALLET_ITEMS must satisfy all of the following invariants.
+ * Violations throw an `InvariantError` at module-load time so misconfigured data
+ * is caught immediately — in CI, local dev, and tests — rather than silently
+ * producing inconsistent runtime state.
+ *
+ * 1. **Required string fields** – `id`, `name`, `type`, and `currency` must be
+ *    non-empty strings.
+ * 2. **Status** – must be one of the three permitted values:
+ *    `'Active' | 'Archived' | 'Pending'`.
+ * 3. **Balance** – must be a finite, non-negative number (`>= 0`). Negative
+ *    balances and `NaN`/`Infinity` are rejected.
+ * 4. **createdAt** – must be a valid ISO calendar date in the form `YYYY-MM-DD`
+ *    whose calendar date components are self-consistent (e.g. no `2026-02-30`).
+ * 5. **address** (optional) – when present must match the Stellar public-key
+ *    pattern: starts with `G`, exactly 56 characters, base-32 alphabet (`A-Z2-7`).
+ * 6. **ID uniqueness** – every item in the array must have a distinct `id`.
+ * 7. **Non-empty array** – the array must contain at least one item.
+ *
+ * ## Immutability
+ *
+ * Every item object and the top-level array are frozen with `Object.freeze` so
+ * that callers cannot accidentally mutate sample data. TypeScript's `as const`
+ * assertion propagates the readonly constraint at compile time.
+ *
+ * ## Exported helpers
+ *
+ * Three pure helpers are exported for use by tests and runtime validation code:
+ *
+ * - `isValidWalletItemStatus(value)` — type-guard for the status union.
+ * - `isValidWalletItem(item)` — returns `true` when an unknown value satisfies
+ *   all invariants; returns `false` otherwise (never throws).
+ * - `assertValidWalletItems(items)` — throws `InvariantError` on the first
+ *   violation found; also checks ID uniqueness and array length.
+ */
+
 import type { WalletItem } from '@/types/domain';
 
+// ---------------------------------------------------------------------------
+// Permitted status values
+// ---------------------------------------------------------------------------
+
+/** The complete set of allowed status strings for a `WalletItem`. */
+export const WALLET_ITEM_STATUSES = Object.freeze(
+  ['Active', 'Archived', 'Pending'] as const,
+);
+
+export type WalletItemStatus = (typeof WALLET_ITEM_STATUSES)[number];
+
+// ---------------------------------------------------------------------------
+// Internal validation patterns
+// ---------------------------------------------------------------------------
+
 /**
- * Compatibility contracts for the wallet domain.
+ * Matches a Stellar ed25519 public key:
+ * - Starts with `G`
+ * - Followed by exactly 55 characters from the Stellar base-32 alphabet (A-Z and 2-7)
+ * - Total length: 56 characters
  *
- * These constants are part of the public contract of the wallet feature.
- * Callers (UI, tests, and downstream modules) depend on the following invariants:
- *
- * 1. @see SAMPLE_WALLET_ITEMS is a non-empty, read-only array of WalletItems.
- * 2. Every item has a unique, non-empty `id`.
- * 3. Every item has a non-empty `name`, `currency`, and a valid `status`.
- * 4. @balance is a non-negative finite number.
- * 5. `createdAt` is an ISO 8601 date string (YYYY-MM-DD).
- *
- * The data is frozen at module load time so accidental mutation by any
- * caller cannot corrupt the shared state. If a caller needs mutable data,
- * it must clone the array explicitly.
+ * Note: this is a structural pattern check only (identical to the pattern in
+ * `src/lib/stellarAddress.ts`). It does NOT verify the StrKey checksum.
+ * For display / seeding purposes a structural check is sufficient; full
+ * checksum verification is performed by `isValidStellarAddress` in the lib.
  */
+const STELLAR_ADDRESS_PATTERN = /^G[A-Z2-7]{55}$/;
 
-export type WalletItemStatus = WalletItem['status'];
+/**
+ * Matches an ISO calendar date in YYYY-MM-DD format.
+ * The regex alone cannot rule out calendar inconsistencies (e.g. Feb 30);
+ * those are caught by `isValidISODate`.
+ */
+const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
-export const WALLET_ITEM_STATUSES = [
-  'Active',
-  'Pending',
-  'Archived',
-] as const satisfies readonly WalletItemStatus[];
+// ---------------------------------------------------------------------------
+// Custom error type
+// ---------------------------------------------------------------------------
 
-export type WalletItemStatusValue = (typeof WALLET_ITEM_STATUSES)[number];
-
-export const ISO_DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
-
-function isValidISODate(value: unknown): value is string {
-  if (typeof value !== 'string' || !ISO_DATE_REGEX.test(value)) {
-    return false;
+/**
+ * Thrown when a wallet-item invariant is violated.
+ * Extends `Error` so it can be caught generically while still being
+ * distinguishable from other error types in tests.
+ */
+export class InvariantError extends Error {
+  constructor(message: string) {
+    super(`[wallet/constants] Invariant violation: ${message}`);
+    this.name = 'InvariantError';
+    // Ensures correct instanceof check across transpiled environments.
+    Object.setPrototypeOf(this, InvariantError.prototype);
   }
-  const [year, month, day] = value.split('-').map(Number);
-  const date = new Date(Date.UTC(year, month - 1, day));
-  return (
-    date.getUTCFullYear() === year &&
-    date.getUTCMonth() === month - 1 &&
-    date.getUTCDate() === day
-  );
 }
 
-function isWalletItemStatus(value: unknown): value is WalletItemStatus {
-  return (
-    typeof value === 'string' &&
-    (WALLET_ITEM_STATUSES as readonly string[]).includes(value)
-  );
-}
+// ---------------------------------------------------------------------------
+// Exported guard helpers
+// ---------------------------------------------------------------------------
 
-function isWalletItem(value: unknown): value is WalletItem {
-  if (typeof value !== 'object' || value === null) {
-    return false;
-  }
-  const candidate = value as Record<string, unknown>;
-  return (
-    typeof candidate.id === 'string' &&
-    candidate.id.length > 0 &&
-    typeof candidate.name === 'string' &&
-    candidate.name.length > 0 &&
-    typeof candidate.type === 'string' &&
-    candidate.type.length > 0 &&
-    typeof candidate.balance === 'number' &&
-    Number.finite(candidate.balance) &&
-    candidate.balance >= 0 &&
-    typeof candidate.currency === 'string' &&
-    candidate.currency.length > 0 &&
-    (candidate.address === undefined || typeof candidate.address === 'string') &&
-    isWalletItemStatus(candidate.status) &&
-    isValidISODate(candidate.createdAt)
-  );
+/**
+ * Type-guard that returns `true` when `value` is one of the three permitted
+ * `WalletItemStatus` strings.
+ *
+ * @example
+ * isValidWalletItemStatus('Active')   // true
+ * isValidWalletItemStatus('Deleted')  // false
+ */
+export function isValidWalletItemStatus(value: unknown): value is WalletItemStatus {
+  return typeof value === 'string' && (WALLET_ITEM_STATUSES as readonly string[]).includes(value);
 }
 
 /**
- * Validates a collection of wallet items against the compatibility contract.
+ * Returns `true` when `date` is a well-formed ISO calendar date (YYYY-MM-DD)
+ * whose components resolve to a valid calendar date (e.g. `2026-02-30` → false).
  *
- * Returns a normalized, frozen array on success. Throws a descriptive error
- * on any violation so failures are diagnosable without exposing sensitive data.
+ * Does not throw; invalid input (non-string, wrong format) returns `false`.
  */
-export function validateWalletItems(
-  items: readonly WalletItem[],
-): readonly WalletItem[] {
-  if (!Array.isArray(items)) {
-    throw new TypeError('Wallet items must be an array.');
+export function isValidISODate(date: unknown): date is string {
+  if (typeof date !== 'string') return false;
+  if (!ISO_DATE_PATTERN.test(date)) return false;
+
+  const [yearStr, monthStr, dayStr] = date.split('-');
+  const year = Number(yearStr);
+  const month = Number(monthStr);
+  const day = Number(dayStr);
+
+  // Month must be 1–12; day must be >= 1.
+  if (month < 1 || month > 12 || day < 1) return false;
+
+  // Use the Date constructor to verify calendar consistency:
+  // passing month-1 because Date months are 0-indexed.
+  const d = new Date(year, month - 1, day);
+  return (
+    d.getFullYear() === year &&
+    d.getMonth() === month - 1 &&
+    d.getDate() === day
+  );
+}
+
+/**
+ * Returns `true` when `address` matches the Stellar public-key structural
+ * pattern: starts with `G`, exactly 56 characters, Stellar base-32 alphabet.
+ *
+ * Does not throw; invalid input (non-string, wrong format) returns `false`.
+ */
+export function isValidStellarAddressPattern(address: unknown): address is string {
+  return typeof address === 'string' && STELLAR_ADDRESS_PATTERN.test(address);
+}
+
+/**
+ * Returns `true` when `item` satisfies every `WalletItem` invariant:
+ *
+ * 1. `id`, `name`, `type`, `currency` are non-empty strings.
+ * 2. `status` is one of `'Active' | 'Archived' | 'Pending'`.
+ * 3. `balance` is a finite number `>= 0`.
+ * 4. `createdAt` is a valid ISO calendar date.
+ * 5. `address`, if present, matches the Stellar public-key pattern.
+ *
+ * This function never throws; it returns `false` for any violation.
+ * Use `assertValidWalletItems` when you need early-exit error reporting.
+ */
+export function isValidWalletItem(item: unknown): item is WalletItem {
+  if (typeof item !== 'object' || item === null) return false;
+
+  const w = item as Record<string, unknown>;
+
+  // Required non-empty string fields
+  if (typeof w.id !== 'string' || w.id.trim() === '') return false;
+  if (typeof w.name !== 'string' || w.name.trim() === '') return false;
+  if (typeof w.type !== 'string' || w.type.trim() === '') return false;
+  if (typeof w.currency !== 'string' || w.currency.trim() === '') return false;
+
+  // Status must be one of the permitted values
+  if (!isValidWalletItemStatus(w.status)) return false;
+
+  // Balance must be a finite non-negative number
+  if (typeof w.balance !== 'number' || !isFinite(w.balance) || w.balance < 0) return false;
+
+  // createdAt must be a valid ISO date string
+  if (!isValidISODate(w.createdAt)) return false;
+
+  // address is optional, but when present it must match the Stellar pattern
+  if (w.address !== undefined && !isValidStellarAddressPattern(w.address)) return false;
+
+  return true;
+}
+
+/**
+ * Validates an array of wallet items against all invariants, throwing an
+ * `InvariantError` on the first violation found.
+ *
+ * Checks performed (in order):
+ * 1. The array must be non-empty.
+ * 2. Each item must satisfy every per-item invariant (via `isValidWalletItem`).
+ * 3. All `id` values must be unique across the array.
+ *
+ * @throws {InvariantError} On the first violation.
+ */
+export function assertValidWalletItems(items: readonly WalletItem[]): void {
+  if (items.length === 0) {
+    throw new InvariantError('SAMPLE_WALLET_ITEMS must contain at least one item.');
   }
 
-  const seenIds = new Set<string>();
-  const normalized: WalletItem[] = [];
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
 
-  for (let index = 0; index < items.length; index += 1) {
-    const item = items[index];
-    if (!isWalletItem(item)) {
-      throw new TypeError(`Invalid wallet item at index ${index}.`);
+    // Required non-empty string fields
+    if (typeof item.id !== 'string' || item.id.trim() === '') {
+      throw new InvariantError(`Item at index ${i} has an invalid or empty "id".`);
     }
+    if (typeof item.name !== 'string' || item.name.trim() === '') {
+      throw new InvariantError(`Item "${item.id}" has an invalid or empty "name".`);
+    }
+    if (typeof item.type !== 'string' || item.type.trim() === '') {
+      throw new InvariantError(`Item "${item.id}" has an invalid or empty "type".`);
+    }
+    if (typeof item.currency !== 'string' || item.currency.trim() === '') {
+      throw new InvariantError(`Item "${item.id}" has an invalid or empty "currency".`);
+    }
+
+    // Status must be one of the permitted values
+    if (!isValidWalletItemStatus(item.status)) {
+      throw new InvariantError(
+        `Item "${item.id}" has invalid status "${String(item.status)}". ` +
+          `Permitted values: ${WALLET_ITEM_STATUSES.join(', ')}.`,
+      );
+    }
+
+    // Balance must be a finite non-negative number
+    if (typeof item.balance !== 'number' || !isFinite(item.balance) || item.balance < 0) {
+      throw new InvariantError(
+        `Item "${item.id}" has invalid balance ${String(item.balance)}. ` +
+          `Balance must be a finite non-negative number.`,
+      );
+    }
+
+    // createdAt must be a valid ISO calendar date
+    if (!isValidISODate(item.createdAt)) {
+      throw new InvariantError(
+        `Item "${item.id}" has invalid createdAt "${item.createdAt}". ` +
+          `Expected a valid ISO date in YYYY-MM-DD format.`,
+      );
+    }
+
+    // address is optional, but when present must match the Stellar pattern
+    if (item.address !== undefined && !isValidStellarAddressPattern(item.address)) {
+      throw new InvariantError(
+        `Item "${item.id}" has an invalid Stellar address "${item.address}". ` +
+          `Address must start with G, be exactly 56 characters, and use the Stellar base-32 alphabet.`,
+      );
+    }
+  }
+
+  // ID uniqueness check
+  const seenIds = new Set<string>();
+  for (const item of items) {
     if (seenIds.has(item.id)) {
-      throw new Error(`Duplicate wallet item id: ${item.id}`);
+      throw new InvariantError(`Duplicate item id "${item.id}" detected in SAMPLE_WALLET_ITEMS.`);
     }
     seenIds.add(item.id);
-    normalized.push(Object.freeze({ ...item }));
   }
-
-  return Object.freeze(normalized);
 }
 
+// ---------------------------------------------------------------------------
+// Sample wallet items
+// ---------------------------------------------------------------------------
+
 /**
- * Sample wallet items used by the UI and tests.
+ * Canonical sample wallet items for seeding and testing.
  *
- * The array and its elements are deep-frozen and validated at module load time.
- * This preserves the historical shape of the data while guaranteeeing that
- * accidental mutation or duplicate ids cannot silently corrupt consumers.
+ * Immutability: every object and the array itself are frozen at runtime.
+ * TypeScript's `as const` propagates the readonly constraint at compile time.
+ *
+ * Invariants are validated at module-load time via `assertValidWalletItems`.
+ * Any violation throws an `InvariantError` so misconfigured data is caught
+ * in CI, local dev, and Jest before it can produce inconsistent runtime state.
  */
-export const SAMPLE_WALLET_ITEMS: readonly WalletItem[] = validateWalletItems([
-  {
+const _SAMPLE_WALLET_ITEMS: WalletItem[] = [
+  Object.freeze({
     id: 'w-1',
     name: 'Stellar Lumens (XLM)',
     type: 'Native Asset',
     balance: 12500,
     currency: 'XLM',
-    address: 'GAAQCAIBAEAQCAIBAEAQC8AIBAEAQC8AIBAEAQC8AIBAEAQC8AIBAEAQDZ7H',
+    address: 'GAAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIQ',
     status: 'Active',
     createdAt: '2026-01-15',
-  },
-  {
+  } as WalletItem),
+  Object.freeze({
     id: 'w-2',
     name: 'USD Coin (USDC)',
     type: 'Stablecoin',
     balance: 3200,
     currency: 'USDC',
-    address: 'GA2C456789ABCDEF0123456789ABCDEF0123456789ABCDEF',
+    address: 'GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB',
     status: 'Active',
     createdAt: '2026-02-01',
-  },
-  {
+  } as WalletItem),
+  Object.freeze({
     id: 'w-3',
     name: 'Escrow Lock Key #402',
     type: 'Security Credential',
@@ -139,8 +306,8 @@ export const SAMPLE_WALLET_ITEMS: readonly WalletItem[] = validateWalletItems([
     currency: 'KEY',
     status: 'Pending',
     createdAt: '2026-03-10',
-  },
-  {
+  } as WalletItem),
+  Object.freeze({
     id: 'w-4',
     name: 'Archived Client Token',
     type: 'Custom Asset',
@@ -148,5 +315,25 @@ export const SAMPLE_WALLET_ITEMS: readonly WalletItem[] = validateWalletItems([
     currency: 'ACT',
     status: 'Archived',
     createdAt: '2025-11-20',
-  },
-]);
+  } as WalletItem),
+];
+
+// Validate all invariants at module-load time.
+// Any violation throws InvariantError immediately, surfacing bugs in CI and tests.
+assertValidWalletItems(_SAMPLE_WALLET_ITEMS);
+
+/**
+ * Validated, runtime-immutable array of sample `WalletItem` records.
+ *
+ * - The array is frozen at runtime: push/pop/splice throw in strict mode.
+ * - Each item is frozen at runtime: field mutations throw in strict mode.
+ * - All invariants (unique IDs, valid status, non-negative balance, ISO date,
+ *   optional Stellar address pattern) are enforced at module-load time.
+ *
+ * The TypeScript type is `WalletItem[]` (not `readonly`) so that existing
+ * callers do not require changes.  The runtime `Object.freeze` guarantee is
+ * verified by the focused tests in `__tests__/constants.test.ts`.
+ *
+ * To read or iterate use standard array methods; do not mutate elements.
+ */
+export const SAMPLE_WALLET_ITEMS: WalletItem[] = Object.freeze(_SAMPLE_WALLET_ITEMS) as WalletItem[];

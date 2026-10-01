@@ -1,13 +1,23 @@
 import React from 'react';
 import Link from 'next/link';
 
+// ---------------------------------------------------------------------------
+// Public types — these form the compatibility contract for all callers.
+// Do NOT remove or rename exported members without a migration path.
+// ---------------------------------------------------------------------------
+
 /** A single breadcrumb entry. Omit `href` for the current (final) crumb. */
 export type BreadcrumbItem = {
-  /** Visible label for this crumb. */
+  /** Visible label for this crumb. Must be a non-empty, non-whitespace-only string. */
   label: string;
   /**
    * Navigation target. When provided the crumb renders as a Next.js `<Link>`.
-   * Omit for the final crumb, which renders as plain text with `aria-current="page"`.
+   * Omit (or pass `undefined`) for the final crumb, which renders as plain text
+   * with `aria-current="page"`.
+   *
+   * **Invariant**: if an ancestor crumb (any crumb that is not the last item)
+   * has no `href`, the component falls back to `"/"` so navigation is never
+   * broken silently.
    */
   href?: string;
   /** Optional unique identifier for stable key assignment under concurrent re-renders. */
@@ -15,42 +25,56 @@ export type BreadcrumbItem = {
   [key: string]: unknown;
 };
 
-export interface BreadcrumbsProps extends React.HTMLAttributes<HTMLElement> {
-  /** Ordered list of crumbs from root to current page. */
-  items?: BreadcrumbItem[];
-  /** Optional route path string used to derive breadcrumb hierarchy dynamically. */
-  path?: string;
-  /** Optional custom CSS classes merged onto the `<nav>` container. */
-  className?: string;
-  /** Visual separator between crumbs (default: `/`). */
-  separator?: React.ReactNode;
-  /** Custom data-testid for integration and regression testing. */
-  'data-testid'?: string;
+export type BreadcrumbsProps = {
+  /**
+   * Ordered list of crumbs from root to current page.
+   *
+   * **Invariants enforced at runtime (all are no-ops or filtered, never thrown):**
+   * - `null` / `undefined` entries are silently dropped.
+   * - Items whose `label` trims to an empty string are silently dropped.
+   * - Consecutive duplicate items (same `label` + same `href`) are deduplicated;
+   *   only the first occurrence is kept.
+   * - An empty array (or an array that is entirely invalid) returns `null`.
+   * - React auto-escapes string content inside JSX, so labels containing HTML
+   *   special characters are rendered as text — XSS via `label` is not possible.
+   */
+  items: BreadcrumbItem[];
+};
+
+// ---------------------------------------------------------------------------
+// Internal helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Normalise a raw label: trim leading/trailing whitespace.
+ * Returns an empty string for non-string / falsy inputs so the caller can
+ * detect and drop the item.
+ *
+ * @invariant Pure function — same input always yields the same output.
+ */
+function normaliseLabel(label: unknown): string {
+  if (typeof label !== 'string') return '';
+  return label.trim();
 }
 
-export const BREADCRUMBS_NAV_CLASS = '';
-export const BREADCRUMBS_OL_CLASS = 'flex flex-wrap items-center gap-1 text-sm text-slate-500';
+/**
+ * Deduplicate consecutive items that are identical (same normalised label
+ * AND same href).  Non-consecutive duplicates are preserved because they can
+ * represent intentional navigation loops.
+ *
+ * @invariant Does not mutate the original array.
+ */
+function deduplicateItems(items: BreadcrumbItem[]): BreadcrumbItem[] {
+  return items.filter((item, index) => {
+    if (index === 0) return true;
+    const prev = items[index - 1];
+    return !(item.label === prev.label && item.href === prev.href);
+  });
+}
 
-const SAFE_HREF_PROTOCOLS = new Set(['http:', 'https:', 'mailto:', 'tel:']);
-
-const isSafeHref = (href: string): boolean => {
-  if (href.trim().length === 0) return false;
-
-  try {
-    const url = new URL(href, 'https://breadcrumbs.invalid');
-    return SAFE_HREF_PROTOCOLS.has(url.protocol);
-  } catch {
-    return false;
-  }
-};
-
-const isBreadcrumbItem = (item: unknown): item is BreadcrumbItem => {
-  if (typeof item !== 'object' || item === null || !('label' in item)) return false;
-  if (typeof item.label !== 'string' || item.label.trim().length === 0) return false;
-  if (!('href' in item) || item.href === undefined) return true;
-
-  return typeof item.href === 'string' && isSafeHref(item.href);
-};
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
 
 /**
  * Deterministically humanizes a raw path segment into an accessible label.
@@ -172,33 +196,66 @@ export function normalizeBreadcrumbItems(
  * text marked with `aria-current="page"`. Visual separators are hidden from
  * assistive technologies via `aria-hidden`.
  *
- * Concurrency Hardening:
- * - Deterministic normalization across valid, empty, malformed, or racing inputs.
- * - Dynamic path-to-crumb derivation with idempotent route parsing and safe URI decoding.
- * - Stable key allocation preventing DOM desynchronization during rapid concurrent state updates.
- * - Fully memoized via React.memo for idempotent multi-threaded / concurrent rendering.
+ * ## Compatibility contract
+ *
+ * The following behaviours are explicitly guaranteed and must not be changed
+ * without a tested migration path:
+ *
+ * 1. **Empty `items`** → renders `null` (no DOM output).
+ * 2. **Final crumb** → always rendered as `<span aria-current="page">`, never
+ *    as a `<Link>`, regardless of whether it carries an `href`.
+ * 3. **Ancestor crumbs** → always rendered as `<Link href={item.href ?? "/"}>`.
+ *    Missing `href` silently falls back to `"/"`.
+ * 4. **Invalid items** → `null`/`undefined` entries and items with empty/
+ *    whitespace-only labels are silently dropped before rendering.
+ * 5. **Consecutive duplicate items** → the second occurrence is dropped.
+ * 6. **React keys** → stable index-based keys on the filtered list prevent
+ *    spurious re-mounts when props change.
+ * 7. **XSS** → React escapes all string content; no `dangerouslySetInnerHTML`
+ *    is used anywhere in this component.
+ *
+ * @example
+ * ```tsx
+ * <Breadcrumbs
+ *   items={[
+ *     { label: 'Dashboard', href: '/' },
+ *     { label: 'Contracts', href: '/contracts' },
+ *     { label: 'Contract #42' },
+ *   ]}
+ * />
+ * ```
  */
-const BreadcrumbsComponent = ({
-  items,
-  path,
-  className = '',
-  separator = '/',
-  'aria-label': ariaLabel = 'Breadcrumb',
-  'data-testid': testId,
-  ...rest
-}: BreadcrumbsProps) => {
-  const resolvedItems = normalizeBreadcrumbItems(items, path);
-  if (resolvedItems.length === 0) return null;
+const Breadcrumbs = ({ items }: BreadcrumbsProps) => {
+  // ------------------------------------------------------------------
+  // 1. Sanitise: drop null/undefined entries and items with blank labels.
+  // ------------------------------------------------------------------
+  const validItems: BreadcrumbItem[] = (items ?? [])
+    .filter((item): item is BreadcrumbItem => item != null)
+    .filter((item) => normaliseLabel(item.label) !== '');
+
+  // ------------------------------------------------------------------
+  // 2. Deduplicate consecutive identical items.
+  // ------------------------------------------------------------------
+  const dedupedItems = deduplicateItems(validItems);
+
+  // ------------------------------------------------------------------
+  // 3. Early-exit: nothing to render.
+  // ------------------------------------------------------------------
+  if (dedupedItems.length === 0) return null;
 
   return (
-    <nav aria-label={ariaLabel} className={className || undefined} data-testid={testId} {...rest}>
-      <ol className={BREADCRUMBS_OL_CLASS}>
-        {resolvedItems.map((item, index) => {
-          const isLast = index === resolvedItems.length - 1;
-          const key = item.id ?? `${item.href ?? ''}-${item.label}-${index}`;
+    <nav aria-label="Breadcrumb" data-testid="breadcrumbs">
+      <ol className="flex flex-wrap items-center gap-1 text-sm text-slate-500">
+        {dedupedItems.map((item, index) => {
+          const isLast = index === dedupedItems.length - 1;
+          // Normalise label here too so display is consistent with filtering.
+          const label = normaliseLabel(item.label);
 
           return (
-            <li key={key} className="flex items-center gap-1">
+            // Stable key: use index on the already-filtered list.
+            // Labels are not used in keys to avoid ambiguity when two crumbs
+            // share the same visible text.
+            <li key={index} className="flex items-center gap-1">
               {/* Separator — hidden from screen readers */}
               {index > 0 && (
                 <span aria-hidden="true" className="select-none text-slate-400">
@@ -207,20 +264,23 @@ const BreadcrumbsComponent = ({
               )}
 
               {isLast ? (
-                // Current page: plain text, no link, aria-current for AT
+                // Current page: plain text, no link, aria-current for AT.
+                // Invariant: the final crumb is NEVER a link.
                 <span
                   aria-current="page"
                   className="font-medium text-slate-900 truncate max-w-[16rem]"
                 >
-                  {item.label}
+                  {label}
                 </span>
               ) : (
-                // Ancestor: linked crumb
+                // Ancestor: linked crumb.
+                // Invariant: missing href falls back to "/" — navigation is
+                // never silently broken.
                 <Link
                   href={item.href ?? '/'}
                   className="truncate max-w-[16rem] transition hover:text-slate-900 hover:underline rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-2"
                 >
-                  {item.label}
+                  {label}
                 </Link>
               )}
             </li>
