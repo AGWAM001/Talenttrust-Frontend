@@ -27,8 +27,8 @@ export interface MilestonesErrorBoundaryProps {
 
 interface State {
   hasError: boolean;
-  retryKey?: number;
-  error?: Error | null; // Add this line
+  retryKey: number;
+  error?: Error;
 }
 
 /** Public error code used by dashboards and tests without exposing internals. */
@@ -72,8 +72,8 @@ export default class MilestonesErrorBoundary extends Component<
   // Lifecycle
   // ------------------------------------------------------------------
 
-  static getDerivedStateFromError(_error: Error): State {
-    return { hasError: true, retryKey: 0 };
+  static getDerivedStateFromError(error: Error): Partial<State> {
+    return { hasError: true, error };
   }
 
   componentDidCatch(error: Error, info: React.ErrorInfo): void {
