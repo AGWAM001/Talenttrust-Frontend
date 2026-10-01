@@ -1,13 +1,16 @@
 'use client';
 
 import React, {
+  createContext,
   useCallback,
   useEffect,
   useMemo,
   useRef,
   useState,
   Suspense,
+  useSyncExternalStore,
 } from 'react';
+import { useSearchParams, useRouter } from 'next/navigation';
 import { useSearchParams, useRouter } from 'next/navigation';
 import EmptyState from '../../components/EmptyState';
 import MilestonesList from '../../components/MilestonesList';
@@ -26,6 +29,7 @@ import { useOfflineMilestones } from '@/hooks/useOfflineMilestones';
 import { SAMPLE_MILESTONES, SAMPLE_DISMISSED_KEY } from './constants';
 import type { Milestone } from '@/types/domain';
 import { useOptimisticMilestoneMutation } from '@/hooks/useOptimisticMilestoneMutation';
+import { subscribeMilestones, getMilestonesSnapshot } from '@/lib/repository';
 
 const UNPAGINATED_LIST_SIZE = 9999;
 
@@ -52,6 +56,21 @@ function getValidSortOption(param: string | null): MilestoneSortOption {
     : 'newest';
 }
 
+/**
+ * Invariant: the milestones page must render a snapshot of the repository that
+ * is consistent with the latest committed write. Concurrent tabs, offline
+ * flushes, and optimistic mutations all funnel through `listMilestones`, so we
+ * subscribe to the repository's change notifications and re-read on every
+ * notification. This prevents stale reads after a racing write.
+ */
+function useRepositoryMilestones(): Milestone[] {
+  return useSyncExternalStore(
+    subscribeMilestones,
+    getMilestonesSnapshot,
+    getMilestonesSnapshot,
+  );
+}
+
 
 
 const MILESTONE_LOAD_EPOCH = Symbol('milestone-load-epoch');
@@ -73,6 +92,7 @@ const MilestonesContent: React.FC = () => {
   );
   const [showForm, setShowForm] = useState(false);
   const { showError } = useToast();
+  const repositoryMilestones = useRepositoryMilestones();
   const reconcileFromRepo = useCallback(() => {
     if (loadEpochRef.current !== MILESTONE_LOAD_EPOCH) return;
     setMilestones(listMilestones());
@@ -82,6 +102,23 @@ const MilestonesContent: React.FC = () => {
     milestones,
     setMilestones,
   );
+
+  // Track the last reconciled snapshot so we can detect silent data loss.
+  const lastReconciledRef = useRef<Milestone[] | null>(null);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  // Keep local state in sync with the repository snapshot. Because the
+  // snapshot is derived from the same source of truth used by optimistic
+  // mutations, racing writes converge to the last committed value.
+  useEffect(() => {
+    setMilestones(repositoryMilestones);
+  }, [repositoryMilestones]);
 
   useEffect(() => {
     setStatusFilter(getValidStatus(searchParams.get('status')));
@@ -104,7 +141,13 @@ const MilestonesContent: React.FC = () => {
       }
 
       const query = params.toString();
-      router.replace(query ? `?${query}` : '?');
+      // Use scroll:false and guard against redundant replaces so rapid
+      // filter/sort toggles cannot enqueue overlapping navigations that
+      // race each other and leave the URL out of sync with state.
+      const nextUrl = query ? `?${query}` : '?';
+      if (nextUrl !== window.location.search) {
+        router.replace(nextUrl, { scroll: false });
+      }
     }, 150);
 
     return () => window.clearTimeout(timeoutId);
@@ -115,6 +158,7 @@ const MilestonesContent: React.FC = () => {
     const persisted = listMilestones();
     if (persisted.length > 0) {
       setMilestones(persisted);
+      lastReconciledRef.current = persisted;
       setIsDismissed(true);
     } else {
       try {
@@ -124,6 +168,7 @@ const MilestonesContent: React.FC = () => {
         setIsDismissed(true);
       }
       setMilestones(SAMPLE_MILESTONES);
+      lastReconciledRef.current = SAMPLE_MILESTONES;
     }
     return () => {
       if (loadEpochRef.current === epoch) {
@@ -141,8 +186,13 @@ const MilestonesContent: React.FC = () => {
     loadEpochRef.current = Symbol('milestone-load-epoch-dismissed');
     setIsDismissed(true);
     setMilestones([]);
+    lastReconciledRef.current = [];
     setTimeout(() => {
-      headingRef.current?.focus();
+      // Guard against the component unmounting between scheduling and
+      // execution of this timeout (concurrent rendering / navigation).
+      if (mountedRef.current) {
+        headingRef.current?.focus();
+      }
     }, 0);
   }, []);
 
@@ -162,18 +212,24 @@ const MilestonesContent: React.FC = () => {
       nextMilestones.sort((left, right) => {
         const leftTime = left.dueDate ? Date.parse(left.dueDate) : Number.POSITIVE_INFINITY;
         const rightTime = right.dueDate ? Date.parse(right.dueDate) : Number.POSITIVE_INFINITY;
-        return leftTime - rightTime;
+        if (leftTime !== rightTime) return leftTime - rightTime;
+        // Deterministic tie-breaker so equal due dates (or both missing)
+        // produce a stable order across renders and concurrent updates.
+        return left.id.localeCompare(right.id);
       });
     } else {
       nextMilestones.sort((left, right) => {
         const leftTime = left.dueDate ? Date.parse(left.dueDate) : Number.NEGATIVE_INFINITY;
         const rightTime = right.dueDate ? Date.parse(right.dueDate) : Number.NEGATIVE_INFINITY;
-        return rightTime - leftTime;
+        if (rightTime !== leftTime) return rightTime - leftTime;
+        return left.id.localeCompare(right.id);
       });
     }
 
     return nextMilestones;
   }, [filtered, sortOrder]);
+
+  assertInvariants(milestones, filtered, sortedMilestones);
 
   const handleAddMilestone = useCallback(() => {
     setShowForm(true);
@@ -191,6 +247,9 @@ const MilestonesContent: React.FC = () => {
     }
     setShowForm(false);
     setIsDismissed(true);
+    } finally {
+      releaseMutationLock(milestone.id);
+    }
   }, [optimisticCreate, showError]);
   const handleCancelForm = useCallback(() => {
     setShowForm(false);
@@ -206,6 +265,9 @@ const MilestonesContent: React.FC = () => {
         description: result.error,
       });
       return false;
+      } finally {
+        releaseMutationLock(id);
+      }
     },
     [optimisticUpdate, showError],
   );

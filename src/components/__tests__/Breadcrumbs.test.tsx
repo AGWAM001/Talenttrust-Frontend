@@ -222,3 +222,65 @@ describe('Breadcrumbs — dynamic labels', () => {
     expect(screen.getByRole('link', { name: 'Untitled' })).toHaveAttribute('href', '/');
   });
 });
+
+describe('Breadcrumbs — input invariants', () => {
+  let consoleError: jest.SpyInstance;
+
+  beforeEach(() => {
+    consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    consoleError.mockRestore();
+  });
+
+  it('omits the whole trail when an item is malformed at runtime', () => {
+    const invalidItem = null as unknown as BreadcrumbItem;
+    const { container } = render(
+      <Breadcrumbs items={[{ label: 'Home', href: '/' }, invalidItem]} />,
+    );
+
+    expect(container.firstChild).toBeNull();
+    expect(consoleError).toHaveBeenCalledWith(
+      'Breadcrumbs received invalid items; navigation was omitted.',
+    );
+  });
+
+  it('rejects sparse arrays instead of silently skipping missing entries', () => {
+    const items = new Array(2) as BreadcrumbItem[];
+    items[0] = { label: 'Home', href: '/' };
+    const { container } = render(<Breadcrumbs items={items} />);
+
+    expect(container.firstChild).toBeNull();
+  });
+
+  it('omits the whole trail when an ancestor has an unsafe URL scheme', () => {
+    const { container } = render(
+      <Breadcrumbs
+        items={[
+          { label: 'Home', href: 'javascript:alert(1)' },
+          { label: 'Current' },
+        ]}
+      />,
+    );
+
+    expect(container.firstChild).toBeNull();
+  });
+
+  it('preserves duplicate labels as separate ordered crumbs', () => {
+    const { container } = render(
+      <Breadcrumbs
+        items={[
+          { label: 'Section', href: '/first' },
+          { label: 'Section', href: '/second' },
+          { label: 'Section' },
+        ]}
+      />,
+    );
+
+    expect(screen.getAllByText('Section')).toHaveLength(3);
+    expect(container.querySelectorAll('ol > li')).toHaveLength(3);
+    expect(screen.getAllByRole('link', { name: 'Section' })).toHaveLength(2);
+    expect(screen.getByText('Section', { selector: '[aria-current="page"]' })).toBeInTheDocument();
+  });
+});

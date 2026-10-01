@@ -17,6 +17,27 @@ export type BreadcrumbsProps = {
   items: BreadcrumbItem[];
 };
 
+const SAFE_HREF_PROTOCOLS = new Set(['http:', 'https:', 'mailto:', 'tel:']);
+
+const isSafeHref = (href: string): boolean => {
+  if (href.trim().length === 0) return false;
+
+  try {
+    const url = new URL(href, 'https://breadcrumbs.invalid');
+    return SAFE_HREF_PROTOCOLS.has(url.protocol);
+  } catch {
+    return false;
+  }
+};
+
+const isBreadcrumbItem = (item: unknown): item is BreadcrumbItem => {
+  if (typeof item !== 'object' || item === null || !('label' in item)) return false;
+  if (typeof item.label !== 'string' || item.label.trim().length === 0) return false;
+  if (!('href' in item) || item.href === undefined) return true;
+
+  return typeof item.href === 'string' && isSafeHref(item.href);
+};
+
 /**
  * Accessible breadcrumb navigation component.
  *
@@ -37,6 +58,12 @@ export type BreadcrumbsProps = {
  * ```
  */
 const Breadcrumbs = ({ items }: BreadcrumbsProps) => {
+  // Validate the entire trail so malformed entries cannot change the current crumb.
+  if (!Array.isArray(items) || !Array.from(items).every(isBreadcrumbItem)) {
+    console.error('Breadcrumbs received invalid items; navigation was omitted.');
+    return null;
+  }
+
   if (items.length === 0) return null;
 
   return (
