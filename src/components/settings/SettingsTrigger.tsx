@@ -1,11 +1,25 @@
 'use client';
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useMemo } from 'react';
 import { SettingsPanel } from './SettingsPanel';
+import { useRegisterCommandAction } from '@/components/CommandPalette';
 
 export function SettingsTrigger() {
   const [isOpen, setIsOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
+
+  // Register the Settings dialog in the command palette.
+  const settingsAction = useMemo(
+    () => ({
+      id: 'open-settings',
+      label: 'Open Settings',
+      keywords: ['settings', 'preferences', 'theme', 'config', 'currency'],
+      section: 'Dialogs',
+      onSelect: () => setIsOpen(true),
+    }),
+    [],
+  );
+  useRegisterCommandAction(settingsAction);
 
   const handleClose = () => {
     setIsOpen(false);
@@ -21,6 +35,7 @@ export function SettingsTrigger() {
         aria-label="Open Settings"
       >
         <svg 
+          aria-hidden="true"
           className="w-6 h-6" 
           fill="none" 
           viewBox="0 0 24 24" 

@@ -1,9 +1,9 @@
 import React from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import MilestonesPage from '../milestones/page';
+import { ToastProvider } from '@/components/toast/toast-provider';
 
-// Mock next/navigation hooks
 jest.mock('next/navigation', () => {
   const original = jest.requireActual('next/navigation');
   return {
@@ -13,41 +13,64 @@ jest.mock('next/navigation', () => {
   };
 });
 
+jest.mock('@/lib/repository', () => ({
+  listMilestones: jest.fn(() => []),
+  saveMilestone: jest.fn(),
+}));
+
+jest.mock('@/lib/safeStorage', () => ({
+  getItem: jest.fn(() => null),
+  setItem: jest.fn(),
+}));
+
 import { useSearchParams, useRouter } from 'next/navigation';
 
-describe('Milestones page filter URL sync', () => {
+describe('Milestones page URL state sync', () => {
   const replaceMock = jest.fn();
+
   beforeEach(() => {
+    jest.useFakeTimers();
     replaceMock.mockReset();
     (useRouter as jest.Mock).mockReturnValue({ replace: replaceMock });
   });
 
-  it('initializes filter from URL query', () => {
+  afterEach(() => {
+    jest.runOnlyPendingTimers();
+    jest.useRealTimers();
+  });
+
+  it('initializes filter and sort from the URL query', () => {
     (useSearchParams as jest.Mock).mockReturnValue({
-      get: (key: string) => (key === 'status' ? 'Paid' : null),
-      toString: () => 'status=Paid',
+      get: (key: string) => (key === 'status' ? 'Paid' : key === 'sort' ? 'oldest' : null),
+      toString: () => 'status=Paid&sort=oldest',
     });
-    render(<MilestonesPage />);
+    render(<ToastProvider><MilestonesPage /></ToastProvider>);
     const paidRadio = screen.getByRole('radio', { name: 'Paid' }) as HTMLInputElement;
+    const sortSelect = screen.getByLabelText('Sort milestones') as HTMLSelectElement;
+
     expect(paidRadio.checked).toBe(true);
+    expect(sortSelect.value).toBe('oldest');
   });
 
-  it('defaults to All for unknown status', () => {
+  it('defaults to safe values for invalid status and sort params', () => {
     (useSearchParams as jest.Mock).mockReturnValue({
-      get: () => 'Foo',
-      toString: () => 'status=Foo',
+      get: (key: string) => (key === 'status' ? 'Bogus' : key === 'sort' ? 'middle' : null),
+      toString: () => 'status=Bogus&sort=middle',
     });
-    render(<MilestonesPage />);
+    render(<ToastProvider><MilestonesPage /></ToastProvider>);
     const allRadio = screen.getByRole('radio', { name: 'All' }) as HTMLInputElement;
+    const sortSelect = screen.getByLabelText('Sort milestones') as HTMLSelectElement;
+
     expect(allRadio.checked).toBe(true);
+    expect(sortSelect.value).toBe('newest');
   });
 
-  it('updates URL when filter changes', async () => {
+  it('debounces URL updates when filter or sort changes', async () => {
     (useSearchParams as jest.Mock).mockReturnValue({
       get: () => null,
       toString: () => '',
     });
-    render(<MilestonesPage />);
+    render(<ToastProvider><MilestonesPage /></ToastProvider>);
     const pendingRadio = screen.getByRole('radio', { name: 'Pending' }) as HTMLInputElement;
     fireEvent.click(pendingRadio);
     await waitFor(() => {

@@ -662,3 +662,26 @@ page, not just this component) and is out of scope for this issue.
   `outline-blue-500` class is confirmed absent (regression guard).
 - `a11y.test.tsx` — `jest-axe` audit for a single-crumb trail and a
   three-crumb trail with a current page, both zero violations.
+
+---
+
+## Milestones — Reduced-Motion & High-Contrast Support (issue #755)
+
+**Standard:** WCAG 2.1 AA & WCAG 2.3.3 — Animation from Interactions & High Contrast Legibility.
+
+### Implementation Details
+
+1. **Reduced Motion (`prefers-reduced-motion: reduce`)**:
+   - Explicitly halts `.animate-pulse` keyframe animation so skeleton components (`MilestonesListSkeleton`, `ContractProgressSkeleton`) render as static placeholder blocks without continuous movement.
+   - Collapses all CSS transitions (`ContractProgress` fill width, `MilestonesList` banner actions, filter pill toggles) to near-instant 0.01ms duration so state updates snap into place immediately without motion.
+
+2. **High-Contrast / Forced-Colors Mode (`@media (forced-colors: active)`)**:
+   - `[role="progressbar"]`: Enforces a `1px solid CanvasText` border around the track and sets the indicator fill to `background-color: Highlight !important` with `forced-color-adjust: none`, keeping the completion bar visible when system colors are overridden.
+   - Status badge pills (`.status-badge`) and summary list items (`[role="listitem"]`): Applies `1px solid CanvasText` borders to ensure badges remain distinct chips.
+   - Filter options (`fieldset label`): Enforces high-contrast borders and applies `Highlight` background and `HighlightText` color to selected radio labels.
+
+### Testing & Verification
+
+- Tested in `src/components/__tests__/a11y.test.tsx` under `a11y: prefers-reduced-motion — milestones` and `a11y: forced-colors / high contrast — milestones`.
+- Confirmed zero `jest-axe` violations across all states.
+

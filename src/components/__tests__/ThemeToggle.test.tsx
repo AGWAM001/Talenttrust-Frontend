@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, fireEvent, act } from '@testing-library/react';
+import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { ThemeToggle } from '../ThemeToggle';
 import { PreferencesProvider, usePreferences } from '@/lib/preferences';
@@ -38,13 +38,29 @@ describe('ThemeToggle', () => {
     resetCache();
   });
 
-  it('renders null on the server (before mount)', () => {
-    // Simulate pre-mount by checking no button exists before useEffect fires
-    // We rely on the mounted guard: the component returns null until useEffect.
-    // In the Jest environment useEffect runs synchronously via act, so we
-    // just verify the button IS present after render (positive case).
+  it('renders a skeleton during the server render before hydration', () => {
+    const { renderToStaticMarkup } = require('react-dom/server.node');
+    const markup = renderToStaticMarkup(
+      <PreferencesProvider>
+        <ThemeToggle />
+      </PreferencesProvider>,
+    );
+
+    expect(markup).toContain('aria-hidden="true"');
+    expect(markup).toContain('aria-busy="true"');
+    expect(markup).toContain('h-9 w-9');
+    expect(markup).toContain('animate-pulse');
+    expect(markup).toContain('disabled=""');
+    expect(markup).not.toContain('aria-label="Switch to dark theme"');
+    expect(markup).not.toContain('aria-label="Switch to light theme"');
+  });
+
+  it('renders the final button after hydration', async () => {
     renderToggle();
-    expect(screen.getByRole('button')).toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /switch to dark theme/i })).toBeInTheDocument();
+    });
   });
 
   it('shows moon icon and "Switch to dark theme" label when theme is light', () => {
@@ -143,5 +159,16 @@ describe('ThemeToggle', () => {
       localStorage.getItem('talenttrust-user-preferences') || '{}',
     );
     expect(saved.theme).toBe('dark');
+  });
+
+  it('keeps the skeleton size stable while loading', () => {
+    const { renderToStaticMarkup } = require('react-dom/server.node');
+    const markup = renderToStaticMarkup(
+      <PreferencesProvider>
+        <ThemeToggle />
+      </PreferencesProvider>,
+    );
+
+    expect(markup).toContain('class="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-slate-200 animate-pulse dark:bg-slate-700"');
   });
 });

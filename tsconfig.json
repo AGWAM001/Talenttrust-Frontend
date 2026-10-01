@@ -26,8 +26,7 @@
       "@/*": [
         "./src/*"
       ]
-    },
-    "types": []
+    }
   },
   "include": [
     "next-env.d.ts",
@@ -43,6 +42,5 @@
     "**/*.test.tsx",
     ".next/types/test",
     ".next/types/test/**/*"
-  ],
-
+  ]
 }

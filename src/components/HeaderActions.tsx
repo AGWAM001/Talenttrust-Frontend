@@ -1,8 +1,9 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { WalletConnectButton } from '@/components/WalletConnectButton';
+import SafeBoundary from '@/components/SafeBoundary';
 
 /**
  * HeaderActions — responsive header action wrapper.
@@ -14,20 +15,54 @@ import { WalletConnectButton } from '@/components/WalletConnectButton';
  * On larger screens it preserves the existing inline layout for the
  * `WalletConnectButton` while still rendering a keyboard-accessible toggle
  * for mobile users.
+ *
+ * Focus management:
+ * - When the toggle opens, focus moves to the first interactive element
+ *   inside the revealed panel so keyboard users can immediately operate
+ *   the wallet controls.
+ * - When the panel closes, focus is restored to the toggle button.
  */
 export default function HeaderActions(): React.JSX.Element {
   const [isOpen, setIsOpen] = useState(false);
   const menuId = 'header-wallet-actions';
+  const toggleRef = useRef<HTMLButtonElement | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    if (isOpen) {
+      const panel = panelRef.current;
+      if (!panel) return;
+      const focusable = panel.querySelector<HTMLElement>(
+        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      );
+      focusable?.focus();
+    } else {
+      // Panel just closed — restore focus to toggle button
+      // Use longer timeout to ensure DOM has settled
+      setTimeout(() => {
+        if (toggleRef.current && document.contains(toggleRef.current)) {
+          toggleRef.current.focus();
+        }
+      }, 50);
+    }
+  }, [isOpen]);
+
+  const handleToggle = () => {
+    setIsOpen((current) => !current);
+  };
 
   return (
     <div className="flex flex-col items-end gap-2 sm:flex-row sm:items-center sm:min-w-0">
       <div className="flex items-center gap-2">
         <ThemeToggle />
         <button
+          ref={toggleRef}
           type="button"
           aria-expanded={isOpen ? 'true' : 'false'}
           aria-controls={menuId}
-          onClick={() => setIsOpen((current) => !current)}
+          onClick={handleToggle}
           className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 shadow-sm transition hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-white sm:hidden"
         >
           <span className="sr-only">
@@ -50,6 +85,7 @@ export default function HeaderActions(): React.JSX.Element {
 
       <div
         id={menuId}
+        ref={panelRef}
         role="region"
         aria-label="Wallet actions"
         className={[
@@ -58,7 +94,9 @@ export default function HeaderActions(): React.JSX.Element {
         ].join(' ')}
       >
         <div className="flex w-full min-w-0 justify-end sm:w-auto">
-          <WalletConnectButton />
+          <SafeBoundary fallbackTitle="Wallet section failed to load.">
+            <WalletConnectButton />
+          </SafeBoundary>
         </div>
       </div>
     </div>

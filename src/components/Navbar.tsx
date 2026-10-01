@@ -12,6 +12,7 @@ const NAV_ROUTES = [
   { href: '/contracts', label: 'Contracts' },
   { href: '/milestones', label: 'Milestones' },
   { href: '/reputation', label: 'Reputation' },
+  { href: '/wallet', label: 'Wallet' },
 ] as const;
 
 /**

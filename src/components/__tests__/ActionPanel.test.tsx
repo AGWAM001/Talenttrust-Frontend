@@ -3,25 +3,16 @@ import { render, screen, fireEvent, within, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import ActionPanel from '../ActionPanel';
 import { useWallet } from '@/contexts/WalletContext';
-import { useToast } from '@/components/toast/toast-provider';
 import { assertNoA11yViolations } from '@/test-utils/a11y';
 import { DISPUTE_REASON_MAX_LENGTH } from '@/lib/disputeReason';
 
-const mockShowSuccess = jest.fn();
 const maxChars = 'a'.repeat(DISPUTE_REASON_MAX_LENGTH);
 
 jest.mock('@/contexts/WalletContext', () => ({
   useWallet: jest.fn(),
 }));
 
-jest.mock('@/components/toast/toast-provider', () => ({
-  useToast: jest.fn(() => ({
-    showSuccess: mockShowSuccess,
-  })),
-}));
-
 const mockUseWallet = jest.mocked(useWallet);
-const mockUseToast = jest.mocked(useToast);
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -56,13 +47,6 @@ async function submitDisputeWithReason(
 
 describe('ActionPanel', () => {
   beforeEach(() => {
-    mockShowSuccess.mockClear();
-    mockUseToast.mockReturnValue({
-      showSuccess: mockShowSuccess,
-      showError: jest.fn(),
-      toasts: [],
-      dismissToast: jest.fn(),
-    });
     mockUseWallet.mockReturnValue({
       address: '0x123',
       isConnecting: false,
@@ -104,7 +88,6 @@ describe('ActionPanel', () => {
     );
     fireEvent.click(within(submitDialog).getByRole('button', { name: /submit milestone/i }));
     expect(onSubmitMilestone).toHaveBeenCalledTimes(1);
-    expect(mockShowSuccess).toHaveBeenCalledWith(expect.objectContaining({ title: 'Milestone submitted' }));
 
     // Release Funds → ConfirmDialog (tone="destructive" -> alertdialog)
     fireEvent.click(screen.getByRole('button', { name: /release funds/i }));
@@ -241,7 +224,6 @@ describe('ActionPanel', () => {
     fireEvent.click(submitButton);
 
     expect(onSubmitMilestone).not.toHaveBeenCalled();
-    expect(mockShowSuccess).not.toHaveBeenCalled();
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
@@ -398,12 +380,6 @@ describe('focus restoration after dialog close', () => {
       error: null,
       connect: jest.fn(),
       disconnect: jest.fn(),
-    });
-    mockUseToast.mockReturnValue({
-      showSuccess: mockShowSuccess,
-      showError: jest.fn(),
-      toasts: [],
-      dismissToast: jest.fn(),
     });
   });
 
@@ -590,12 +566,6 @@ describe('inline dispute form — validation', () => {
       connect: jest.fn(),
       disconnect: jest.fn(),
     });
-    mockUseToast.mockReturnValue({
-      showSuccess: mockShowSuccess,
-      showError: jest.fn(),
-      toasts: [],
-      dismissToast: jest.fn(),
-    });
   });
 
   it('clicking Dispute reveals the inline form with a labeled textarea', async () => {
@@ -771,12 +741,6 @@ describe('inline dispute form — character counter live region', () => {
       connect: jest.fn(),
       disconnect: jest.fn(),
     });
-    mockUseToast.mockReturnValue({
-      showSuccess: mockShowSuccess,
-      showError: jest.fn(),
-      toasts: [],
-      dismissToast: jest.fn(),
-    });
   });
 
   afterEach(() => {
@@ -932,4 +896,59 @@ describe('inline dispute form — character counter live region', () => {
     // Check with dispute form open
     await assertNoA11yViolations(container);
   });
+
+  describe('disableMutations prop', () => {
+    it('disables submit milestone, release funds, and dispute buttons when disableMutations=true', () => {
+      render(
+        <ActionPanel
+          status="Active"
+          disableMutations={true}
+          onSubmitMilestone={jest.fn()}
+          onReleaseFunds={jest.fn()}
+          onDispute={jest.fn()}
+          onViewSummary={jest.fn()}
+        />,
+      );
+
+      const submitBtn = screen.getByRole('button', { name: /submit milestone/i });
+      const releaseBtn = screen.getByRole('button', { name: /release funds/i });
+      const disputeBtn = screen.getByRole('button', { name: /dispute/i });
+
+      expect(submitBtn).toBeDisabled();
+      expect(releaseBtn).toBeDisabled();
+      expect(disputeBtn).toBeDisabled();
+
+      expect(submitBtn).toHaveAttribute('title', 'Actions disabled while offline or viewing stale data');
+      expect(releaseBtn).toHaveAttribute('title', 'Actions disabled while offline or viewing stale data');
+      expect(disputeBtn).toHaveAttribute('title', 'Actions disabled while offline or viewing stale data');
+    });
+
+    it('does not disable read-only actions like view summary when disableMutations=true', () => {
+      render(
+        <ActionPanel
+          status="Completed"
+          disableMutations={true}
+          onViewSummary={jest.fn()}
+        />,
+      );
+
+      const viewSummaryBtn = screen.getByRole('button', { name: /view contract summary details/i });
+      expect(viewSummaryBtn).not.toBeDisabled();
+    });
+
+    it('passes accessibility checks when mutations are disabled', async () => {
+      const { container } = render(
+        <ActionPanel
+          status="Active"
+          disableMutations={true}
+          onSubmitMilestone={jest.fn()}
+          onReleaseFunds={jest.fn()}
+          onDispute={jest.fn()}
+        />,
+      );
+
+      await assertNoA11yViolations(container);
+    });
+  });
 });
+

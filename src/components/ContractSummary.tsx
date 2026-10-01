@@ -6,6 +6,7 @@ import { truncateAddress } from '@/lib/truncateAddress';
 import { usePreferences } from '@/lib/preferences';
 import { useToast } from '@/components/toast/toast-provider';
 import { normalizeStellarAddress, isValidStellarAddress } from '@/lib/stellarAddress';
+import { LastUpdated } from '@/components/LastUpdated';
 
 /**
  * Sanitizes an address by stripping ASCII control characters (U+0000–U+001F, U+007F–U+009F)
@@ -41,7 +42,18 @@ export type ContractSummaryProps = {
   currency: string;
   status: StatusType;
   createdAt: string;
+  /**
+   * ISO-8601 timestamp of the last update. Displayed as a relative
+   * "Updated X ago" label with an accessible absolute-time alternative.
+   * Falls back gracefully when absent.
+   */
+  updatedAt?: string;
   milestoneCount: number;
+  /**
+   * Monotonically incrementing version used by the persistence layer to guard
+   * against stale overwrites. Consumers should treat this as opaque.
+   */
+  version?: number;
 };
 
 const ContractSummary = ({
@@ -51,6 +63,7 @@ const ContractSummary = ({
   currency,
   status,
   createdAt,
+  updatedAt,
   milestoneCount,
 }: ContractSummaryProps) => {
   const { formatAmount } = usePreferences();
@@ -152,6 +165,7 @@ const ContractSummary = ({
         <div className="rounded-2xl bg-slate-50 p-4">
           <p className="text-sm text-slate-500">Created</p>
           <p className="mt-2 text-base font-medium text-slate-900">{createdAt}</p>
+          {updatedAt && <LastUpdated updatedAt={updatedAt} className="mt-1 block" />}
           <div className="mt-4 flex items-center justify-between gap-2 border-b border-slate-200 pb-2">
             <span className="text-sm text-slate-500">Parties</span>
             <span className="text-xs font-semibold text-slate-500" aria-live="polite">
@@ -183,11 +197,11 @@ const ContractSummary = ({
                       title={isCopied ? `${party.label} address copied` : 'Copy address'}
                     >
                       {isCopied ? (
-                        <svg className="h-4 w-4 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <svg aria-hidden="true" className="h-4 w-4 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                         </svg>
                       ) : (
-                        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <svg aria-hidden="true" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
                         </svg>
                       )}

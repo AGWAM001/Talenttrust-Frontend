@@ -5,6 +5,7 @@ import { ToastDemo } from '@/components/toast/toast-demo';
 import { FormField } from '@/components/FormField';
 import { ErrorSummary } from '@/components/ErrorSummary';
 import { useToast } from '@/components/toast/toast-provider';
+import { useFormAnnouncer } from '@/hooks/useFormAnnouncer';
 import {
   MAX_EMAIL_LENGTH,
   MAX_PASSWORD_LENGTH,
@@ -23,6 +24,7 @@ export default function Home() {
   const [cooldownRemainingMs, setCooldownRemainingMs] = useState(0);
   const cooldownIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const { showSuccess } = useToast();
+  const { politeMessage, assertiveMessage, announce } = useFormAnnouncer();
 
   const clearCooldownInterval = () => {
     if (cooldownIntervalRef.current !== null) {
@@ -74,6 +76,15 @@ export default function Home() {
       clearCooldownInterval();
       showSuccess({
         title: 'Form submitted successfully!',
+      });
+      announce({
+        message: 'Form submitted successfully.',
+        type: 'success',
+      });
+    } else {
+      announce({
+        message: `Sign in failed. ${newErrors.length} error${newErrors.length > 1 ? 's' : ''} found. Please review the form.`,
+        type: 'error',
       });
     }
   };
@@ -173,6 +184,24 @@ export default function Home() {
               Please wait {cooldownSecs} seconds before trying to sign in again.
             </div>
           )}
+
+          {/* Form async result live regions — screen-reader only, no visual output */}
+          <div
+            aria-live="polite"
+            aria-atomic="true"
+            className="sr-only"
+            data-testid="form-announcer-polite"
+          >
+            {politeMessage}
+          </div>
+          <div
+            aria-live="assertive"
+            aria-atomic="true"
+            className="sr-only"
+            data-testid="form-announcer-assertive"
+          >
+            {assertiveMessage}
+          </div>
         </form>
 
         <ToastDemo />

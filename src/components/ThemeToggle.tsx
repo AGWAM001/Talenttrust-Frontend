@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { usePreferences } from '@/lib/preferences';
+import { useToast } from '@/components/toast/toast-provider';
 
 /**
  * ThemeToggle — inline header button that cycles between light and dark.
@@ -9,19 +10,29 @@ import { usePreferences } from '@/lib/preferences';
  * - Reads `preferences.theme` via `usePreferences()`.
  * - Toggles between `'light'` and `'dark'` (treats `'system'` as dark for
  *   the first click so the user gets an explicit state immediately).
- * - Renders `null` before hydration to prevent SSR mismatch (the
- *   `PreferencesProvider` already guards `isHydrated`, so on the first
- *   client render `preferences.theme` is the resolved stored value).
+ * - Renders a loading skeleton before hydration to avoid layout shift while
+ *   the resolved theme state is still settling on the client.
  */
 export function ThemeToggle() {
   const { preferences, updatePreference } = usePreferences();
+  const { showError } = useToast();
   const [mounted, setMounted] = React.useState(false);
 
   React.useEffect(() => {
     setMounted(true);
   }, []);
 
-  if (!mounted) return null;
+  if (!mounted) {
+    return (
+      <button
+        type="button"
+        disabled
+        aria-hidden="true"
+        aria-busy="true"
+        className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-slate-200 animate-pulse dark:bg-slate-700"
+      />
+    );
+  }
 
   const isDark = preferences.theme === 'dark';
   const next = isDark ? 'light' : 'dark';
@@ -30,7 +41,13 @@ export function ThemeToggle() {
   return (
     <button
       type="button"
-      onClick={() => updatePreference('theme', next)}
+      onClick={async () => {
+        try {
+          await updatePreference('theme', next);
+        } catch {
+          showError({ title: 'Failed to update settings. Please try again.' });
+        }
+      }}
       aria-label={label}
       aria-pressed={isDark}
       className="rounded-md p-2 text-slate-600 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)] focus-visible:ring-offset-2"

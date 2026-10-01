@@ -74,6 +74,10 @@ describe('PreferencesProvider', () => {
       theme: 'system',
       amountFormat: 'usd',
       toastDensity: 'relaxed',
+      formDensity: 'comfortable',
+      milestonesDensity: 'comfortable',
+      walletDensity: 'comfortable',
+      contractsDensity: 'comfortable',
       quietMode: false,
       toastDuration: 'normal',
       idleDisconnectMs: 0,
@@ -126,6 +130,66 @@ describe('PreferencesProvider', () => {
     ).toBe(false);
   });
 
+  it('uses default formDensity when none is stored', () => {
+    const { result } = renderHook(() => usePreferences(), { wrapper });
+    expect(result.current.preferences.formDensity).toBe('comfortable');
+  });
+
+  it('persists formDensity and restores it on hydation', () => {
+    const { result } = renderHook(() => usePreferences(), { wrapper });
+
+    act(() => {
+      result.current.updatePreference('formDensity', 'compact');
+    });
+
+    expect(result.current.preferences.formDensity).toBe('compact');
+    const saved = JSON.parse(localStorage.getItem('talenttrust-user-preferences') || '{}');
+    expect(saved.formDensity).toBe('compact');
+
+    // Remount to simulate reload
+    const { result: r2 } = renderHook(() => usePreferences(), { wrapper });
+    expect(r2.current.preferences.formDensity).toBe('compact');
+  });
+
+  it('falls back to comfortable when stored formDensity is invalid', () => {
+    localStorage.setItem(
+      'talenttrust-user-preferences',
+      JSON.stringify({ formDensity: 'ultra-compact' }),
+    );
+    const { result } = renderHook(() => usePreferences(), { wrapper });
+    expect(result.current.preferences.formDensity).toBe('comfortable');
+  });
+
+  it('uses default contractsDensity when none is stored', () => {
+    const { result } = renderHook(() => usePreferences(), { wrapper });
+    expect(result.current.preferences.contractsDensity).toBe('comfortable');
+  });
+
+  it('persists contractsDensity and restores it on hydration', () => {
+    const { result } = renderHook(() => usePreferences(), { wrapper });
+
+    act(() => {
+      result.current.updatePreference('contractsDensity', 'compact');
+    });
+
+    expect(result.current.preferences.contractsDensity).toBe('compact');
+    const saved = JSON.parse(localStorage.getItem('talenttrust-user-preferences') || '{}');
+    expect(saved.contractsDensity).toBe('compact');
+
+    // Remount to simulate reload
+    const { result: r2 } = renderHook(() => usePreferences(), { wrapper });
+    expect(r2.current.preferences.contractsDensity).toBe('compact');
+  });
+
+  it('falls back to comfortable when stored contractsDensity is invalid', () => {
+    localStorage.setItem(
+      'talenttrust-user-preferences',
+      JSON.stringify({ contractsDensity: 'ultra-compact' }),
+    );
+    const { result } = renderHook(() => usePreferences(), { wrapper });
+    expect(result.current.preferences.contractsDensity).toBe('comfortable');
+  });
+
   it('rejects non-boolean quietMode values (truthy coercion guard)', () => {
     localStorage.setItem(
       'talenttrust-user-preferences',
@@ -142,13 +206,14 @@ describe('PreferencesProvider', () => {
     expect(r2.current.preferences.quietMode).toBe(false);
   });
 
-  it('persists only the six known keys even after a malicious payload round-trips', async () => {
+  it('persists only the seven known keys even after a malicious payload round-trips', async () => {
     localStorage.setItem(
       'talenttrust-user-preferences',
       JSON.stringify({
         theme: 'dark',
         amountFormat: 'ngn',
         toastDensity: 'compact',
+        formDensity: 'compact',
         quietMode: true,
         toastDuration: 'long',
         idleDisconnectMs: 10000,
@@ -166,11 +231,15 @@ describe('PreferencesProvider', () => {
     // so we compare with `.sort()` for engine-independent comparison.
     expect(Object.keys(serialized).sort()).toEqual([
       'amountFormat',
+      'contractsDensity',
+      'formDensity',
       'idleDisconnectMs',
+      'milestonesDensity',
       'quietMode',
       'theme',
       'toastDensity',
       'toastDuration',
+      'walletDensity',
     ]);
   });
 
@@ -220,6 +289,10 @@ describe('sanitizePreferences (pure helper)', () => {
     theme: 'system',
     amountFormat: 'usd',
     toastDensity: 'relaxed',
+    formDensity: 'comfortable',
+    milestonesDensity: 'comfortable',
+    walletDensity: 'comfortable',
+    contractsDensity: 'comfortable',
     quietMode: false,
     toastDuration: 'normal',
     idleDisconnectMs: 0,
@@ -251,6 +324,7 @@ describe('sanitizePreferences (pure helper)', () => {
         theme: 'dark',
         amountFormat: 'compact',
         toastDensity: 'compact',
+        formDensity: 'compact',
         quietMode: true,
         toastDuration: 'long',
         idleDisconnectMs: 15000,
@@ -259,6 +333,10 @@ describe('sanitizePreferences (pure helper)', () => {
       theme: 'dark',
       amountFormat: 'compact',
       toastDensity: 'compact',
+      formDensity: 'compact',
+      milestonesDensity: 'comfortable',
+      walletDensity: 'comfortable',
+      contractsDensity: 'comfortable',
       quietMode: true,
       toastDuration: 'long',
       idleDisconnectMs: 15000,
@@ -272,6 +350,10 @@ describe('sanitizePreferences (pure helper)', () => {
       theme: 'light',
       amountFormat: 'usd',
       toastDensity: 'relaxed',
+      formDensity: 'comfortable',
+      milestonesDensity: 'comfortable',
+      walletDensity: 'comfortable',
+      contractsDensity: 'comfortable',
       quietMode: true,
       toastDuration: 'normal',
       idleDisconnectMs: 0,
@@ -309,6 +391,54 @@ describe('sanitizePreferences (pure helper)', () => {
   it('rejects invalid toastDensity values', () => {
     expect(sanitizePreferences({ toastDensity: 'wide' })).toEqual({ ...DEFAULTS });
     expect(sanitizePreferences({ toastDensity: 2 } as unknown as UserPreferences)).toEqual({
+      ...DEFAULTS,
+    });
+  });
+
+  it('accepts valid milestonesDensity values', () => {
+    expect(sanitizePreferences({ milestonesDensity: 'compact' })).toEqual({
+      ...DEFAULTS,
+      milestonesDensity: 'compact',
+    });
+    expect(sanitizePreferences({ milestonesDensity: 'comfortable' })).toEqual({
+      ...DEFAULTS,
+      milestonesDensity: 'comfortable',
+    });
+  });
+
+  it('rejects invalid milestonesDensity values and falls back to default', () => {
+    expect(sanitizePreferences({ milestonesDensity: 'wide' })).toEqual({ ...DEFAULTS });
+    expect(sanitizePreferences({ milestonesDensity: 1 } as unknown as UserPreferences)).toEqual({
+      ...DEFAULTS,
+    });
+    expect(sanitizePreferences({ milestonesDensity: null } as unknown as UserPreferences)).toEqual({
+      ...DEFAULTS,
+    });
+    expect(sanitizePreferences({ milestonesDensity: true } as unknown as UserPreferences)).toEqual({
+      ...DEFAULTS,
+    });
+  });
+
+  it('accepts valid contractsDensity values', () => {
+    expect(sanitizePreferences({ contractsDensity: 'compact' })).toEqual({
+      ...DEFAULTS,
+      contractsDensity: 'compact',
+    });
+    expect(sanitizePreferences({ contractsDensity: 'comfortable' })).toEqual({
+      ...DEFAULTS,
+      contractsDensity: 'comfortable',
+    });
+  });
+
+  it('rejects invalid contractsDensity values and falls back to default', () => {
+    expect(sanitizePreferences({ contractsDensity: 'wide' })).toEqual({ ...DEFAULTS });
+    expect(sanitizePreferences({ contractsDensity: 1 } as unknown as UserPreferences)).toEqual({
+      ...DEFAULTS,
+    });
+    expect(sanitizePreferences({ contractsDensity: null } as unknown as UserPreferences)).toEqual({
+      ...DEFAULTS,
+    });
+    expect(sanitizePreferences({ contractsDensity: true } as unknown as UserPreferences)).toEqual({
       ...DEFAULTS,
     });
   });
@@ -358,6 +488,7 @@ describe('sanitizePreferences (pure helper)', () => {
       theme: 'dark',
       amountFormat: '???', // invalid
       toastDensity: 'compact',
+      milestonesDensity: 'compact', // valid
       quietMode: 'yes', // invalid
       toastDuration: 'persistent', // valid
       idleDisconnectMs: 10000, // valid
@@ -368,6 +499,10 @@ describe('sanitizePreferences (pure helper)', () => {
       theme: 'dark',
       amountFormat: 'usd',
       toastDensity: 'compact',
+      formDensity: 'comfortable',
+      milestonesDensity: 'compact',
+      walletDensity: 'comfortable',
+      contractsDensity: 'comfortable',
       quietMode: false,
       toastDuration: 'persistent',
       idleDisconnectMs: 10000,

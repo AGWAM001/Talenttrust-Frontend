@@ -28,8 +28,10 @@ export default function RouteAnnouncer() {
     if (prevPathname.current === pathname) return;
     prevPathname.current = pathname;
 
-    const main = document.querySelector('main');
-    main?.focus();
+    const main = document.querySelector<HTMLElement>('main');
+    requestAnimationFrame(() => {
+      main?.focus();
+    });
 
     const h1 = document.querySelector('h1');
     const title = h1?.textContent?.trim() || `Page: ${pathname}`;

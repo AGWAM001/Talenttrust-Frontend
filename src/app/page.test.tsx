@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, within} from '@testing-library/react';
+import { render, screen, fireEvent, within, waitFor } from '@testing-library/react';
 import { axe } from 'jest-axe';
 import Home from './page';
 import { ToastProvider } from '@/components/toast/toast-provider';
@@ -435,9 +435,14 @@ describe('Home', () => {
       await user.type(screen.getByLabelText(/password/i), 'password123');
       await user.click(screen.getByRole('button', { name: /sign in/i }));
 
-      const announcer = document.querySelector('[aria-live="polite"]');
-      expect(announcer).toBeInTheDocument();
-      expect(announcer?.textContent).toMatch(/form submitted successfully/i);
+      // There are multiple aria-live="polite" regions (ToastAnnouncer + form announcer).
+      // The ToastAnnouncer updates synchronously; find the one that has the success title.
+      const politeRegions = document.querySelectorAll('[aria-live="polite"]');
+      const populatedRegion = Array.from(politeRegions).find(
+        (el) => /form submitted successfully/i.test(el.textContent ?? ''),
+      );
+      expect(populatedRegion).toBeInTheDocument();
+      expect(populatedRegion?.textContent).toMatch(/form submitted successfully/i);
     });
   });
 
@@ -653,6 +658,160 @@ describe('Home', () => {
       const inlineError = document.getElementById('password-error');
       expect(inlineError).toBeInTheDocument();
       expect(inlineError?.textContent).toBe('Password must be at least 8 characters');
+    });
+  });
+
+  /**
+   * --- FORM ANNOUNCER LIVE-REGION INTEGRATION TESTS ---
+   *
+   * Verifies that the `useFormAnnouncer` live regions are rendered in the
+   * form and that they carry the correct ARIA attributes and content after
+   * successful / failed submission.
+   *
+   * These tests complement the hook unit tests in
+   * src/hooks/__tests__/useFormAnnouncer.test.ts.
+   */
+  describe('form announcer live regions', () => {
+    it('renders the polite live region in the form (data-testid="form-announcer-polite")', () => {
+      renderWithProviders(<Home />);
+      const region = screen.getByTestId('form-announcer-polite');
+      expect(region).toBeInTheDocument();
+      expect(region).toHaveAttribute('aria-live', 'polite');
+      expect(region).toHaveAttribute('aria-atomic', 'true');
+    });
+
+    it('renders the assertive live region in the form (data-testid="form-announcer-assertive")', () => {
+      renderWithProviders(<Home />);
+      const region = screen.getByTestId('form-announcer-assertive');
+      expect(region).toBeInTheDocument();
+      expect(region).toHaveAttribute('aria-live', 'assertive');
+      expect(region).toHaveAttribute('aria-atomic', 'true');
+    });
+
+    it('both live regions are visually hidden (sr-only) — no visual change', () => {
+      renderWithProviders(<Home />);
+
+      const polite = screen.getByTestId('form-announcer-polite');
+      const assertive = screen.getByTestId('form-announcer-assertive');
+
+      // sr-only is the Tailwind utility for visually-hidden elements.
+      expect(polite).toHaveClass('sr-only');
+      expect(assertive).toHaveClass('sr-only');
+    });
+
+    it('polite live region is empty on initial render', () => {
+      renderWithProviders(<Home />);
+      const polite = screen.getByTestId('form-announcer-polite');
+      expect(polite.textContent).toBe('');
+    });
+
+    it('assertive live region is empty on initial render', () => {
+      renderWithProviders(<Home />);
+      const assertive = screen.getByTestId('form-announcer-assertive');
+      expect(assertive.textContent).toBe('');
+    });
+
+    it('populates the polite live region after a successful submission', async () => {
+      const user = userEvent.setup();
+      renderWithProviders(<Home />);
+
+      await user.type(screen.getByLabelText(/email/i), 'user@example.com');
+      await user.type(screen.getByLabelText(/password/i), 'password123');
+      await user.click(screen.getByRole('button', { name: /sign in/i }));
+
+      // Debounce is 300 ms — waitFor polls until the region is populated.
+      await waitFor(() => {
+        const polite = screen.getByTestId('form-announcer-polite');
+        expect(polite.textContent).toMatch(/form submitted successfully/i);
+      }, { timeout: 1000 });
+    });
+
+    it('keeps the assertive live region empty after a successful submission', async () => {
+      const user = userEvent.setup();
+      renderWithProviders(<Home />);
+
+      await user.type(screen.getByLabelText(/email/i), 'user@example.com');
+      await user.type(screen.getByLabelText(/password/i), 'password123');
+      await user.click(screen.getByRole('button', { name: /sign in/i }));
+
+      // Wait for debounce to fire.
+      await waitFor(() => {
+        const polite = screen.getByTestId('form-announcer-polite');
+        expect(polite.textContent).toMatch(/form submitted successfully/i);
+      }, { timeout: 1000 });
+
+      const assertive = screen.getByTestId('form-announcer-assertive');
+      expect(assertive.textContent).toBe('');
+    });
+
+    it('populates the assertive live region after a failed submission', async () => {
+      const user = userEvent.setup();
+      renderWithProviders(<Home />);
+
+      // Submit with empty fields to trigger validation errors.
+      await user.click(screen.getByRole('button', { name: /sign in/i }));
+
+      await waitFor(() => {
+        const assertive = screen.getByTestId('form-announcer-assertive');
+        expect(assertive.textContent).toMatch(/sign in failed/i);
+      }, { timeout: 1000 });
+    });
+
+    it('keeps the polite live region empty after a failed submission', async () => {
+      const user = userEvent.setup();
+      renderWithProviders(<Home />);
+
+      await user.click(screen.getByRole('button', { name: /sign in/i }));
+
+      // Wait for debounce to fire, then assert polite is still empty.
+      await waitFor(() => {
+        const assertive = screen.getByTestId('form-announcer-assertive');
+        expect(assertive.textContent).toMatch(/sign in failed/i);
+      }, { timeout: 1000 });
+
+      const polite = screen.getByTestId('form-announcer-polite');
+      expect(polite.textContent).toBe('');
+    });
+
+    it('assertive error message mentions the number of errors', async () => {
+      const user = userEvent.setup();
+      renderWithProviders(<Home />);
+
+      // Both fields empty → 2 errors.
+      await user.click(screen.getByRole('button', { name: /sign in/i }));
+
+      await waitFor(() => {
+        const assertive = screen.getByTestId('form-announcer-assertive');
+        expect(assertive.textContent).toMatch(/2 error/i);
+      }, { timeout: 1000 });
+    });
+
+    it('has no accessibility violations with live regions present (empty state)', async () => {
+      const { container } = renderWithProviders(<Home />);
+      const results = await axe(container);
+      expect(results).toHaveNoViolations();
+    });
+
+    it('has no accessibility violations after a successful submission with live region populated', async () => {
+      const user = userEvent.setup();
+      const { container } = renderWithProviders(<Home />);
+
+      await user.type(screen.getByLabelText(/email/i), 'user@example.com');
+      await user.type(screen.getByLabelText(/password/i), 'password123');
+      await user.click(screen.getByRole('button', { name: /sign in/i }));
+
+      const results = await axe(container);
+      expect(results).toHaveNoViolations();
+    });
+
+    it('has no accessibility violations after a failed submission with assertive region populated', async () => {
+      const user = userEvent.setup();
+      const { container } = renderWithProviders(<Home />);
+
+      await user.click(screen.getByRole('button', { name: /sign in/i }));
+
+      const results = await axe(container);
+      expect(results).toHaveNoViolations();
     });
   });
 

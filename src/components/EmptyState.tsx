@@ -64,6 +64,7 @@ const EmptyState: React.FC<EmptyStateProps> = ({
 
   return (
     <div
+      data-testid="empty-state"
       className="flex flex-col items-center justify-center px-4 py-8 text-center sm:px-8 sm:py-10"
       role="region"
       aria-labelledby={titleId}

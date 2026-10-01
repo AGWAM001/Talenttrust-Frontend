@@ -14,6 +14,7 @@ describe('Repository documentation metadata', () => {
       'docs/components/Accessibility.md',
       'docs/components/ReputationPage.md',
       'docs/data-model.md',
+      'docs/milestones-data-flow.md',
       'docs/persistence.md',
       'docs/preferences.md',
       'docs/contexts/wallet-session.md',

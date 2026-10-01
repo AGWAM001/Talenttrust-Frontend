@@ -20,9 +20,18 @@ import {
   listContracts,
   saveContract,
   upsertContract,
+  getContractVersion,
+  updateContract,
   updateMilestone,
   listMilestones,
   saveMilestone,
+  deleteMilestones,
+  bulkUpdateMilestoneStatus,
+  exportMilestones,
+  listWalletItems,
+  saveWalletItem,
+  updateWalletItem,
+  deleteWalletItems,
   clearAppData,
   clearByPrefix,
   STORAGE_KEY,
@@ -139,37 +148,45 @@ describe('contract upsert', () => {
   it('replaces a matching contract by contractName instead of appending a duplicate', () => {
     saveContract(contractA);
 
+    const version = getContractVersion(contractA.contractName);
     const updatedContract: Contract = {
       ...contractA,
       status: 'Completed',
       milestoneCount: 3,
+      version,
     };
 
-    expect(upsertContract(updatedContract)).toBe(true);
-    expect(listContracts()).toEqual([updatedContract]);
+    const result = upsertContract(updatedContract);
+    expect(result).toEqual({ success: true, stale: false });
+    expect(listContracts()[0].status).toBe('Completed');
   });
 
   it('appends the contract when no matching contractName exists yet', () => {
     saveContract(contractA);
 
-    expect(upsertContract(contractB)).toBe(true);
-    expect(listContracts()).toEqual([contractA, contractB]);
+    const version = getContractVersion(contractA.contractName);
+    const result = upsertContract({ ...contractB, version });
+    expect(result).toEqual({ success: true, stale: false });
+    expect(listContracts()).toEqual([contractA, { ...contractB, version: 1 }]);
   });
 
   it('preserves array order and does not duplicate when replacing a same-name contract in place', () => {
     saveContract(contractA);
     saveContract(contractB);
 
+    const version = getContractVersion(contractA.contractName);
     const updatedA: Contract = {
       ...contractA,
       status: 'Completed',
+      version,
     };
 
-    expect(upsertContract(updatedA)).toBe(true);
-    const result = listContracts();
-    expect(result).toHaveLength(2);
-    expect(result[0]).toEqual(updatedA);
-    expect(result[1]).toEqual(contractB);
+    const result = upsertContract(updatedA);
+    expect(result).toEqual({ success: true, stale: false });
+    const contracts = listContracts();
+    expect(contracts).toHaveLength(2);
+    expect(contracts[0].status).toBe('Completed');
+    expect(contracts[1].contractName).toBe('Beta Contract');
   });
 
   it('never disturbs persisted milestones and preserves other contracts unchanged during upsert', () => {
@@ -178,21 +195,31 @@ describe('contract upsert', () => {
     saveMilestone(milestoneA);
     saveMilestone(milestoneB);
 
+    const version = getContractVersion(contractB.contractName);
     const updatedB: Contract = {
       ...contractB,
       status: 'Completed',
+      version,
     };
 
-    expect(upsertContract(updatedB)).toBe(true);
+    expect(upsertContract(updatedB)).toEqual({ success: true, stale: false });
 
     // Other contracts and milestones remain unchanged
-    expect(listContracts()).toEqual([contractA, updatedB]);
+    const contracts = listContracts();
+    expect(contracts).toHaveLength(2);
+    expect(contracts[0].contractName).toBe('Alpha Contract');
+    expect(contracts[1].status).toBe('Completed');
     expect(listMilestones()).toEqual([milestoneA, milestoneB]);
   });
 
   it('successfully inserts a contract into an empty store', () => {
-    expect(upsertContract(contractA)).toBe(true);
-    expect(listContracts()).toEqual([contractA]);
+    // New contract — version 0 is the baseline
+    const result = upsertContract({ ...contractA, version: 0 });
+    expect(result).toEqual({ success: true, stale: false });
+    const contracts = listContracts();
+    expect(contracts).toHaveLength(1);
+    expect(contracts[0].contractName).toBe('Alpha Contract');
+    expect(contracts[0].version).toBe(1);
   });
 
   it('replaces only the first candidate and preserves array order when multiple same-name candidates exist', () => {
@@ -205,15 +232,134 @@ describe('contract upsert', () => {
     };
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(store));
 
-    const upserted: Contract = { ...contractA, status: 'Completed' as const };
-    expect(upsertContract(upserted)).toBe(true);
+    const version = getContractVersion(contractA.contractName);
+    const upserted: Contract = { ...contractA, status: 'Completed' as const, version };
+    const result = upsertContract(upserted);
+    expect(result).toEqual({ success: true, stale: false });
+
+    const contracts = listContracts();
+    expect(contracts).toHaveLength(3);
+    // Only the first one is replaced, order is preserved
+    expect(contracts[0].status).toBe('Completed');
+    expect(contracts[1].contractName).toBe('Beta Contract');
+    expect(contracts[2].status).toBe('Pending');
+  });
+
+  describe('stale-overwrite guard', () => {
+    it('rejects the write with stale:true when the incoming version is behind the stored version', () => {
+      // Seed the store with an initial contract via saveContract (version 0)
+      saveContract(contractA);
+      // Advance the stored version to 1 by performing one successful upsert
+      upsertContract({ ...contractA, status: 'Completed', version: 0 });
+
+      // Now attempt a stale write with version 0 while the stored version is 1
+      const staleUpdate: Contract = {
+        ...contractA,
+        status: 'Disputed',
+        version: 0,
+      };
+
+      const result = upsertContract(staleUpdate);
+      expect(result).toEqual({ success: false, stale: true });
+      // Stored contract is unchanged — still at 'Completed' from the valid upsert
+      expect(listContracts()[0].status).toBe('Completed');
+    });
+
+    it('allows the write when the incoming version matches the stored version', () => {
+      saveContract(contractA);
+
+      const version = getContractVersion(contractA.contractName);
+      const update: Contract = {
+        ...contractA,
+        status: 'Completed',
+        version,
+      };
+
+      expect(upsertContract(update)).toEqual({ success: true, stale: false });
+      expect(listContracts()[0].status).toBe('Completed');
+    });
+
+    it('allows the write when no stored contract exists yet (version 0)', () => {
+      const result = upsertContract({ ...contractA, version: 0 });
+      expect(result).toEqual({ success: true, stale: false });
+    });
+
+    it('increments the version on each successful upsert', () => {
+      saveContract(contractA);
+
+      const v1 = getContractVersion(contractA.contractName);
+      expect(v1).toBe(0);
+
+      const result1 = upsertContract({ ...contractA, status: 'Completed', version: v1 });
+      expect(result1).toEqual({ success: true, stale: false });
+
+      const v2 = getContractVersion(contractA.contractName);
+      expect(v2).toBe(1);
+
+      const result2 = upsertContract({ ...contractA, status: 'Disputed', version: v2 });
+      expect(result2).toEqual({ success: true, stale: false });
+
+      expect(getContractVersion(contractA.contractName)).toBe(2);
+    });
+  });
+});
+
+describe('getContractVersion', () => {
+  it('returns 0 when the contract has never been persisted', () => {
+    expect(getContractVersion('NonExistent')).toBe(0);
+  });
+
+  it('returns 0 for a freshly saved contract (no version set)', () => {
+    saveContract(contractA);
+    expect(getContractVersion(contractA.contractName)).toBe(0);
+  });
+
+  it('returns the version set by the last upsert', () => {
+    saveContract(contractA);
+    upsertContract({ ...contractA, status: 'Completed', version: 0 });
+    expect(getContractVersion(contractA.contractName)).toBe(1);
+  });
+});
+
+describe('updateContract', () => {
+  it('replaces the contract found by its original name, in place', () => {
+    saveContract(contractA);
+    saveContract(contractB);
+
+    const edited: Contract = { ...contractA, status: 'Completed' };
+    expect(updateContract(contractA.contractName, edited)).toBe(true);
 
     const result = listContracts();
-    expect(result).toHaveLength(3);
-    // Only the first one is replaced, order is preserved, and second duplicate is untouched
-    expect(result[0]).toEqual(upserted);
+    expect(result).toHaveLength(2);
+    expect(result[0]).toEqual(edited);
     expect(result[1]).toEqual(contractB);
-    expect(result[2]).toEqual(duplicateA2);
+  });
+
+  it('renames a contract without creating a duplicate', () => {
+    saveContract(contractA);
+
+    const renamed: Contract = { ...contractA, contractName: 'Renamed Alpha' };
+    expect(updateContract(contractA.contractName, renamed)).toBe(true);
+
+    const result = listContracts();
+    expect(result).toHaveLength(1);
+    expect(result[0].contractName).toBe('Renamed Alpha');
+  });
+
+  it('returns false and changes nothing when no contract matches the original name', () => {
+    saveContract(contractA);
+
+    expect(updateContract('Missing Contract', contractB)).toBe(false);
+    expect(listContracts()).toEqual([contractA]);
+  });
+
+  it('leaves milestones untouched', () => {
+    saveContract(contractA);
+    saveMilestone(milestoneA);
+
+    updateContract(contractA.contractName, { ...contractA, status: 'Paid' });
+
+    expect(listMilestones()).toEqual([milestoneA]);
   });
 });
 
@@ -506,12 +652,13 @@ describe('write failure resilience', () => {
     expect(mockReporter.mock.calls[0][1]).toMatch(/\[repository\]/);
   });
 
-  it('returns false and reports the error when upsertContract fails to persist the write', () => {
+  it('returns { success: false, stale: false } and reports the error when upsertContract fails to persist the write', () => {
     jest.spyOn(window.localStorage, 'setItem').mockImplementation(() => {
       throw new DOMException('QuotaExceededError');
     });
 
-    expect(upsertContract(contractA)).toBe(false);
+    const result = upsertContract({ ...contractA, version: 0 });
+    expect(result).toEqual({ success: false, stale: false });
     expect(mockReporter).toHaveBeenCalledTimes(1);
     expect(mockReporter.mock.calls[0][1]).toMatch(/\[repository\]/);
   });
@@ -787,6 +934,419 @@ describe('clearByPrefix', () => {
       clearByPrefix('talenttrust_');
       expect(mockReporter).not.toHaveBeenCalled();
     });
+  });
+});
+
+// ===========================================================================
+// deleteMilestones
+// ===========================================================================
+
+describe('deleteMilestones', () => {
+  const milestoneC: Milestone = {
+    id: 'ms-003',
+    title: 'Review',
+    status: 'Active',
+    payout: 750,
+    currency: 'USD',
+    dueDate: 'May 1, 2025',
+  };
+
+  const seedThreeMilestones = () => {
+    saveMilestone(milestoneA);
+    saveMilestone(milestoneB);
+    saveMilestone(milestoneC);
+  };
+
+  it('returns 0 when given an empty array', () => {
+    saveMilestone(milestoneA);
+    expect(deleteMilestones([])).toBe(0);
+    expect(listMilestones()).toHaveLength(1);
+  });
+
+  it('returns 0 when input is not an array', () => {
+    saveMilestone(milestoneA);
+    expect(deleteMilestones(null as unknown as string[])).toBe(0);
+    expect(listMilestones()).toHaveLength(1);
+  });
+
+  it('deletes a single milestone by id and returns count of 1', () => {
+    seedThreeMilestones();
+
+    const removed = deleteMilestones(['ms-002']);
+
+    expect(removed).toBe(1);
+    const remaining = listMilestones();
+    expect(remaining).toHaveLength(2);
+    expect(remaining.map((m) => m.id)).toEqual(expect.arrayContaining(['ms-001', 'ms-003']));
+    expect(remaining.map((m) => m.id)).not.toContain('ms-002');
+  });
+
+  it('deletes multiple milestones and returns the actual deletion count', () => {
+    seedThreeMilestones();
+
+    const removed = deleteMilestones(['ms-001', 'ms-003']);
+
+    expect(removed).toBe(2);
+    const remaining = listMilestones();
+    expect(remaining).toHaveLength(1);
+    expect(remaining[0].id).toBe('ms-002');
+  });
+
+  it('silently skips ids that do not exist (partial match)', () => {
+    seedThreeMilestones();
+
+    const removed = deleteMilestones(['ms-001', 'ms-NOEXIST', 'ms-999']);
+
+    expect(removed).toBe(1);
+    const remaining = listMilestones();
+    expect(remaining).toHaveLength(2);
+    expect(remaining.map((m) => m.id)).toEqual(expect.arrayContaining(['ms-002', 'ms-003']));
+  });
+
+  it('does not write to storage when zero ids match', () => {
+    seedThreeMilestones();
+
+    const spy = jest.spyOn(window.localStorage, 'setItem');
+    const before = spy.mock.calls.length;
+
+    const removed = deleteMilestones(['ms-NOT-THERE', 'ms-ALSO-NOT']);
+
+    expect(removed).toBe(0);
+    expect(spy.mock.calls.length).toBe(before);
+    expect(listMilestones()).toHaveLength(3);
+  });
+
+  it('does not mutate the input ids array', () => {
+    seedThreeMilestones();
+    const ids = ['ms-001', 'ms-002'];
+    const frozen = Object.freeze([...ids]);
+
+    deleteMilestones(ids);
+
+    expect(ids).toEqual(frozen);
+  });
+
+  it('leaves contracts and other persisted data untouched', () => {
+    saveContract(contractA);
+    saveContract(contractB);
+    seedThreeMilestones();
+
+    deleteMilestones(['ms-001']);
+
+    expect(listContracts()).toHaveLength(2);
+    expect(listContracts().map((c) => c.contractName)).toEqual([
+      'Alpha Contract',
+      'Beta Contract',
+    ]);
+  });
+});
+
+// ===========================================================================
+// bulkUpdateMilestoneStatus
+// ===========================================================================
+
+describe('bulkUpdateMilestoneStatus', () => {
+  const seedThreeMilestones = () => {
+    saveMilestone({ ...milestoneA, status: 'Pending' });
+    saveMilestone({ ...milestoneB, status: 'Pending' });
+    saveMilestone({
+      id: 'ms-003',
+      title: 'Review',
+      status: 'Active',
+      payout: 750,
+      currency: 'USD',
+      dueDate: 'May 1, 2025',
+    });
+  };
+
+  it('returns 0 when given an empty ids array', () => {
+    saveMilestone(milestoneA);
+    expect(bulkUpdateMilestoneStatus([], 'Completed')).toBe(0);
+    expect(listMilestones()[0].status).toBe(milestoneA.status);
+  });
+
+  it('returns 0 when ids is not an array', () => {
+    saveMilestone(milestoneA);
+    expect(bulkUpdateMilestoneStatus(null as unknown as string[], 'Paid')).toBe(0);
+  });
+
+  it('updates status for all supplied ids and returns the change count', () => {
+    seedThreeMilestones();
+
+    const changed = bulkUpdateMilestoneStatus(['ms-001', 'ms-002'], 'Completed');
+
+    expect(changed).toBe(2);
+    const all = listMilestones();
+    const m1 = all.find((m) => m.id === 'ms-001');
+    const m2 = all.find((m) => m.id === 'ms-002');
+    const m3 = all.find((m) => m.id === 'ms-003');
+    expect(m1?.status).toBe('Completed');
+    expect(m2?.status).toBe('Completed');
+    expect(m3?.status).toBe('Active');
+  });
+
+  it('does not count milestones that already have the target status', () => {
+    saveMilestone({ ...milestoneA, status: 'Paid' });
+    saveMilestone({ ...milestoneB, status: 'Pending' });
+
+    const changed = bulkUpdateMilestoneStatus(['ms-001', 'ms-002'], 'Paid');
+
+    expect(changed).toBe(1);
+    const all = listMilestones();
+    expect(all.find((m) => m.id === 'ms-001')?.status).toBe('Paid');
+    expect(all.find((m) => m.id === 'ms-002')?.status).toBe('Paid');
+  });
+
+  it('silently skips ids that do not exist', () => {
+    saveMilestone(milestoneA);
+
+    const changed = bulkUpdateMilestoneStatus(['ms-001', 'ms-NOT-THERE'], 'Disputed');
+
+    expect(changed).toBe(1);
+    expect(listMilestones()[0].status).toBe('Disputed');
+  });
+
+  it('does not write to storage when zero milestones actually change', () => {
+    saveMilestone({ ...milestoneA, status: 'Completed' });
+    saveMilestone({ ...milestoneB, status: 'Completed' });
+
+    const spy = jest.spyOn(window.localStorage, 'setItem');
+    const before = spy.mock.calls.length;
+
+    const changed = bulkUpdateMilestoneStatus(['ms-001', 'ms-002'], 'Completed');
+
+    expect(changed).toBe(0);
+    expect(spy.mock.calls.length).toBe(before);
+  });
+
+  it('preserves all other milestone fields when updating status', () => {
+    saveMilestone(milestoneA);
+
+    bulkUpdateMilestoneStatus(['ms-001'], 'Paid');
+
+    const updated = listMilestones().find((m) => m.id === 'ms-001');
+    expect(updated).toMatchObject({
+      id: 'ms-001',
+      title: 'Kickoff',
+      status: 'Paid',
+      payout: 500,
+      currency: 'USD',
+      dueDate: 'Mar 1, 2025',
+    });
+  });
+
+  it('leaves unrelated milestones alone', () => {
+    saveMilestone(milestoneA);
+    saveMilestone(milestoneB);
+
+    bulkUpdateMilestoneStatus(['ms-001'], 'Disputed');
+
+    const m2 = listMilestones().find((m) => m.id === 'ms-002');
+    expect(m2?.status).toBe(milestoneB.status);
+  });
+
+  it('leaves contracts data unchanged while updating milestones', () => {
+    saveContract(contractA);
+    saveMilestone(milestoneA);
+    saveMilestone(milestoneB);
+
+    bulkUpdateMilestoneStatus(['ms-001', 'ms-002'], 'Completed');
+
+    expect(listContracts()).toHaveLength(1);
+    expect(listContracts()[0].contractName).toBe('Alpha Contract');
+  });
+});
+
+// ===========================================================================
+// exportMilestones
+// ===========================================================================
+
+describe('exportMilestones', () => {
+  it('returns a valid JSON array string that parses identically', () => {
+    const data: Milestone[] = [milestoneA, milestoneB];
+
+    const json = exportMilestones(data);
+
+    expect(typeof json).toBe('string');
+    const parsed = JSON.parse(json);
+    expect(Array.isArray(parsed)).toBe(true);
+    expect(parsed).toEqual(data);
+  });
+
+  it('pretty-prints output with indentation (2 spaces)', () => {
+    const json = exportMilestones([milestoneA]);
+
+    const lines = json.split('\n');
+    expect(lines.length).toBeGreaterThan(2);
+    expect(lines[0]).toBe('[');
+    // JSON formatting may vary; verify line 1 is not empty and contains JSON structure
+    expect(lines[1].trim().length).toBeGreaterThan(0);
+  });
+
+  it('returns "[]" for an empty input array', () => {
+    expect(exportMilestones([])).toBe('[]');
+  });
+
+  it('produces stable output (same input → same string)', () => {
+    const input: Milestone[] = [milestoneA, milestoneB];
+    const first = exportMilestones(input);
+    const second = exportMilestones(input);
+
+    expect(first).toBe(second);
+  });
+
+  it('does not write anything to localStorage (pure function)', () => {
+    const spy = jest.spyOn(window.localStorage, 'setItem');
+
+    exportMilestones([milestoneA]);
+
+    expect(spy).not.toHaveBeenCalled();
+    expect(listMilestones()).toEqual([]);
+  });
+});
+
+// ===========================================================================
+// Wallet Items fixtures
+// ===========================================================================
+
+const walletItemA = {
+  id: 'w-1',
+  name: 'Stellar Lumens (XLM)',
+  type: 'Native Asset',
+  balance: 12500,
+  currency: 'XLM',
+  address: 'GAAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQDZ7H',
+  status: 'Active' as const,
+  createdAt: '2026-01-15',
+};
+
+const walletItemB = {
+  id: 'w-2',
+  name: 'USD Coin (USDC)',
+  type: 'Stablecoin',
+  balance: 3200,
+  currency: 'USDC',
+  status: 'Pending' as const,
+  createdAt: '2026-02-01',
+};
+
+// ===========================================================================
+// Wallet Items — basic CRUD
+// ===========================================================================
+
+describe('wallet item CRUD', () => {
+  it('listWalletItems returns [] when storage is empty', () => {
+    expect(listWalletItems()).toEqual([]);
+  });
+
+  it('saves a wallet item and reads it back', () => {
+    saveWalletItem(walletItemA);
+    expect(listWalletItems()).toEqual([walletItemA]);
+  });
+
+  it('saves multiple wallet items', () => {
+    saveWalletItem(walletItemA);
+    saveWalletItem(walletItemB);
+    expect(listWalletItems()).toHaveLength(2);
+  });
+
+  it('deleteWalletItems removes matching items', () => {
+    saveWalletItem(walletItemA);
+    saveWalletItem(walletItemB);
+
+    deleteWalletItems(['w-1']);
+    const items = listWalletItems();
+    expect(items).toHaveLength(1);
+    expect(items[0].id).toBe('w-2');
+  });
+
+  it('deleteWalletItems returns true on success', () => {
+    saveWalletItem(walletItemA);
+    expect(deleteWalletItems(['w-1'])).toBe(true);
+  });
+});
+
+// ===========================================================================
+// Wallet Items — updateWalletItem
+// ===========================================================================
+
+describe('updateWalletItem', () => {
+  it('updates an existing wallet item by id', () => {
+    saveWalletItem(walletItemA);
+    const ok = updateWalletItem('w-1', { name: 'Updated XLM', balance: 15000 });
+    expect(ok).toBe(true);
+
+    const items = listWalletItems();
+    expect(items).toHaveLength(1);
+    expect(items[0].name).toBe('Updated XLM');
+    expect(items[0].balance).toBe(15000);
+  });
+
+  it('updates status of a wallet item', () => {
+    saveWalletItem(walletItemA);
+    const ok = updateWalletItem('w-1', { status: 'Archived' });
+    expect(ok).toBe(true);
+
+    const [item] = listWalletItems();
+    expect(item.status).toBe('Archived');
+  });
+
+  it('preserves unchanged fields when patching', () => {
+    saveWalletItem(walletItemA);
+    updateWalletItem('w-1', { balance: 999 });
+
+    const [item] = listWalletItems();
+    expect(item.name).toBe('Stellar Lumens (XLM)');
+    expect(item.type).toBe('Native Asset');
+    expect(item.balance).toBe(999);
+    expect(item.currency).toBe('XLM');
+    expect(item.status).toBe('Active');
+  });
+
+  it('returns false and warns when id is not found', () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    saveWalletItem(walletItemA);
+
+    const ok = updateWalletItem('non-existent', { name: 'Nope' });
+    expect(ok).toBe(false);
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("No wallet item found with id 'non-existent'"),
+    );
+
+    warnSpy.mockRestore();
+  });
+
+  it('updates only the targeted item when multiple exist', () => {
+    saveWalletItem(walletItemA);
+    saveWalletItem(walletItemB);
+
+    updateWalletItem('w-1', { status: 'Archived' });
+
+    const items = listWalletItems();
+    expect(items).toHaveLength(2);
+    expect(items.find((i) => i.id === 'w-1')?.status).toBe('Archived');
+    expect(items.find((i) => i.id === 'w-2')?.status).toBe('Pending');
+  });
+
+  it('does not mutate the original wallet item object', () => {
+    saveWalletItem(walletItemA);
+    const original = { ...walletItemA };
+
+    updateWalletItem('w-1', { status: 'Archived' });
+
+    expect(walletItemA).toEqual(original);
+  });
+
+  it('leaves contracts and milestones untouched', () => {
+    saveContract({ contractName: 'Test', parties: [], totalValue: 100, currency: 'USD', status: 'Active', createdAt: '2026-01-01', milestoneCount: 0 });
+    saveMilestone({ id: 'ms-1', title: 'Test', status: 'Pending', payout: 100, currency: 'USD', dueDate: '2026-03-01' });
+    saveWalletItem(walletItemA);
+
+    updateWalletItem('w-1', { name: 'Updated' });
+
+    expect(listContracts()).toHaveLength(1);
+    expect(listMilestones()).toHaveLength(1);
+    expect(listWalletItems()[0].name).toBe('Updated');
   });
 });
 

@@ -1,6 +1,59 @@
 # SettingsPanel
 
-A full-screen drawer that lets users manage their TalentTrust preferences. Opened by `SettingsTrigger`. Fully accessible (WCAG 2.1 AA): implements dialog semantics, focus trap, Escape key handling, and focus restoration.
+A full-screen drawer that lets users manage their TalentTrust preferences. The settings experience is composed of two pieces: `SettingsTrigger` for the built-in floating gear button and `SettingsPanel` for the drawer content itself. Both components rely on `PreferencesProvider` so the current values are available and persisted automatically.
+
+## Quick start
+
+```tsx
+import { PreferencesProvider } from '@/lib/preferences';
+import { SettingsTrigger } from '@/components/settings/SettingsTrigger';
+
+export default function AppLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <PreferencesProvider>
+      {children}
+      <SettingsTrigger />
+    </PreferencesProvider>
+  );
+}
+```
+
+## Controlled usage
+
+If you need a custom trigger, keep the drawer state in a parent component and pass it to `SettingsPanel`:
+
+```tsx
+'use client';
+
+import { useState } from 'react';
+import { PreferencesProvider } from '@/lib/preferences';
+import { SettingsPanel } from '@/components/settings/SettingsPanel';
+
+export function SettingsButton() {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <PreferencesProvider>
+      <button onClick={() => setOpen(true)}>Open settings</button>
+      <SettingsPanel isOpen={open} onClose={() => setOpen(false)} />
+    </PreferencesProvider>
+  );
+}
+```
+
+## Component API
+
+| Component | Props | Notes |
+|-----------|-------|-------|
+| `SettingsTrigger` | none | Renders the floating button and manages the open/close state internally. |
+| `SettingsPanel` | `isOpen`, `onClose` | Renders the drawer when `isOpen` is true. The parent is responsible for closing it. |
+
+## Common patterns
+
+- Mount `PreferencesProvider` once at the application root so `usePreferences()` has a stable source of truth.
+- Use `SettingsTrigger` for the default experience and a custom trigger when you want the button to live in a different location.
+- Prefer `updatePreference('theme', value)` and related calls to keep the drawer UI and persisted values in sync.
+- When rendering currency values, use `formatAmount(amount, currency)` from `usePreferences()` so the label respects the user’s selected amount format.
 
 ---
 

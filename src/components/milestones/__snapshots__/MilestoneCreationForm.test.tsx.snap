@@ -1,0 +1,409 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`MilestoneCreationForm matches the empty-state form structure 1`] = `
+<div
+  aria-labelledby="create-milestone-title"
+  aria-modal="true"
+  class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"
+  role="dialog"
+>
+  <div
+    class="bg-white rounded-3xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-6"
+  >
+    <h2
+      class="text-2xl font-bold text-slate-900 mb-6"
+      id="create-milestone-title"
+    >
+      Add Milestone
+    </h2>
+    <form
+      novalidate=""
+    >
+      <div
+        class="mb-4 w-full"
+      >
+        <label
+          class="block text-sm font-medium text-gray-700 mb-1"
+          for="milestone-title"
+        >
+          Title
+          <span
+            aria-hidden="true"
+            class="text-red-500 ml-1"
+          >
+            *
+          </span>
+        </label>
+        <input
+          aria-invalid="false"
+          aria-required="true"
+          class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          id="milestone-title"
+          placeholder="e.g., Frontend Development – Sprint 1"
+          type="text"
+          value=""
+        />
+      </div>
+      <div
+        class="grid grid-cols-2 gap-4"
+      >
+        <div
+          class="mb-4 w-full"
+        >
+          <label
+            class="block text-sm font-medium text-gray-700 mb-1"
+            for="milestone-payout"
+          >
+            Payout Amount
+            <span
+              aria-hidden="true"
+              class="text-red-500 ml-1"
+            >
+              *
+            </span>
+          </label>
+          <input
+            aria-invalid="false"
+            aria-required="true"
+            class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            id="milestone-payout"
+            inputmode="decimal"
+            placeholder="e.g., 2500"
+            type="text"
+            value=""
+          />
+        </div>
+        <div
+          class="mb-4 w-full"
+        >
+          <label
+            class="block text-sm font-medium text-gray-700 mb-1"
+            for="milestone-currency"
+          >
+            Currency
+            <span
+              aria-hidden="true"
+              class="text-red-500 ml-1"
+            >
+              *
+            </span>
+          </label>
+          <select
+            aria-invalid="false"
+            aria-required="true"
+            class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            id="milestone-currency"
+          >
+            <option
+              value="USD"
+            >
+              USD
+            </option>
+            <option
+              value="EUR"
+            >
+              EUR
+            </option>
+            <option
+              value="GBP"
+            >
+              GBP
+            </option>
+            <option
+              value="XLM"
+            >
+              XLM
+            </option>
+          </select>
+        </div>
+      </div>
+      <div
+        class="mb-4 w-full"
+      >
+        <label
+          class="block text-sm font-medium text-gray-700 mb-1"
+          for="milestone-status"
+        >
+          Status
+        </label>
+        <select
+          aria-invalid="false"
+          class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          id="milestone-status"
+        >
+          <option
+            value="Pending"
+          >
+            Pending
+          </option>
+          <option
+            value="Active"
+          >
+            Active
+          </option>
+          <option
+            value="Completed"
+          >
+            Completed
+          </option>
+          <option
+            value="Paid"
+          >
+            Paid
+          </option>
+          <option
+            value="Disputed"
+          >
+            Disputed
+          </option>
+        </select>
+      </div>
+      <div
+        class="mb-4 w-full"
+      >
+        <label
+          class="block text-sm font-medium text-gray-700 mb-1"
+          for="milestone-dueDate"
+        >
+          Due Date
+        </label>
+        <input
+          aria-describedby="milestone-dueDate-helper"
+          aria-invalid="false"
+          class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          id="milestone-dueDate"
+          placeholder="Jun 1, 2025"
+          type="text"
+          value=""
+        />
+        <p
+          class="mt-1 text-sm text-gray-500"
+          id="milestone-dueDate-helper"
+        >
+          Optional — e.g., Jun 1, 2025
+        </p>
+      </div>
+      <div
+        class="flex gap-3 justify-end mt-6"
+      >
+        <button
+          class="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 font-medium focus-visible:outline focus-visible:outline-4 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
+          type="button"
+        >
+          Cancel
+        </button>
+        <button
+          class="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 font-medium focus-visible:outline focus-visible:outline-4 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
+          type="submit"
+        >
+          Add Milestone
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+`;
+
+exports[`MilestoneCreationForm matches the loaded-state form structure with user-entered values 1`] = `
+<div
+  aria-labelledby="create-milestone-title"
+  aria-modal="true"
+  class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"
+  role="dialog"
+>
+  <div
+    class="bg-white rounded-3xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-6"
+  >
+    <h2
+      class="text-2xl font-bold text-slate-900 mb-6"
+      id="create-milestone-title"
+    >
+      Add Milestone
+    </h2>
+    <form
+      novalidate=""
+    >
+      <div
+        class="mb-4 w-full"
+      >
+        <label
+          class="block text-sm font-medium text-gray-700 mb-1"
+          for="milestone-title"
+        >
+          Title
+          <span
+            aria-hidden="true"
+            class="text-red-500 ml-1"
+          >
+            *
+          </span>
+        </label>
+        <input
+          aria-invalid="false"
+          aria-required="true"
+          class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          id="milestone-title"
+          placeholder="e.g., Frontend Development – Sprint 1"
+          type="text"
+          value="Frontend Sprint"
+        />
+      </div>
+      <div
+        class="grid grid-cols-2 gap-4"
+      >
+        <div
+          class="mb-4 w-full"
+        >
+          <label
+            class="block text-sm font-medium text-gray-700 mb-1"
+            for="milestone-payout"
+          >
+            Payout Amount
+            <span
+              aria-hidden="true"
+              class="text-red-500 ml-1"
+            >
+              *
+            </span>
+          </label>
+          <input
+            aria-invalid="false"
+            aria-required="true"
+            class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            id="milestone-payout"
+            inputmode="decimal"
+            placeholder="e.g., 2500"
+            type="text"
+            value="500"
+          />
+        </div>
+        <div
+          class="mb-4 w-full"
+        >
+          <label
+            class="block text-sm font-medium text-gray-700 mb-1"
+            for="milestone-currency"
+          >
+            Currency
+            <span
+              aria-hidden="true"
+              class="text-red-500 ml-1"
+            >
+              *
+            </span>
+          </label>
+          <select
+            aria-invalid="false"
+            aria-required="true"
+            class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            id="milestone-currency"
+          >
+            <option
+              value="USD"
+            >
+              USD
+            </option>
+            <option
+              value="EUR"
+            >
+              EUR
+            </option>
+            <option
+              value="GBP"
+            >
+              GBP
+            </option>
+            <option
+              value="XLM"
+            >
+              XLM
+            </option>
+          </select>
+        </div>
+      </div>
+      <div
+        class="mb-4 w-full"
+      >
+        <label
+          class="block text-sm font-medium text-gray-700 mb-1"
+          for="milestone-status"
+        >
+          Status
+        </label>
+        <select
+          aria-invalid="false"
+          class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          id="milestone-status"
+        >
+          <option
+            value="Pending"
+          >
+            Pending
+          </option>
+          <option
+            value="Active"
+          >
+            Active
+          </option>
+          <option
+            value="Completed"
+          >
+            Completed
+          </option>
+          <option
+            value="Paid"
+          >
+            Paid
+          </option>
+          <option
+            value="Disputed"
+          >
+            Disputed
+          </option>
+        </select>
+      </div>
+      <div
+        class="mb-4 w-full"
+      >
+        <label
+          class="block text-sm font-medium text-gray-700 mb-1"
+          for="milestone-dueDate"
+        >
+          Due Date
+        </label>
+        <input
+          aria-describedby="milestone-dueDate-helper"
+          aria-invalid="false"
+          class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          id="milestone-dueDate"
+          placeholder="Jun 1, 2025"
+          type="text"
+          value="Jun 1, 2025"
+        />
+        <p
+          class="mt-1 text-sm text-gray-500"
+          id="milestone-dueDate-helper"
+        >
+          Optional — e.g., Jun 1, 2025
+        </p>
+      </div>
+      <div
+        class="flex gap-3 justify-end mt-6"
+      >
+        <button
+          class="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 font-medium focus-visible:outline focus-visible:outline-4 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
+          type="button"
+        >
+          Cancel
+        </button>
+        <button
+          class="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 font-medium focus-visible:outline focus-visible:outline-4 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
+          type="submit"
+        >
+          Add Milestone
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+`;

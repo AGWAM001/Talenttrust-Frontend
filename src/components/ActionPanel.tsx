@@ -1,8 +1,7 @@
 'use client';
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useWallet } from '@/contexts/WalletContext';
-import { useToast } from '@/components/toast/toast-provider';
 import { ConfirmDialog } from './ConfirmDialog';
 import { DISPUTE_REASON_MAX_LENGTH, validateDisputeReason } from '@/lib/disputeReason';
 
@@ -64,6 +63,11 @@ export type ActionPanelProps = {
    * confirmation dialog expected by older page-level flows.
    */
   disputeFlow?: 'inline' | 'confirm';
+  /**
+   * When true, disables all mutation actions (submit, release, dispute) to prevent
+   * unsafe changes while offline or when viewing stale cached data.
+   */
+  disableMutations?: boolean;
 };
 
 const LOADING_REASON = 'Action is disabled while contract data is loading.';
@@ -112,12 +116,13 @@ const ActionPanel = ({
   errorMessage,
   disabledReasons,
   disputeFlow: _disputeFlow = 'inline',
+  disableMutations = false,
 }: ActionPanelProps) => {
   const actions = getActionButtons(status);
   const { address } = useWallet();
-  const { showSuccess } = useToast();
   const isWalletConnected = !!address;
   const noWalletMsg = 'Connect wallet to perform this action';
+  const mutationsDisabledMsg = disableMutations ? 'Actions disabled while offline or viewing stale data' : undefined;
   const panelRef = useRef<HTMLElement | null>(null);
 
   const describedBy = (perActionId: string | undefined) =>
@@ -142,26 +147,28 @@ const ActionPanel = ({
     action: Exclude<ConfirmAction, null>,
     event: React.MouseEvent<HTMLButtonElement>,
   ) => {
+    if (disableMutations) return;
     triggerElementRef.current = event.currentTarget;
     setConfirmAction(action);
   };
 
   const handleConfirm = () => {
+    if (disableMutations) {
+      setConfirmAction(null);
+      return;
+    }
     if (confirmAction === 'submit') {
       onSubmitMilestone?.();
-      showSuccess({ title: 'Milestone submitted' });
     } else if (confirmAction === 'release') {
       onReleaseFunds?.();
     } else if (confirmAction === 'dispute') {
       onDispute?.('Dispute opened from action panel.');
     }
     setConfirmAction(null);
-    triggerElementRef.current?.focus();
   };
 
   const handleCancel = () => {
     setConfirmAction(null);
-    triggerElementRef.current?.focus();
   };
 
   // Inline dispute form state.
@@ -176,7 +183,9 @@ const ActionPanel = ({
 
   /** Opens the inline dispute form and moves focus to the textarea. */
   const handleOpenDisputeForm = (event: React.MouseEvent<HTMLButtonElement>) => {
+    if (disableMutations) return;
     triggerElementRef.current = event.currentTarget;
+    disputeTriggerRef.current = event.currentTarget;
     setDisputeReason('');
     setDisputeReasonError('');
     setDisputeFormOpen(true);
@@ -185,7 +194,7 @@ const ActionPanel = ({
   const previousDisputeFormOpenRef = useRef(false);
 
   // Move focus into the textarea when the form becomes visible, or restore focus when it closes.
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (disputeFormOpen) {
       disputeTextareaRef.current?.focus();
     } else if (previousDisputeFormOpenRef.current) {
@@ -229,21 +238,23 @@ const ActionPanel = ({
     return () => clearTimeout(timeoutId);
   }, [disputeReason, disputeFormOpen]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const wasDialogOpen = previousConfirmActionRef.current !== null;
 
-    if (wasDialogOpen && confirmAction === null) {
-      const triggerButton = triggerElementRef.current;
+    if (!wasDialogOpen || confirmAction !== null || isLoading) {
+      previousConfirmActionRef.current = confirmAction;
+      return;
+    }
 
-      if (triggerButton && document.contains(triggerButton) && !triggerButton.disabled) {
-        triggerButton.focus();
-      } else {
-        panelRef.current?.focus();
-      }
+    const triggerButton = triggerElementRef.current;
+    if (triggerButton && document.contains(triggerButton) && !triggerButton.disabled) {
+      triggerButton.focus();
+    } else {
+      panelRef.current?.focus();
     }
 
     previousConfirmActionRef.current = confirmAction;
-  }, [confirmAction]);
+  }, [confirmAction, isLoading]);
 
   /** Closes the inline form and returns focus to the button that opened it. */
   const closeDisputeForm = () => {
@@ -279,6 +290,11 @@ const ActionPanel = ({
    */
   const handleDisputeSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (disableMutations) {
+      closeDisputeForm();
+      return;
+    }
 
     if (!isWalletConnected) {
       setDisputeReasonError(DISPUTE_WALLET_ERROR);
@@ -354,8 +370,8 @@ const ActionPanel = ({
           <button
             type="button"
             onClick={(e) => handleOpenConfirm('submit', e)}
-            disabled={!isWalletConnected || isLoading || !!disabledReasons?.submitMilestone}
-            title={!isWalletConnected ? noWalletMsg : undefined}
+            disabled={!isWalletConnected || isLoading || !!disabledReasons?.submitMilestone || disableMutations}
+            title={!isWalletConnected ? noWalletMsg : mutationsDisabledMsg}
             aria-label="Submit milestone for approval"
             aria-describedby={describedBy(describedById('submitMilestone'))}
             className={`w-full rounded-2xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 ${focusRingClass}`}
@@ -368,8 +384,8 @@ const ActionPanel = ({
           <button
             type="button"
             onClick={(event) => handleOpenConfirm('release', event)}
-            disabled={!isWalletConnected || isLoading || !!disabledReasons?.releaseFunds}
-            title={!isWalletConnected ? noWalletMsg : undefined}
+            disabled={!isWalletConnected || isLoading || !!disabledReasons?.releaseFunds || disableMutations}
+            title={!isWalletConnected ? noWalletMsg : mutationsDisabledMsg}
             aria-label="Release funds to the contractor"
             aria-describedby={describedBy(describedById('releaseFunds'))}
             className={`w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-900 transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-50 ${focusRingClass}`}
@@ -388,9 +404,10 @@ const ActionPanel = ({
                 !isWalletConnected ||
                 isLoading ||
                 !!disabledReasons?.dispute ||
-                disputeFormOpen
+                disputeFormOpen ||
+                disableMutations
               }
-              title={!isWalletConnected ? noWalletMsg : undefined}
+              title={!isWalletConnected ? noWalletMsg : mutationsDisabledMsg}
               aria-label="Open a dispute for this contract"
               aria-expanded={disputeFormOpen}
               aria-controls={disputeFormOpen ? 'dispute-reason-form' : undefined}

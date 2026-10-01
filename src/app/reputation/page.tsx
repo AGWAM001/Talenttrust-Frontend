@@ -1,6 +1,10 @@
-import React from 'react';
-import EmptyState from '../../components/EmptyState';
-import ReputationProfile from '../../components/ReputationProfile';
+'use client';
+
+import React, { useEffect, useState } from 'react';
+import EmptyState from '@/components/EmptyState';
+import ReputationProfile from '@/components/ReputationProfile';
+import ReputationSummaryCard from '@/components/ReputationSummaryCard';
+import { listReputationEvents } from '@/lib/repository';
 import type { Reputation } from '@/types/domain';
 
 export type ReputationPageContentProps = {
@@ -31,22 +35,39 @@ export function ReputationPageContent({
   return (
     <main className="min-h-screen p-8">
       <h1 className="text-2xl font-bold mb-6">Reputation</h1>
+      <ReputationSummaryCard
+        name={userName}
+        score={score}
+        level={reputationData.level}
+        history={reputationData.history}
+      />
       <ReputationProfile
         name={userName}
         score={score}
         level={reputationData.level}
         history={reputationData.history}
+        lastUpdated={reputationData.lastUpdated}
       />
     </main>
   );
 }
 
 const ReputationPage: React.FC = () => {
-  const reputation: Reputation[] = [];
+  const [reputationData, setReputationData] = useState<Reputation | null>(null);
+
+  useEffect(() => {
+    const history = listReputationEvents();
+    // Provide a default profile if we have history or just to show the UI
+    setReputationData({
+      score: 4.5,
+      level: 'Expert',
+      history,
+    });
+  }, []);
 
   return (
     <ReputationPageContent
-      reputationData={reputation.length > 0 ? reputation[0] : null}
+      reputationData={reputationData}
     />
   );
 };

@@ -4,9 +4,11 @@ import { axe } from 'jest-axe';
 import RootLayout from '../layout';
 
 // WalletProvider and RouteAnnouncer are already mocked in jest.setup.ts.
-// Mock next/navigation for RouteAnnouncer's usePathname call.
+// Mock next/navigation for RouteAnnouncer's usePathname call and
+// CommandPalette's useRouter call.
 jest.mock('next/navigation', () => ({
   usePathname: jest.fn().mockReturnValue('/'),
+  useRouter: jest.fn().mockReturnValue({ push: jest.fn(), replace: jest.fn(), prefetch: jest.fn() }),
 }));
 
 function renderLayout() {

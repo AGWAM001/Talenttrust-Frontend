@@ -1,7 +1,13 @@
+/**
+ * Isolated unit tests for FormField accessibility prop cloning
+ */
 import React from 'react';
 import { render, screen } from '@testing-library/react';
+import { waitFor } from '@testing-library/react';
 import { FormField } from '../FormField';
 import { testA11y } from '../../test-utils/a11y';
+import { PreferencesProvider } from '@/lib/preferences';
+import { resetCache } from '@/lib/safeStorage';
 
 describe('FormField', () => {
   const defaultProps = {
@@ -103,6 +109,49 @@ describe('FormField', () => {
           <input type="text" />
         </FormField>
       );
+    });
+  });
+});
+
+describe('FormField density', () => {
+  const defaultProps = { label: 'Field', id: 'field' };
+
+  beforeEach(() => {
+    localStorage.clear();
+    resetCache();
+  });
+
+  const renderWithPreferences = (ui: React.ReactElement) =>
+    render(<PreferencesProvider>{ui}</PreferencesProvider>);
+
+  it('applies comfortable spacing by default', async () => {
+    renderWithPreferences(
+      <FormField {...defaultProps} helperText="Hint">
+        <input type="text" data-testid="input" />
+      </FormField>,
+    );
+
+    expect(screen.getByText('Field').className).toContain('mb-1');
+    expect(screen.getByText('Hint').className).toContain('mt-1');
+  });
+
+  it('applies compact spacing when formDensity is compact', async () => {
+    localStorage.setItem(
+      'talenttrust-user-preferences',
+      JSON.stringify({ formDensity: 'compact' }),
+    );
+
+    renderWithPreferences(
+      <FormField {...defaultProps} helperText="Hint">
+        <input type="text" data-testid="input" />
+      </FormField>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('Field').className).toContain('mb-0');
+    });
+    await waitFor(() => {
+      expect(screen.getByText('Hint').className).toContain('mt-0');
     });
   });
 });

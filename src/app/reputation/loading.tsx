@@ -14,19 +14,19 @@
  *     - 3 history event rows
  *
  * Accessibility:
- * - `aria-busy="true"` on <main>.
  * - Visually-hidden `role="status"` announces "Loading reputation…".
  * - All shimmer blocks carry `aria-hidden="true"`.
  * - Animation disabled for `prefers-reduced-motion` via globals.css rule
  *   and `motion-reduce:animate-none`.
+ * - Focus management is handled by ReputationLoadingClient wrapper.
  *
  * ---------------------------------------------------------------------------
  * State invariants owned by this module
  * ---------------------------------------------------------------------------
  * This fallback is intentionally stateless — it renders while the real page
  * streams in and must never influence the loaded state. The following
- * invariants are enforced (and covered by
- * `src/app/reputation/__tests__/loading.test.tsx`):
+ * invariants are enforced and covered by
+ * `src/app/reputation/__tests__/loading.invariants.test.tsx`:
  *
  * INV-1 (Pure render). The component reads no user, wallet, or reputation
  *   data and performs no I/O. Output is a pure function of a validated
@@ -42,8 +42,8 @@
  *   therefore never produce NaN, negative, or unbounded loops, and React keys
  *   stay unique. Configuration resolution never throws.
  *
- * INV-4 (Announcement). Exactly one `role="status"` live region and one
- *   `aria-busy="true"` <main> are always present, regardless of geometry.
+ * INV-4 (Announcement). Exactly one `role="status"` live region and the page
+ *   heading / cards always render, regardless of geometry.
  *
  * INV-5 (Diagnosability). Invalid geometry is reported through the shared
  *   `reportError` abstraction with a non-sensitive field list — never with
@@ -245,7 +245,7 @@ const ProfileCardSkeleton = ({
           key={label}
           className="rounded-3xl border border-slate-200 bg-slate-50 p-5 space-y-3"
         >
-          <div className="h-3.5 w-28 rounded bg-slate-200 animate-shimmer motion-reduce:animate-none" />
+          <p className="h-3.5 text-xs font-medium text-slate-500">{label}</p>
           <div className="h-8 w-20 rounded-lg bg-slate-200 animate-shimmer motion-reduce:animate-none" />
         </div>
       ))}

@@ -60,8 +60,10 @@ export function calculateContractProgress(milestones: Milestone[]): ContractProg
     }
   }
 
+  // The empty-array early-return above guarantees totalCount > 0 here,
+  // so a direct division is safe and avoids a dead `else` branch.
   const totalCount = milestones.length;
-  const progressPercent = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
+  const progressPercent = Math.round((completedCount / totalCount) * 100);
   const currency = milestones[0].currency;
 
   return {

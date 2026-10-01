@@ -52,7 +52,8 @@ For example, `Frontend Development - Sprint 1` becomes an id shaped like `fronte
 - The modal root uses `role="dialog"`, `aria-modal="true"`, and `aria-labelledby="create-milestone-title"`.
 - `ErrorSummary` exposes validation failures through `role="alert"` and links each error back to its field id.
 - `FormField` applies required markers, `aria-invalid`, `aria-describedby`, and error styling for invalid fields.
-- All controls are native form inputs, selects, or buttons, so keyboard operation follows browser defaults.
+- All controls are native form inputs, selects, or buttons, so keyboard operation follows browser defaults (Tab, Enter, Space).
+- Cancel and Submit expose a visible `focus-visible` outline so keyboard users can track focus without layout changes.
 - The Cancel button is `type="button"` so it never submits the form.
 
 ## Parent Contract

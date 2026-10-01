@@ -1,7 +1,8 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { use, useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
+import { notFound } from 'next/navigation';
 import Breadcrumbs from '@/components/Breadcrumbs';
 import ContractSummary from '@/components/ContractSummary';
 import MilestonesList from '@/components/MilestonesList';
@@ -12,11 +13,22 @@ import { ContractSummarySkeleton } from '@/components/ContractSummarySkeleton';
 import { MilestonesListSkeleton } from '@/components/MilestonesListSkeleton';
 import ContractStatusAnnouncer from '@/components/ContractStatusAnnouncer';
 import SafeBoundary from '@/components/SafeBoundary';
+import OfflineIndicator from '@/components/OfflineIndicator';
 import { resolveContractData, ContractData } from '@/lib/contractResolver';
 import { useToast } from '@/components/toast/toast-provider';
-import { upsertContract, listMilestonesByContract } from '@/lib/repository';
+import { useCopyToClipboard } from '@/hooks/useCopyToClipboard';
+import { useOnlineStatus } from '@/hooks/useOnlineStatus';
+import {
+  listMilestonesByContract,
+  updateMilestone,
+} from '@/lib/repository';
+import { cacheContractData, getCachedContractData } from '@/lib/contractCache';
 import { isValidContractId } from '@/lib/validateContractId';
-import type { Contract, Milestone } from '@/types/domain';
+import {
+  useOptimisticContractStatus,
+  type BuildPersistedContract,
+} from '@/hooks/useOptimisticContractStatus';
+import type { Milestone } from '@/types/domain';
 
 /**
  * Merges the contract's resolved milestones with any milestones persisted in
@@ -29,10 +41,15 @@ import type { Contract, Milestone } from '@/types/domain';
  * @param contractId - The contract id to filter persisted milestones by.
  * @returns The merged, de-duplicated milestone list for this contract.
  */
-function mergeContractMilestones(baseMilestones: Milestone[], contractId: string): Milestone[] {
+function mergeContractMilestones(
+  baseMilestones: Milestone[],
+  contractId: string,
+): Milestone[] {
   const merged = new Map<string, Milestone>();
   baseMilestones.forEach((milestone) => merged.set(milestone.id, milestone));
-  listMilestonesByContract(contractId).forEach((milestone) => merged.set(milestone.id, milestone));
+  listMilestonesByContract(contractId).forEach((milestone) =>
+    merged.set(milestone.id, milestone),
+  );
   return Array.from(merged.values());
 }
 
@@ -46,38 +63,78 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isPersistingStatus, setIsPersistingStatus] = useState(false);
+  const [isUsingCachedData, setIsUsingCachedData] = useState(false);
+  const [cachedAt, setCachedAt] = useState<string | undefined>(undefined);
+  const [isDataStale, setIsDataStale] = useState(false);
   const isMountedRef = useRef(true);
+  const milestonesRef = useRef(milestones);
+  milestonesRef.current = milestones;
   const { showError, showSuccess } = useToast();
+  const isOnline = useOnlineStatus();
+
+  const { copied, copy } = useCopyToClipboard({
+    delay: 2000,
+    onSuccess: () => {
+      showSuccess({
+        title: 'Contract ID copied',
+        description: 'The contract identifier has been copied to your clipboard.',
+      });
+    },
+    onError: (err) => {
+      if (err instanceof Error && err.message.includes('supported')) {
+        showError({
+          title: 'Copy not supported',
+          description: 'Your browser does not support clipboard access. Please copy the ID manually.',
+        });
+      } else {
+        showError({
+          title: 'Copy failed',
+          description: 'Unable to copy the contract ID to your clipboard. Please try again.',
+        });
+      }
+    },
+  });
 
   /**
    * Maps the resolved contract detail shape into the repository contract shape.
    *
    * The repository stores summary-friendly contract records, so the detail page
    * narrows `ContractData` into the fields that persistence already expects.
-   *
-   * @param data - The loaded detail-page contract data.
-   * @param status - The next status to persist for that contract.
-   * @returns A repository-ready `Contract` record.
+   * `version` is threaded through from {@link useOptimisticContractStatus} so
+   * the repository's stale-overwrite guard compares against the correct baseline.
    */
-  const buildPersistedContract = useCallback(
-    (data: ContractData, status: Contract['status']): Contract => ({
+  const buildPersistedContract: BuildPersistedContract = useCallback(
+    (data, status, version) => ({
+      id: data.id,
       contractName: data.name,
       parties: data.parties,
       totalValue: data.totalValue,
       currency: data.currency,
       status,
       createdAt: data.createdAt,
+      updatedAt: data.updatedAt,
       milestoneCount: data.milestones.length,
+      version,
     }),
     [],
   );
 
+  const persistStatus = useOptimisticContractStatus(
+    contractData,
+    setContractData,
+    buildPersistedContract,
+  );
+
   /**
-   * Persists a contract status transition and mirrors the result into page state.
+   * Applies a contract status transition optimistically, then persists it.
    *
-   * The write is intentionally client-side because repository persistence is
-   * backed by `localStorage`. Success and failure are surfaced through toasts so
-   * the confirmed ActionPanel flows provide immediate feedback.
+   * The UI already reflects `nextStatus` by the time this returns (applied
+   * synchronously inside {@link useOptimisticContractStatus}). On failure —
+   * including a stale-overwrite rejection — the optimistic change is rolled
+   * back and a clear, specific error message is surfaced via both the inline
+   * `ActionPanel` banner and a dismissible toast.
+   *
+   * When offline, mutations are disabled to prevent data inconsistency.
    *
    * @param nextStatus - The status to persist to the repository.
    * @param successTitle - The toast title shown after a successful write.
@@ -89,12 +146,20 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
       successTitle: string,
       successDescription: string,
     ) => {
-      if (!contractData) {
-        const message = 'Contract details are unavailable, so the status could not be updated.';
-        setErrorMessage(message);
+      // Disable unsafe mutations while offline
+      if (!isOnline) {
         showError({
-          title: 'Unable to update contract',
-          description: message,
+          title: 'Cannot update contract while offline',
+          description: 'Please connect to the internet to make changes to this contract.',
+        });
+        return;
+      }
+
+      // Also disable if using stale cached data
+      if (isUsingCachedData && isDataStale) {
+        showError({
+          title: 'Cannot update stale data',
+          description: 'Please refresh the page to load the latest data before making changes.',
         });
         return;
       }
@@ -102,28 +167,26 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
       setIsPersistingStatus(true);
       setErrorMessage(null);
 
-      const persisted = upsertContract(buildPersistedContract(contractData, nextStatus));
+      const result = persistStatus(nextStatus);
 
-      if (!persisted) {
-        const message = 'The contract status could not be persisted. Please try again.';
-        setErrorMessage(message);
+      if (!result.ok) {
+        setErrorMessage(result.error);
         showError({
           title: 'Unable to update contract',
-          description: message,
+          description: result.error,
         });
         setIsPersistingStatus(false);
         return;
       }
 
-      const updatedContract = { ...contractData, status: nextStatus };
-      setContractData(updatedContract);
+      setErrorMessage(null);
       showSuccess({
         title: successTitle,
         description: successDescription,
       });
       setIsPersistingStatus(false);
     },
-    [buildPersistedContract, contractData, showError, showSuccess],
+    [persistStatus, showError, showSuccess, isOnline, isUsingCachedData, isDataStale],
   );
 
   useEffect(() => {
@@ -133,16 +196,63 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
       try {
         setIsLoading(true);
         setErrorMessage(null);
+
+        // If offline, try to load from cache first
+        if (!isOnline) {
+          const cachedResult = getCachedContractData(id);
+          if (cachedResult.success && cachedResult.data) {
+            if (isMountedRef.current) {
+              setContractData(cachedResult.data);
+              setMilestones(mergeContractMilestones(cachedResult.data.milestones, id));
+              setIsUsingCachedData(true);
+              setIsDataStale(cachedResult.stale || false);
+              setCachedAt(cachedResult.data.updatedAt);
+              setIsLoading(false);
+            }
+            return;
+          }
+          // No cache available when offline - show error
+          if (isMountedRef.current) {
+            setErrorMessage(
+              'You are offline and this contract has not been loaded before. Please connect to the internet and try again.',
+            );
+            setIsLoading(false);
+          }
+          return;
+        }
+
+        // Online - load fresh data
         const data = await resolveContractData(id);
 
         if (isMountedRef.current) {
           setContractData(data);
           setMilestones(mergeContractMilestones(data.milestones, id));
+          setIsUsingCachedData(false);
+          setIsDataStale(false);
+          setCachedAt(undefined);
+
+          // Cache the successfully loaded data
+          cacheContractData(id, data);
         }
       } catch (error) {
-        if (isMountedRef.current) {
+        // On error, try to fall back to cache
+        const cachedResult = getCachedContractData(id);
+        if (cachedResult.success && cachedResult.data) {
+          if (isMountedRef.current) {
+            setContractData(cachedResult.data);
+            setMilestones(mergeContractMilestones(cachedResult.data.milestones, id));
+            setIsUsingCachedData(true);
+            setIsDataStale(cachedResult.stale || false);
+            setCachedAt(cachedResult.data.updatedAt);
+            setErrorMessage(
+              'Unable to load fresh data. Showing cached version which may be outdated.',
+            );
+          }
+        } else if (isMountedRef.current) {
           setErrorMessage(
-            error instanceof Error ? error.message : 'Failed to load contract. Please try again.'
+            error instanceof Error
+              ? error.message
+              : 'Failed to load contract. Please try again.',
           );
         }
       } finally {
@@ -157,7 +267,7 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
     return () => {
       isMountedRef.current = false;
     };
-  }, [id]);
+  }, [id, isOnline]);
 
   /**
    * Placeholder for the future milestone-submission workflow.
@@ -192,12 +302,50 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
     // Replace with summary navigation.
   };
 
+  const handleUpdateMilestone = useCallback((id: string, patch: Partial<Milestone>) => {
+    // Disable unsafe mutations while offline
+    if (!isOnline) {
+      showError({
+        title: 'Cannot update milestone while offline',
+        description: 'Please connect to the internet to make changes to milestones.',
+      });
+      return false;
+    }
+
+    // Also disable if using stale cached data
+    if (isUsingCachedData && isDataStale) {
+      showError({
+        title: 'Cannot update stale data',
+        description: 'Please refresh the page to load the latest data before making changes.',
+      });
+      return false;
+    }
+
+    const snapshot = milestonesRef.current;
+
+    setMilestones((current) =>
+      current.map((item) => (item.id === id ? { ...item, ...patch } : item)),
+    );
+
+    const persisted = updateMilestone(id, patch);
+
+    if (!persisted) {
+      setMilestones(snapshot);
+      return false;
+    }
+
+    return true;
+  }, [isOnline, isUsingCachedData, isDataStale, showError]);
+
   const status = contractData?.status || 'Active';
 
   return (
     <main className="min-h-screen bg-slate-50 px-4 py-8 sm:px-6 lg:px-8">
       {contractData ? <ContractStatusAnnouncer status={contractData.status} /> : null}
       <div className="mx-auto max-w-screen-2xl space-y-6">
+        {/* Offline/stale data indicator */}
+        <OfflineIndicator isStale={isDataStale} cachedAt={cachedAt} />
+
         <div className="flex items-center justify-between gap-4 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
           <div>
             <Breadcrumbs
@@ -207,7 +355,25 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
                 { label: `#${id}` },
               ]}
             />
-            <h1 className="mt-2 text-3xl font-semibold text-slate-900">Contract #{id}</h1>
+            <div className="flex items-center gap-3">
+              <h1 className="mt-2 text-3xl font-semibold text-slate-900">Contract #{id}</h1>
+              <button
+                onClick={() => copy(id)}
+                className="mt-2 flex-shrink-0 rounded-lg p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
+                aria-label={copied ? 'Contract ID copied' : 'Copy contract ID to clipboard'}
+                title={copied ? 'Contract ID copied' : 'Copy contract ID'}
+              >
+                {copied ? (
+                  <svg className="h-5 w-5 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                ) : (
+                  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                  </svg>
+                )}
+              </button>
+            </div>
           </div>
           <Link
             href="/contracts"
@@ -230,6 +396,7 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
                   currency={contractData.currency}
                   status={contractData.status}
                   createdAt={contractData.createdAt}
+                  updatedAt={contractData.updatedAt}
                   milestoneCount={milestones.length}
                 />
               ) : null}
@@ -247,7 +414,11 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
               {isLoading ? (
                 <MilestonesListSkeleton />
               ) : contractData ? (
-                <MilestonesList milestones={milestones} contractCurrency={contractData.currency} />
+                <MilestonesList
+                  milestones={milestones}
+                  contractCurrency={contractData.currency}
+                  onUpdateMilestone={handleUpdateMilestone}
+                />
               ) : null}
             </SafeBoundary>
           </div>
@@ -262,6 +433,7 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
               isLoading={isLoading || isPersistingStatus}
               errorMessage={errorMessage || undefined}
               disputeFlow="confirm"
+              disableMutations={!isOnline || (isUsingCachedData && isDataStale)}
             />
           </div>
         </div>
@@ -270,11 +442,10 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
   );
 };
 
-const ContractDetailPage = async ({ params }: ContractDetailPageProps) => {
-  const { id } = await params;
+const ContractDetailPage = ({ params }: ContractDetailPageProps) => {
+  const { id } = use(params);
 
   if (!isValidContractId(id)) {
-    const { notFound } = await import('next/navigation');
     notFound();
   }
 

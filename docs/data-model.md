@@ -92,16 +92,30 @@ saveMilestone({
 ### Update Operations
 The public API includes both additive writes (appending to arrays) and atomic upserts.
 
-#### `upsertContract(contract: Contract): boolean`
+#### `upsertContract(contract: Contract): UpsertResult`
 Inserts or updates a contract in the persisted list:
 - **Append branch**: When no contract matches the same `contractName`, the contract is appended to the end of the array.
 - **Replace branch**: When an existing contract matches the same `contractName`, it is replaced in-place, preserving the existing array order and avoiding duplicates. In the case of multiple same-name candidates, only the first matching contract is replaced.
+- **Stale-overwrite guard**: Every contract carries an internal `version` field that starts at `1` for new contracts and increments on each successful upsert. Before writing, the function compares the incoming contract's version against the currently stored version. If the stored version is higher, the write is rejected with `{ success: false, stale: true }`. This prevents one tab from silently overwriting a status change made in another tab.
 - **Milestones isolation**: Milestones data and other contracts are preserved completely unchanged.
-- **Error reporting**: If `window.localStorage.setItem` throws (e.g. storage quota exceeded) or in SSR contexts, the failure is reported to the central `reportError` reporter and `false` is returned; otherwise, `true` is returned.
+- **Error reporting**: If `window.localStorage.setItem` throws (e.g. storage quota exceeded) or in SSR contexts, the failure is reported to the central `reportError` reporter and `{ success: false, stale: false }` is returned.
 
 ```typescript
 import { upsertContract } from '@/lib/repository';
-const ok = upsertContract({ ...existingContract, status: 'Completed' });
+const result = upsertContract({ ...existingContract, status: 'Completed', version: 0 });
+if (!result.success && result.stale) {
+  // Another session modified this contract — reload to get the latest.
+}
+```
+
+#### `getContractVersion(contractName: string): number`
+Returns the current persistence-layer version for the contract matching `contractName`, or `0` if the contract has never been persisted. Callers use this to construct the `Contract` object with the correct baseline version before calling `upsertContract`, ensuring the stale-overwrite guard compares against the right baseline.
+
+```typescript
+import { getContractVersion, upsertContract } from '@/lib/repository';
+
+const version = getContractVersion('Design Sprint');
+const result = upsertContract({ ...existingContract, status: 'Completed', version });
 ```
 
 ---

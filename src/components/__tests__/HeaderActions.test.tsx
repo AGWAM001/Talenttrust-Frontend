@@ -26,16 +26,24 @@ expect.extend(toHaveNoViolations);
 // Mocks
 // ---------------------------------------------------------------------------
 
+let mockShouldThrowWalletButton = false;
+
 jest.mock('@/components/ThemeToggle', () => ({
   ThemeToggle: () => <button type="button" data-testid="theme-toggle">Theme</button>,
 }));
 
 jest.mock('@/components/WalletConnectButton', () => ({
-  WalletConnectButton: () => (
-    <button type="button" data-testid="wallet-connect-button">
-      Connect Wallet
-    </button>
-  ),
+  WalletConnectButton: () => {
+    if (mockShouldThrowWalletButton) {
+      throw new Error('Wallet section exploded');
+    }
+
+    return (
+      <button type="button" data-testid="wallet-connect-button">
+        Connect Wallet
+      </button>
+    );
+  },
 }));
 
 // ---------------------------------------------------------------------------
@@ -57,6 +65,10 @@ const getPanel = () =>
 // ---------------------------------------------------------------------------
 
 describe('HeaderActions — initial render', () => {
+  beforeEach(() => {
+    mockShouldThrowWalletButton = false;
+  });
+
   it('renders the disclosure toggle button in the collapsed state', () => {
     render(<HeaderActions />);
     const toggle = getToggle();
@@ -76,6 +88,21 @@ describe('HeaderActions — initial render', () => {
 
   it('renders WalletConnectButton on mount', () => {
     render(<HeaderActions />);
+    expect(screen.getByTestId('wallet-connect-button')).toBeInTheDocument();
+  });
+
+  it('renders an accessible fallback and retry when the wallet section throws', () => {
+    mockShouldThrowWalletButton = true;
+
+    const { rerender } = render(<HeaderActions />);
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Wallet section failed to load.');
+    expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument();
+
+    mockShouldThrowWalletButton = false;
+    fireEvent.click(screen.getByRole('button', { name: /retry/i }));
+    rerender(<HeaderActions />);
+
     expect(screen.getByTestId('wallet-connect-button')).toBeInTheDocument();
   });
 

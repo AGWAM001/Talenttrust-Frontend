@@ -6,13 +6,14 @@ The provider is mounted as the outermost application provider in `src/app/layout
 
 ## Preference Model
 
-`UserPreferences` contains four fields:
+`UserPreferences` contains the following fields:
 
 | Field | Type | Default | Behavior |
 |-------|------|---------|----------|
 | `theme` | `'light' \| 'dark' \| 'system'` | `'system'` | Controls the `data-theme` attribute and `light` / `dark` class on `document.documentElement`. |
 | `amountFormat` | `'usd' \| 'ngn' \| 'compact'` | `'usd'` | Selects how `formatAmount` formats currency values. |
 | `toastDensity` | `'relaxed' \| 'compact'` | `'relaxed'` | Available to toast UI consumers for spacing decisions. |
+| `formDensity` | `'comfortable' \| 'compact'` | `'comfortable'` | Controls spacing in form fields; `compact` reduces vertical gaps for denser layouts. |
 | `quietMode` | `boolean` | `false` | Available to notification consumers that need to reduce interruption. |
 
 The defaults live in `DEFAULT_PREFERENCES`:
@@ -22,6 +23,7 @@ The defaults live in `DEFAULT_PREFERENCES`:
   theme: 'system',
   amountFormat: 'usd',
   toastDensity: 'relaxed',
+  formDensity: 'comfortable',
   quietMode: false,
 }
 ```

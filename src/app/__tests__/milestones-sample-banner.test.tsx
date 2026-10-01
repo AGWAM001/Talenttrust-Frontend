@@ -19,12 +19,14 @@ import React from 'react';
 import { render, screen, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { axe } from 'jest-axe';
-import MilestonesPage, {
+import MilestonesPage from '../milestones/page';
+import {
   SAMPLE_DISMISSED_KEY,
   SAMPLE_MILESTONES,
-} from '../milestones/page';
+} from '../milestones/constants';
 import { listMilestones, saveMilestone } from '@/lib/repository';
 import * as safeStorage from '@/lib/safeStorage';
+import { ToastProvider } from '@/components/toast/toast-provider';
 
 // ---------------------------------------------------------------------------
 // Module mocks
@@ -49,7 +51,7 @@ const setItemSpy = jest.spyOn(safeStorage, 'setItem');
 
 /** Renders the page and waits for the post-mount useEffect to settle. */
 async function renderPage() {
-  const result = render(<MilestonesPage />);
+  const result = render(<ToastProvider><MilestonesPage /></ToastProvider>);
   // The useEffect fires after mount; give React one tick to process it.
   await act(async () => {});
   return result;
@@ -325,7 +327,7 @@ describe('adding a real milestone clears sample state', () => {
       .mockReturnValue([newMilestone]);  // after save → real data
 
     const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime });
-    render(<MilestonesPage />);
+    render(<ToastProvider><MilestonesPage /></ToastProvider>);
     await act(async () => {});
 
     // Banner visible with sample data
@@ -367,7 +369,7 @@ describe('safeStorage failure resilience', () => {
 
     // Page wraps getItem in try/catch — should render without crashing.
     // When getItem throws, banner is hidden (safe default).
-    render(<MilestonesPage />);
+    render(<ToastProvider><MilestonesPage /></ToastProvider>);
     await act(async () => {});
 
     // No crash, and banner is hidden (safe fallback on storage error)

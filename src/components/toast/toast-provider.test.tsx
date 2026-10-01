@@ -1,9 +1,10 @@
 /// <reference types="jest" />
 
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { StrictMode } from 'react';
+import { StrictMode, useState } from 'react';
 import { PreferencesProvider } from '@/lib/preferences';
-import { ToastProvider, useToast } from './toast-provider';
+import { ToastProvider, useToast, ToastErrorBoundary, ToastSkeleton } from './toast-provider';
+import * as errorReporter from '@/lib/errorReporter';
 
 function ToastHarness() {
   const { showError, showSuccess } = useToast();
@@ -310,6 +311,118 @@ describe('ToastProvider', () => {
     await waitFor(() => {
       expect(screen.queryByRole('status')).not.toBeInTheDocument();
     });
+  });
+});
+
+describe('loading skeleton', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+  });
+
+  afterEach(() => {
+    act(() => {
+      jest.clearAllTimers();
+    });
+    jest.useRealTimers();
+  });
+
+  it('renders skeleton in the viewport when no toasts are present', () => {
+    render(
+      <ToastProvider>
+        <div />
+      </ToastProvider>,
+    );
+
+    const skeleton = document.querySelector('[aria-hidden="true"]');
+    expect(skeleton).toBeInTheDocument();
+    expect(skeleton!.className).toContain('animate-pulse');
+  });
+
+  it('viewport has aria-busy when skeleton is visible', () => {
+    render(
+      <ToastProvider>
+        <div />
+      </ToastProvider>,
+    );
+
+    const viewport = screen.getByLabelText('Notifications');
+    expect(viewport).toHaveAttribute('aria-busy', 'true');
+  });
+
+  it('skeleton is replaced by toast content when a toast appears', () => {
+    render(
+      <ToastProvider>
+        <ToastHarness />
+      </ToastProvider>,
+    );
+
+    expect(screen.getByLabelText('Notifications')).toHaveAttribute('aria-busy', 'true');
+
+    fireEvent.click(screen.getByRole('button', { name: /trigger success/i }));
+
+    expect(screen.getByRole('status')).toHaveTextContent('Milestone released');
+    expect(screen.getByLabelText('Notifications')).not.toHaveAttribute('aria-busy');
+  });
+
+  it('viewport is not busy when toasts are already present', () => {
+    function PreFilledHarness() {
+      const { showSuccess } = useToast();
+      return (
+        <button
+          onClick={() => showSuccess({ title: 'Exists' })}
+          type="button"
+        >
+          Add
+        </button>
+      );
+    }
+
+    render(
+      <ToastProvider>
+        <PreFilledHarness />
+      </ToastProvider>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /add/i }));
+
+    expect(screen.getByRole('status')).toBeInTheDocument();
+    expect(screen.getByLabelText('Notifications')).not.toHaveAttribute('aria-busy');
+  });
+
+  it('skeleton wrapper div is aria-hidden', () => {
+    render(
+      <ToastProvider>
+        <div />
+      </ToastProvider>,
+    );
+
+    const skeleton = document.querySelector('[aria-hidden="true"]');
+    expect(skeleton).toBeInTheDocument();
+  });
+
+  it('ToastSkeleton renders with correct toast-like structure', () => {
+    const { container } = render(<ToastSkeleton />);
+
+    const skeletonDiv = container.firstChild as HTMLElement;
+    expect(skeletonDiv).toHaveAttribute('aria-hidden', 'true');
+    expect(skeletonDiv.className).toContain('rounded-2xl');
+    expect(skeletonDiv.className).toContain('animate-pulse');
+    expect(skeletonDiv.querySelector('.rounded-full')).toBeInTheDocument();
+    expect(skeletonDiv.querySelector('.rounded-md')).toBeInTheDocument();
+  });
+
+  it('error boundary fallback replaces skeleton when toast render throws', () => {
+    const ThrowingSkeleton = () => {
+      throw new Error('Skeleton render error');
+    };
+
+    render(
+      <ToastErrorBoundary>
+        <ThrowingSkeleton />
+      </ToastErrorBoundary>
+    );
+
+    expect(screen.getByText('Notifications failed to load')).toBeInTheDocument();
   });
 });
 
@@ -1372,5 +1485,402 @@ describe('toastDuration preference', () => {
     // Advance time — none should auto-dismiss (all persistent).
     act(() => { jest.advanceTimersByTime(60000); });
     expect(screen.getAllByRole('status')).toHaveLength(4);
+  });
+});
+
+describe('ToastErrorBoundary', () => {
+  beforeEach(() => {
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+    jest.spyOn(errorReporter, 'reportError').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it('renders children seamlessly when no error occurs', () => {
+    render(
+      <ToastErrorBoundary>
+        <div>Normal Content</div>
+      </ToastErrorBoundary>
+    );
+    expect(screen.getByText('Normal Content')).toBeInTheDocument();
+  });
+
+  it('catches render errors in toast viewport, logs them, and renders fallback', () => {
+    const ThrowingComponent = () => {
+      throw new Error('Toast render error');
+    };
+
+    render(
+      <ToastErrorBoundary>
+        <ThrowingComponent />
+      </ToastErrorBoundary>
+    );
+
+    expect(screen.getByText('Notifications failed to load')).toBeInTheDocument();
+    expect(errorReporter.reportError).toHaveBeenCalledWith(
+      expect.any(Error),
+      'ToastErrorBoundary',
+      'error',
+      expect.any(Object)
+    );
+  });
+
+  it('recovers when retry button is clicked', () => {
+    let shouldThrow = true;
+    const RecoverableComponent = () => {
+      if (shouldThrow) {
+        throw new Error('Temporary error');
+      }
+      return <div>Recovered!</div>;
+    };
+
+    render(
+      <ToastErrorBoundary>
+        <RecoverableComponent />
+      </ToastErrorBoundary>
+    );
+
+    expect(screen.getByText('Notifications failed to load')).toBeInTheDocument();
+
+    shouldThrow = false;
+    fireEvent.click(screen.getByRole('button', { name: /retry/i }));
+
+    expect(screen.getByText('Recovered!')).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// focus management
+// ---------------------------------------------------------------------------
+
+describe('focus management', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+  });
+
+  afterEach(() => {
+    act(() => {
+      jest.clearAllTimers();
+    });
+    jest.useRealTimers();
+  });
+
+  function FocusHarness() {
+    const { showSuccess, showError } = useToast();
+
+    return (
+      <div>
+        <button
+          onClick={() =>
+            showSuccess({ title: 'Saved', duration: 5000 })
+          }
+          type="button"
+          data-testid="trigger-success"
+        >
+          Trigger success
+        </button>
+        <button
+          onClick={() =>
+            showError({ title: 'Failed', duration: 5000 })
+          }
+          type="button"
+          data-testid="trigger-error"
+        >
+          Trigger error
+        </button>
+        <button
+          onClick={() =>
+            showSuccess({
+              title: 'With action',
+              duration: 5000,
+              action: { label: 'Undo', onClick: jest.fn() },
+            })
+          }
+          type="button"
+          data-testid="trigger-action"
+        >
+          Trigger action
+        </button>
+        <input data-testid="external-input" type="text" />
+      </div>
+    );
+  }
+
+  it('moves focus to the dismiss button when a success toast opens', () => {
+    render(
+      <ToastProvider>
+        <FocusHarness />
+      </ToastProvider>,
+    );
+
+    fireEvent.click(screen.getByTestId('trigger-success'));
+
+    const dismissBtn = screen.getByRole('button', { name: /dismiss success notification/i });
+    expect(dismissBtn).toHaveFocus();
+  });
+
+  it('moves focus to the action button over the dismiss button', () => {
+    render(
+      <ToastProvider>
+        <FocusHarness />
+      </ToastProvider>,
+    );
+
+    fireEvent.click(screen.getByTestId('trigger-action'));
+
+    expect(screen.getByRole('button', { name: 'Undo' })).toHaveFocus();
+  });
+
+  it('moves focus to the newest toast when multiple appear', () => {
+    function MultiHarness() {
+      const { showSuccess } = useToast();
+      return (
+        <div>
+          <button
+            onClick={() => {
+              showSuccess({ title: 'First', duration: 10000 });
+              showSuccess({ title: 'Second', duration: 10000 });
+            }}
+            type="button"
+          >
+            Trigger two
+          </button>
+        </div>
+      );
+    }
+
+    render(
+      <ToastProvider>
+        <MultiHarness />
+      </ToastProvider>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /trigger two/i }));
+
+    const toasts = screen.getAllByRole('status');
+    expect(toasts).toHaveLength(2);
+
+    const lastToast = toasts[1];
+    const dismissBtn = lastToast.querySelector('button');
+    expect(dismissBtn).toHaveFocus();
+  });
+
+  it('restores focus to the trigger element when a toast is dismissed', () => {
+    render(
+      <ToastProvider>
+        <FocusHarness />
+      </ToastProvider>,
+    );
+
+    const trigger = screen.getByTestId('trigger-success');
+    fireEvent.click(trigger);
+
+    const dismissBtn = screen.getByRole('button', { name: /dismiss success notification/i });
+    expect(dismissBtn).toHaveFocus();
+
+    fireEvent.click(dismissBtn);
+
+    expect(trigger).toHaveFocus();
+  });
+
+  it('restores focus to the trigger element on auto-dismiss', () => {
+    render(
+      <ToastProvider>
+        <FocusHarness />
+      </ToastProvider>,
+    );
+
+    const trigger = screen.getByTestId('trigger-success');
+    fireEvent.click(trigger);
+
+    act(() => {
+      jest.advanceTimersByTime(5000);
+    });
+
+    expect(trigger).toHaveFocus();
+  });
+
+  it('restores focus to the last saved trigger when all toasts are gone after eviction', () => {
+    render(
+      <ToastProvider>
+        <FocusHarness />
+      </ToastProvider>,
+    );
+
+    const externalInput = screen.getByTestId('external-input');
+    externalInput.focus();
+    fireEvent.click(screen.getByTestId('trigger-success'));
+
+    // Fill past the cap — each new toast overwrites the saved trigger.
+    for (let i = 0; i < 4; i++) {
+      fireEvent.click(screen.getByTestId('trigger-error'));
+    }
+
+    // All 5 toasts have short durations so they auto-dismiss quickly.
+    // After they are all gone, focus should return to the most recent
+    // trigger that was a user-interaction point (the trigger-error button
+    // from the last click, which is still in the DOM).
+    act(() => {
+      jest.advanceTimersByTime(5000);
+    });
+
+    expect(screen.getByTestId('trigger-error')).toHaveFocus();
+  });
+
+  it('restores focus to <main> when the trigger element is no longer in the DOM', () => {
+    // Insert a <main> element into the test DOM so the fallback can target it.
+    const main = document.createElement('main');
+    main.setAttribute('tabindex', '-1');
+    document.body.prepend(main);
+
+    function RemovableHarness() {
+      const [mounted, setMounted] = useState(true);
+      const { showSuccess } = useToast();
+
+      return (
+        <div>
+          {mounted && (
+            <button
+              onClick={() => {
+                showSuccess({ title: 'Gone', duration: 2000 });
+                setMounted(false);
+              }}
+              type="button"
+            >
+              Trigger and remove
+            </button>
+          )}
+        </div>
+      );
+    }
+
+    render(
+      <ToastProvider>
+        <RemovableHarness />
+      </ToastProvider>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /trigger and remove/i }));
+
+    act(() => {
+      jest.advanceTimersByTime(2000);
+    });
+
+    expect(main).toHaveFocus();
+    main.remove();
+  });
+
+  it('does not steal focus when quiet mode suppresses a toast', () => {
+    localStorage.setItem(
+      'talenttrust-user-preferences',
+      JSON.stringify({ quietMode: true }),
+    );
+
+    render(
+      <PreferencesProvider>
+        <ToastProvider>
+          <FocusHarness />
+        </ToastProvider>
+      </PreferencesProvider>,
+    );
+
+    const input = screen.getByTestId('external-input');
+    input.focus();
+
+    fireEvent.click(screen.getByTestId('trigger-success'));
+
+    // Focus should remain on the input — no toast was created.
+    expect(input).toHaveFocus();
+  });
+
+  it('does not restore focus when the user moved focus elsewhere before toast closed', () => {
+    render(
+      <ToastProvider>
+        <FocusHarness />
+      </ToastProvider>,
+    );
+
+    fireEvent.click(screen.getByTestId('trigger-success'));
+    expect(screen.getByRole('button', { name: /dismiss success notification/i })).toHaveFocus();
+
+    // User manually moves focus to the external input.
+    const input = screen.getByTestId('external-input');
+    input.focus();
+
+    // Auto-dismiss fires while focus is on the input.
+    act(() => {
+      jest.advanceTimersByTime(5000);
+    });
+
+    // Focus must stay on the input — the toast is gone but the user
+    // intentionally moved focus there.
+    expect(input).toHaveFocus();
+  });
+
+  it('focus-traps Tab cycling within the toast viewport', () => {
+    render(
+      <ToastProvider>
+        <FocusHarness />
+      </ToastProvider>,
+    );
+
+    fireEvent.click(screen.getByTestId('trigger-action'));
+
+    const actionBtn = screen.getByRole('button', { name: 'Undo' });
+    const dismissBtn = screen.getByRole('button', { name: /dismiss success notification/i });
+
+    // Focus starts on the action button (highest priority when present).
+    expect(actionBtn).toHaveFocus();
+
+    // Tab from the last element (dismissBtn) wraps to the first (actionBtn).
+    // The handler only intercepts when focus would escape the viewport;
+    // forward movement between elements is handled by the browser's natural
+    // Tab order.  We simulate the browser by focusing the next element before
+    // each keydown.
+    fireEvent.keyDown(actionBtn, { key: 'Tab', shiftKey: false });
+    dismissBtn.focus();
+
+    fireEvent.keyDown(dismissBtn, { key: 'Tab', shiftKey: false });
+    expect(actionBtn).toHaveFocus();
+
+    // Shift+Tab from the first element wraps to the last.
+    fireEvent.keyDown(actionBtn, { key: 'Tab', shiftKey: true });
+    expect(dismissBtn).toHaveFocus();
+  });
+
+  it('focuses the newest toast after the oldest is evicted', () => {
+    function EvictHarness() {
+      const { showSuccess } = useToast();
+      return (
+        <button
+          onClick={() => {
+            for (let i = 1; i <= 5; i++) {
+              showSuccess({ title: `Toast ${i}`, duration: 10000 });
+            }
+          }}
+          type="button"
+        >
+          Add 5
+        </button>
+      );
+    }
+
+    render(
+      <ToastProvider>
+        <EvictHarness />
+      </ToastProvider>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /add 5/i }));
+
+    const visible = screen.getAllByRole('status');
+    expect(visible).toHaveLength(4);
+
+    // Focus should be on the newest toast (Toast 5).
+    const newest = visible[visible.length - 1];
+    const btn = newest.querySelector('button');
+    expect(btn).toHaveFocus();
   });
 });

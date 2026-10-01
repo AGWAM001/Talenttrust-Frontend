@@ -1,16 +1,66 @@
-'use client';
+"use client";
 
-import React, { useState, useCallback } from 'react';
+import React, { useCallback, useState, useMemo } from 'react';
 import EmptyState from '../../components/EmptyState';
+import ContractsList from '../../components/contracts/ContractsList';
 import { ContractCreationForm } from '../../components/ContractCreationForm';
 import { listContracts, saveContract } from '@/lib/repository';
+import { downloadContractsCsv, downloadContractsJson } from '@/lib/exportContracts';
+import { useToast } from '@/components/toast/toast-provider';
+import { usePreferences } from '@/lib/preferences';
+import {
+  CONTRACT_SORT_OPTIONS,
+  DEFAULT_CONTRACT_SORT_ORDER,
+  sortContracts,
+  toContractSortOrder,
+  type ContractSortOrder,
+} from '@/lib/sortContracts';
 import type { Contract } from '@/types/domain';
 
+type ContractsFetchState =
+  | { status: 'loading'; contracts: Contract[] }
+  | { status: 'success'; contracts: Contract[] }
+  | { status: 'error'; contracts: Contract[] };
+
+const getInitialFetchState = (): ContractsFetchState => {
+  try {
+    return { status: 'success', contracts: listContracts() };
+  } catch {
+    return { status: 'error', contracts: [] };
+  }
+};
+
 const ContractsPage: React.FC = () => {
-  // Initialise from localStorage on first render; subsequent saves trigger
-  // a state update so the list reflects newly added items immediately.
-  const [contracts, setContracts] = useState<Contract[]>(() => listContracts());
+  const [fetchState, setFetchState] = useState<ContractsFetchState>(getInitialFetchState);
   const [showForm, setShowForm] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortOrder, setSortOrder] = useState<ContractSortOrder>(DEFAULT_CONTRACT_SORT_ORDER);
+  const { showError } = useToast();
+  const { preferences, updatePreference } = usePreferences();
+  const { contracts } = fetchState;
+
+  const contractsDensity = preferences.contractsDensity;
+
+  /** Toggles between compact and comfortable density and persists the choice. */
+  const handleToggleDensity = useCallback(() => {
+    const next = contractsDensity === 'compact' ? 'comfortable' : 'compact';
+    updatePreference('contractsDensity', next);
+  }, [contractsDensity, updatePreference]);
+
+  /** Re-reads persisted contracts after a recoverable load failure. */
+  const loadContracts = useCallback(() => {
+    setFetchState((current) => ({ ...current, status: 'loading' }));
+
+    // Defer the synchronous local-storage read so the loading state is
+    // announced before the result replaces it.
+    queueMicrotask(() => {
+      try {
+        setFetchState({ status: 'success', contracts: listContracts() });
+      } catch {
+        setFetchState({ status: 'error', contracts: [] });
+      }
+    });
+  }, []);
 
   /**
    * Opens the contract creation form modal.
@@ -20,14 +70,33 @@ const ContractsPage: React.FC = () => {
   }, []);
 
   /**
-   * Handles form submission by persisting the contract and refreshing the list.
+   * Applies the new contract to the list immediately, then persists it.
+   * Rolls back the optimistic update and surfaces an error toast if the
+   * write fails.
    */
-  const handleSubmitContract = useCallback((contract: Contract) => {
-    saveContract(contract);
-    // Re-read storage so the component reflects the persisted state.
-    setContracts(listContracts());
-    setShowForm(false);
-  }, []);
+  const handleSubmitContract = useCallback(
+    (contract: Contract) => {
+      setFetchState((current) => ({
+        status: 'success',
+        contracts: [...current.contracts, contract],
+      }));
+      setShowForm(false);
+      setSearchQuery('');
+
+      const persisted = saveContract(contract);
+      if (!persisted) {
+        setFetchState((current) => ({
+          status: 'success',
+          contracts: current.contracts.filter((item) => item.id !== contract.id),
+        }));
+        showError({
+          title: "Unable to create contract",
+          description: "Your contract could not be saved. Please try again.",
+        });
+      }
+    },
+    [showError],
+  );
 
   /**
    * Closes the contract creation form modal.
@@ -36,11 +105,67 @@ const ContractsPage: React.FC = () => {
     setShowForm(false);
   }, []);
 
+  const filteredContracts = useMemo(() => {
+    if (!searchQuery.trim()) return contracts;
+    const lowerQuery = searchQuery.toLowerCase();
+    return contracts.filter((c) => {
+      const matchName = c.contractName.toLowerCase().includes(lowerQuery);
+      const matchParty = c.parties.some((p) => p.label.toLowerCase().includes(lowerQuery));
+      return matchName || matchParty;
+    });
+  }, [contracts, searchQuery]);
+
+  // Ordering is applied on top of the search results, so the two combine.
+  const sortedContracts = useMemo(
+    () => sortContracts(filteredContracts, sortOrder),
+    [filteredContracts, sortOrder],
+  );
+
   return (
-    <main className="min-h-screen p-8">
+    <main className="min-h-screen p-8 pb-24">
       <h1 className="text-2xl font-bold mb-6">Contracts</h1>
 
-      {!showForm && contracts.length === 0 && (
+      <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+        {fetchState.status === 'loading'
+          ? 'Loading contracts'
+          : fetchState.status === 'error'
+            ? 'Unable to load contracts'
+            : contracts.length === 0
+              ? 'No contracts found'
+              : `${sortedContracts.length} ${sortedContracts.length === 1 ? 'contract' : 'contracts'} found`}
+      </p>
+
+      {fetchState.status === 'loading' && !showForm && (
+        <div
+          role="status"
+          aria-label="Loading contracts"
+          aria-busy="true"
+          className="rounded-2xl border border-slate-200 bg-white p-6 text-sm text-slate-600"
+        >
+          Loading contracts…
+        </div>
+      )}
+
+      {fetchState.status === 'error' && !showForm && (
+        <section
+          role="alert"
+          aria-live="assertive"
+          aria-atomic="true"
+          className="rounded-2xl border border-red-200 bg-red-50 p-6 text-red-900"
+        >
+          <h2 className="text-lg font-semibold">Unable to load contracts</h2>
+          <p className="mt-2 text-sm">Please check your connection and try again.</p>
+          <button
+            type="button"
+            onClick={loadContracts}
+            className="mt-4 rounded-md bg-red-700 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-red-800 focus-visible:outline focus-visible:outline-4 focus-visible:outline-offset-2 focus-visible:outline-red-900"
+          >
+            Retry loading contracts
+          </button>
+        </section>
+      )}
+
+      {fetchState.status === 'success' && !showForm && contracts.length === 0 && (
         <EmptyState
           illustration="contracts"
           title="No contracts found"
@@ -50,31 +175,89 @@ const ContractsPage: React.FC = () => {
         />
       )}
 
-      {!showForm && contracts.length > 0 && (
+      {fetchState.status === 'success' && !showForm && contracts.length > 0 && (
         <>
-          <div className="mb-4 flex justify-end">
-            <button
-              type="button"
-              onClick={handleCreateContract}
-              className="rounded-2xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 focus-visible:outline focus-visible:outline-4 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
-            >
-              Create Contract
-            </button>
-          </div>
-          {/* TODO: Replace with a proper ContractSummary list component. */}
-          <ul className="space-y-4">
-            {contracts.map((contract, idx) => (
-              <li
-                key={`${contract.contractName}-${idx}`}
-                className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm"
+          <div className="mb-4 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div className="flex flex-1 items-center gap-4">
+              <div className="relative flex-1 max-w-sm">
+                <input
+                  type="search"
+                  placeholder="Search contracts or parties..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full rounded-2xl border border-slate-300 pl-10 pr-4 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  aria-label="Search contracts"
+                />
+                <svg
+                  className="absolute left-3 top-2.5 h-4 w-4 text-slate-400"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  aria-hidden="true"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+              </div>
+              <label htmlFor="contracts-sort" className="sr-only">Sort by</label>
+              <select
+                id="contracts-sort"
+                value={sortOrder}
+                onChange={(e) => setSortOrder(toContractSortOrder(e.target.value))}
+                className="rounded-2xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
               >
-                <p className="font-semibold text-slate-900">{contract.contractName}</p>
-                <p className="text-sm text-slate-500">
-                  {contract.status} · Created {contract.createdAt}
-                </p>
-              </li>
-            ))}
-          </ul>
+                {CONTRACT_SORT_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-slate-500 hidden md:inline-block">
+                {sortedContracts.length}{" "}
+                {sortedContracts.length === 1 ? "result" : "results"}
+              </span>
+              <button
+                type="button"
+                onClick={() => downloadContractsCsv(sortedContracts)}
+                className="rounded-2xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-900 transition hover:border-slate-400 focus-visible:outline focus-visible:outline-4 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
+                aria-label="Export contracts as CSV"
+              >
+                CSV
+              </button>
+              <button
+                type="button"
+                onClick={() => downloadContractsJson(sortedContracts)}
+                className="rounded-2xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-900 transition hover:border-slate-400 focus-visible:outline focus-visible:outline-4 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
+                aria-label="Export contracts as JSON"
+              >
+                JSON
+              </button>
+              <button
+                type="button"
+                onClick={handleCreateContract}
+                className="rounded-2xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 focus-visible:outline focus-visible:outline-4 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
+              >
+                Create Contract
+              </button>
+            </div>
+          </div>
+
+          {sortedContracts.length === 0 ? (
+            <EmptyState
+              illustration="contracts"
+              title="No contracts match your search"
+              description="We couldn't find any contracts matching your current search terms. Try adjusting your query or clearing the search."
+              actionLabel="Clear Search"
+              onAction={() => setSearchQuery('')}
+            />
+          ) : (
+            <ContractsList
+              contracts={sortedContracts}
+              density={contractsDensity}
+              onToggleDensity={handleToggleDensity}
+            />
+          )}
         </>
       )}
 
@@ -89,4 +272,3 @@ const ContractsPage: React.FC = () => {
 };
 
 export default ContractsPage;
-

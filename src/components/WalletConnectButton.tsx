@@ -1,14 +1,29 @@
 'use client';
 
-import React from 'react';
+import React, { useCallback } from 'react';
 import { useWallet } from '@/contexts/WalletContext';
 import { useToast } from '@/components/toast/toast-provider';
+import { usePreferences } from '@/lib/preferences';
 import { truncateAddress } from '@/lib/truncateAddress';
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard';
+import { useWalletFocus } from '@/hooks/useWalletFocus';
 
 export const WalletConnectButton = () => {
   const { address, isConnecting, error, connect, disconnect } = useWallet();
   const { showError } = useToast();
+  const { preferences, updatePreference } = usePreferences();
+  const { connectButtonRef, connectedElementRef } = useWalletFocus(address, isConnecting);
+
+  const isCompact = preferences.walletDensity === 'compact';
+
+  const containerGap = isCompact ? 'gap-1.5' : 'gap-2';
+  const containerPadding = isCompact ? 'p-0.5' : 'p-1';
+  const addressPadding = isCompact ? 'px-2 py-1' : 'px-3 py-1.5';
+  const btnPadding = isCompact ? 'p-1' : 'p-1.5';
+
+  const toggleDensity = useCallback(() => {
+    updatePreference('walletDensity', isCompact ? 'comfortable' : 'compact');
+  }, [isCompact, updatePreference]);
 
   const { copied, copy } = useCopyToClipboard({
     delay: 2000,
@@ -27,23 +42,10 @@ export const WalletConnectButton = () => {
     },
   });
 
-  /**
-   * Copies the connected wallet address to the system clipboard.
-   *
-   * Guards against environments where the Clipboard API is unavailable
-   * (insecure contexts, older browsers, or denied permissions) and wraps
-   * the async write in a try/catch so failures surface as user-visible
-   * error toasts rather than unhandled promise rejections.
-   *
-   * - Sets `copied = true` **only** when the write actually succeeds,
-   *   reverting to `false` after 2 seconds.
-   * - On any failure, triggers an error toast via `showError` without
-   *   logging sensitive address data to the console.
-   */
-  const handleCopy = async () => {
+  const handleCopy = useCallback(async () => {
     if (!address) return;
     await copy(address);
-  };
+  }, [address, copy]);
 
   if (error) {
     return (
@@ -53,8 +55,9 @@ export const WalletConnectButton = () => {
         </svg>
         <span className="text-sm font-medium">Connection Error</span>
         <button
+          type="button"
           onClick={connect}
-          className="ml-2 text-sm font-semibold underline hover:text-red-700"
+          className="ml-2 rounded text-sm font-semibold underline hover:text-red-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-1"
           aria-label="Retry wallet connection"
         >
           Retry
@@ -64,37 +67,60 @@ export const WalletConnectButton = () => {
   }
 
   if (address) {
+    const densityLabel = isCompact ? 'Switch to comfortable view' : 'Switch to compact view';
     return (
-      <div className="flex items-center gap-2 rounded-xl bg-slate-100 p-1 ring-1 ring-slate-200">
-        <div className="flex items-center gap-2 px-3 py-1.5">
+      <div ref={connectedElementRef} tabIndex={-1} className={`flex items-center ${containerGap} rounded-xl bg-slate-100 ${containerPadding} ring-1 ring-slate-200`}>
+        <div className={`flex items-center ${containerGap} ${addressPadding}`}>
           <div className="h-2 w-2 rounded-full bg-green-500" aria-hidden="true" />
           <span className="text-sm font-medium text-slate-700 font-mono">
             {truncateAddress(address)}
           </span>
         </div>
         <button
+          onClick={toggleDensity}
+          className={`rounded-lg ${btnPadding} text-slate-500 hover:bg-slate-200 hover:text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500`}
+          aria-label={densityLabel}
+          title={densityLabel}
+          data-testid="wallet-density-btn"
+        >
+          {isCompact ? (
+            <svg aria-hidden="true" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <line x1="4" y1="5" x2="20" y2="5" />
+              <line x1="4" y1="9" x2="20" y2="9" />
+              <line x1="4" y1="13" x2="20" y2="13" />
+              <line x1="4" y1="17" x2="20" y2="17" />
+            </svg>
+          ) : (
+            <svg aria-hidden="true" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <line x1="4" y1="5" x2="20" y2="5" />
+              <line x1="4" y1="12" x2="20" y2="12" />
+              <line x1="4" y1="19" x2="20" y2="19" />
+            </svg>
+          )}
+        </button>
+        <button
           onClick={handleCopy}
-          className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-200 hover:text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className={`rounded-lg ${btnPadding} text-slate-500 hover:bg-slate-200 hover:text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500`}
           aria-label="Copy address to clipboard"
           title="Copy address"
         >
           {copied ? (
-            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <svg aria-hidden="true" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
             </svg>
           ) : (
-            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <svg aria-hidden="true" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
             </svg>
           )}
         </button>
         <button
           onClick={disconnect}
-          className="rounded-lg p-1.5 text-slate-500 hover:bg-red-100 hover:text-red-600 focus:outline-none focus:ring-2 focus:ring-red-500"
+          className={`rounded-lg ${btnPadding} text-slate-500 hover:bg-red-100 hover:text-red-600 focus:outline-none focus:ring-2 focus:ring-red-500`}
           aria-label="Disconnect wallet"
           title="Disconnect wallet"
         >
-          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <svg aria-hidden="true" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
           </svg>
         </button>
@@ -104,6 +130,8 @@ export const WalletConnectButton = () => {
 
   return (
     <button
+      type="button"
+      ref={connectButtonRef}
       onClick={connect}
       disabled={isConnecting}
       aria-label="Connect wallet"
