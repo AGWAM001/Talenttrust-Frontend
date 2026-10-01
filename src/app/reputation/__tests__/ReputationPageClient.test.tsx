@@ -217,6 +217,24 @@ describe('ReputationPageClient – focus management', () => {
       expect(() => unmount2()).not.toThrow();
     });
   });
+
+  describe('StrictMode focus timer', () => {
+    it('ignores duplicate StrictMode focus timers and focuses once', () => {
+      jest.useFakeTimers();
+      const focusSpy = jest.spyOn(HTMLElement.prototype, 'focus');
+
+      render(
+        <React.StrictMode>
+          <ReputationPageClient />
+        </React.StrictMode>
+      );
+
+      jest.advanceTimersByTime(100);
+
+      expect(focusSpy).toHaveBeenCalledTimes(1);
+      jest.useRealTimers();
+    });
+  });
 });
 
 describe('ReputationPageClient – deterministic focus recovery', () => {

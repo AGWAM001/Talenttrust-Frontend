@@ -8,7 +8,34 @@ import type { Reputation } from '@/types/domain';
 export type ReputationPageClientProps = {
   reputationData?: Reputation | null;
   userName?: string;
+  /**
+   * Optional override for the focus target selector. Defaults to the first
+   * <main> element in the document, falling back to the component's own ref.
+   */
+  focusSelector?: string;
+  /**
+   * Optional delay (in ms) before focusing the main content. Defaults to 100.
+   *"​
+   */
+  focusDelayMs?: number;
 };
+
+export const DEFAULT_FOCUS_SELECTOR = 'main';
+export const DEFAULT_FOCUS_DELAY_MS = 100;
+
+function isFocusable(el: HTMLElement | null): el is HTMLElement {
+  if (!el) return false;
+  if (el.hasAttribute('tabindex')) return true;
+  const tag = el.tagName.toLowerCase();
+  return (
+    tag === 'a' ||
+    tag === 'button' ||
+    tag === 'input' ||
+    tag === 'select' ||
+    tag === 'textarea' ||
+    tag === 'iframe'
+  );
+}
 
 /**
  * Delay before each focus attempt, giving the route time to settle before the
@@ -120,9 +147,13 @@ export function applyFocus(target: HTMLElement | null): boolean {
 export default function ReputationPageClient({
   reputationData,
   userName = 'User',
+  focusSelector = DEFAULT_FOCUS_SELECTOR,
+  focusDelayMs = DEFAULT_FOCUS_DELAY_MS,
 }: ReputationPageClientProps) {
   const mainRef = useRef<HTMLElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
+  const focusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const focusRequestIdRef = useRef(0);
 
   useEffect(() => {
     // Store the previously focused element when the page mounts. Focus
@@ -176,7 +207,7 @@ export default function ReputationPageClient({
       cancelled = true;
       clearTimer();
     };
-  }, []);
+  }, [focusSelector, focusDelayMs]);
 
   return (
     <main ref={mainRef} className="min-h-screen p-8" tabIndex={-1}>
