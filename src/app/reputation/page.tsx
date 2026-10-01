@@ -17,7 +17,8 @@ export function ReputationPageContent({
   userName = 'User',
 }: ReputationPageContentProps) {
   const score = reputationData?.score;
-  const hasReputation = typeof score === 'number' && score >= 0;
+  const hasReputation =
+    typeof score === 'number' && Number.isFinite(score) && score >= 0;
 
   if (!reputationData || !hasReputation) {
     return (
