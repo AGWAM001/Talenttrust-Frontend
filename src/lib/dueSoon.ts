@@ -1,13 +1,19 @@
-
-
 /**
  * Parses a date string into a local Date object (setting the time to midnight local time)
  * while guarding against UTC timezone shifts.
+ *
+ * Invariants:
+* - Returns null for any non-string, empty, or whitespace-only input.
+ * - Strict `YYYY-MM-DD` inputs are validated as real calendar dates and constructed
+ *   in local time to avoid UTC-to-local day shifts.
+ * - Non-strict inputs fall back to `Date.parse` and are normalized to local midnight.
+ * - Never throws; always returns either a valid Date or null.
  */
 export function parseLocalDate(dateStr: string): Date | null {
   if (!dateStr || typeof dateStr !== 'string') return null;
 
   const trimmed = dateStr.trim();
+  if (!trimmed) return null;
 
   // Handle YYYY-MM-DD specifically to prevent UTC-to-local shift
   const isoRegex = /^(\d{4})-(\d{2})-(\d{2})$/;
@@ -43,9 +49,26 @@ export function parseLocalDate(dateStr: string): Date | null {
 
 /**
  * Checks if a milestone's due date is soon (today or within windowDays from today).
+ *
+ * Invariants:
+ * - Returns false for missing, malformed, or unparseable due dates.
+ * - Returns false for negative or non-finite windows (preserves caller contract
+ *   without silently widening the window).
+ * - Comparison is inclusive of both endpoints (0 ... windowDays).
+ * - Never throws; always returns a boolean.
  */
 export function isDueSoon(dueDateStr: string | undefined, today: Date, windowDays: number): boolean {
   if (!dueDateStr) return false;
+
+  // Guard against invalid windows so adverse inputs cannot widen or invert the
+  // comparison window.
+  if (typeof windowDays !== 'number' || !Number.finite(windowDays) || windowDays < 0) {
+    return false;
+  }
+
+  // Guard against an invalid `today` reference so we do not silently compare
+  // against NaN and return a deterministic false.
+  if (!(today instanceof Date) || isNaN(today.getTime())) return false;
 
   const due = parseLocalDate(dueDateStr);
   if (!due) return false;

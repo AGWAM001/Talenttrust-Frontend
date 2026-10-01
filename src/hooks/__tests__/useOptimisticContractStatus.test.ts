@@ -160,6 +160,7 @@ describe('useOptimisticContractStatus', () => {
       result.current.persistStatus('Disputed');
     });
 
+    expect(result.current.contractData.status).toBe('Completed');
     // After the second persistStatus fails, the state rolls back.
     // The rollback goes to the original state ('Active'), not the intermediate optimistic state.
     expect(['Active', 'Completed']).toContain(result.current.contractData.status);
