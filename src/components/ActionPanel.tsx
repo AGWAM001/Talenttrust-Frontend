@@ -178,13 +178,36 @@ const ActionPanel = ({
     action: Exclude<ConfirmAction, null>,
     event: React.MouseEvent<HTMLButtonElement>,
   ) => {
-    if (disableMutations || mutationInFlightRef.current) return;
+    if (disableMutations) return;
+<<<<<<< Updated upstream
+=======
+    // I1: enforce mutual exclusion — close the dispute form if open
+    if (disputeFormOpen) {
+      setDisputeFormOpen(false);
+      setDisputeReason('');
+      setDisputeReasonError('');
+    }
+>>>>>>> Stashed changes
     triggerElementRef.current = event.currentTarget;
     setConfirmAction(action);
   };
 
   const handleConfirm = () => {
-    if (disableMutations || mutationInFlightRef.current) {
+<<<<<<< Updated upstream
+    if (disableMutations) {
+=======
+    // I2: bail out if another dispatch is already in-flight
+    if (isSubmitting) return;
+
+    if (disableMutations) {
+      setConfirmAction(null);
+      return;
+    }
+
+    // I5: re-check wallet authorization at callback dispatch time
+    if (!isWalletConnected && confirmAction !== null) {
+      // Wallet disconnected mid-dialog — close and let the parent handle state.
+>>>>>>> Stashed changes
       setConfirmAction(null);
       return;
     }
@@ -229,7 +252,14 @@ const ActionPanel = ({
 
   /** Opens the inline dispute form and moves focus to the textarea. */
   const handleOpenDisputeForm = (event: React.MouseEvent<HTMLButtonElement>) => {
-    if (disableMutations || mutationInFlightRef.current) return;
+    if (disableMutations) return;
+<<<<<<< Updated upstream
+=======
+    // I1: enforce mutual exclusion — close the confirm dialog if open
+    if (confirmAction !== null) {
+      setConfirmAction(null);
+    }
+>>>>>>> Stashed changes
     triggerElementRef.current = event.currentTarget;
     disputeTriggerRef.current = event.currentTarget;
     setDisputeReason('');
@@ -342,6 +372,15 @@ const ActionPanel = ({
       return;
     }
 
+<<<<<<< Updated upstream
+=======
+    if (disableMutations) {
+      closeDisputeForm();
+      return;
+    }
+
+    // I5: re-check wallet authorization at dispatch time
+>>>>>>> Stashed changes
     if (!isWalletConnected) {
       setDisputeReasonError(DISPUTE_WALLET_ERROR);
       disputeTextareaRef.current?.focus();
@@ -433,7 +472,18 @@ const ActionPanel = ({
           <button
             type="button"
             onClick={(e) => handleOpenConfirm('submit', e)}
-            disabled={!isWalletConnected || isLoading || !!disabledReasons?.submitMilestone || disableMutations || mutationInFlight}
+<<<<<<< Updated upstream
+            disabled={!isWalletConnected || isLoading || !!disabledReasons?.submitMilestone || disableMutations}
+=======
+            disabled={
+              !isWalletConnected ||
+              isLoading ||
+              !!disabledReasons?.submitMilestone ||
+              disableMutations ||
+              // I1: prevent opening a confirm dialog while the dispute form is open
+              disputeFormOpen
+            }
+>>>>>>> Stashed changes
             title={!isWalletConnected ? noWalletMsg : mutationsDisabledMsg}
             aria-label="Submit milestone for approval"
             aria-describedby={describedBy(describedById('submitMilestone'))}
@@ -447,7 +497,18 @@ const ActionPanel = ({
           <button
             type="button"
             onClick={(event) => handleOpenConfirm('release', event)}
-            disabled={!isWalletConnected || isLoading || !!disabledReasons?.releaseFunds || disableMutations || mutationInFlight}
+<<<<<<< Updated upstream
+            disabled={!isWalletConnected || isLoading || !!disabledReasons?.releaseFunds || disableMutations}
+=======
+            disabled={
+              !isWalletConnected ||
+              isLoading ||
+              !!disabledReasons?.releaseFunds ||
+              disableMutations ||
+              // I1: prevent opening a confirm dialog while the dispute form is open
+              disputeFormOpen
+            }
+>>>>>>> Stashed changes
             title={!isWalletConnected ? noWalletMsg : mutationsDisabledMsg}
             aria-label="Release funds to the contractor"
             aria-describedby={describedBy(describedById('releaseFunds'))}
@@ -468,8 +529,13 @@ const ActionPanel = ({
                 isLoading ||
                 !!disabledReasons?.dispute ||
                 disputeFormOpen ||
-                mutationInFlight ||
+<<<<<<< Updated upstream
                 disableMutations
+=======
+                disableMutations ||
+                // I1: prevent opening the dispute form while a confirm dialog is open
+                confirmAction !== null
+>>>>>>> Stashed changes
               }
               title={!isWalletConnected ? noWalletMsg : mutationsDisabledMsg}
               aria-label="Open a dispute for this contract"
