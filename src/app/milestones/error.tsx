@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useMilestonesRouteError } from '@/hooks/useMilestonesRouteError';
 
@@ -36,33 +36,19 @@ function getErrorIdentity(error: Error & { digest?: string }): string {
 }
 
 export default function MilestonesError({ error, reset }: MilestonesErrorProps) {
-  // Track the number of reset attempts so the UI can reflect that a retry
-  // is in progress and to avoid unbounded repetition of the same failure.
-  const retryCountRef = useRef(0);
-  const lastReportedKeyRef = useRef(String);
+  const [isRetrying, setIsRetrying] = useState(false);
+  const reportedError = useRef<Error | null>(null);
 
-  // Report each distinct error exactly once. Reporting is idempotent and
-  // deterministic: the same error instance (identified by digest or message)
-  // is not reported again on re-render, and reporting failures are swallowed
-  // so they cannot crash the error boundary itself.
   useEffect(() => {
-    const key = error.digest ?? error.message ?? 'unknown';
-    if (lastReportedKeyRef.current === key) {
-      return;
-    }
-    lastReportedKeyRef.current = key;
-    try {
-      reportError(error, 'Milestones page');
-    } catch {
-      // Observability must never break recovery.
-    }
+    if (reportedError.current === error) return;
+    reportedError.current = error;
+    setIsRetrying(false);
+    reportError(error, 'Milestones page');
   }, [error]);
 
-  const handleReset = () => {
-    retryCountRef.current += 1;
-    // Reset the report dedup key so a future failure after a retry is
-    // observed even if it has the same digest/message as the previous one.
-    lastReportedKeyRef.current = String;
+  const handleRetry = () => {
+    if (isRetrying) return;
+    setIsRetrying(true);
     reset();
   };
 
@@ -83,10 +69,12 @@ export default function MilestonesError({ error, reset }: MilestonesErrorProps) 
         <div className="mt-6 flex flex-col justify-center gap-3 sm:flex-row">
           <button
             type="button"
-            onClick={handleReset}
+            onClick={handleRetry}
+            disabled={isRetrying}
+            aria-describedby="milestones-retry-status"
             className="rounded-xl bg-blue-600 px-4 py-2 font-semibold text-white hover:bg-blue-700 focus-visible:outline focus-visible:outline-4 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
           >
-            {isPending ? 'Trying...' : 'Try again'}
+            {isRetrying ? 'Retrying…' : 'Try again'}
           </button>
           <Link
             href="/"
@@ -95,15 +83,9 @@ export default function MilestonesError({ error, reset }: MilestonesErrorProps) 
             Go home
           </Link>
         </div>
-        {recoveryNotice && (
-          <p
-            id="milestones-error-recovery-notice"
-            role="status"
-            className="mt-4 text-sm text-red-700"
-          >
-            {recoveryNotice}
-          </p>
-        )}
+        <p id="milestones-retry-status" className="sr-only" aria-live="polite">
+          {isRetrying ? 'Retrying milestones.' : ''}
+        </p>
       </section>
     </main>
   );
