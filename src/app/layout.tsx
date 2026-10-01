@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import './globals.css';
 import { ToastProvider } from '@/components/toast/toast-provider';
+import { resolveSiteUrl } from '@/lib/site-url';
 
 /**
  * Resolve the canonical site URL exactly once per module evaluation.
@@ -116,7 +117,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body>
-        <PreferencesProvider>
+        <PreferencesProvider initialPreferences={undefined}>
           <ToastProvider>
             <WalletProvider>
               <CommandPaletteProvider>
@@ -139,7 +140,7 @@ export default function RootLayout({
                     <Navbar />
                     <HeaderActions />
                   </header>
-                  <main className="flex-1 p-6" tabIndex={-1} id="main-content">
+                  <main className="flex-1 p-6" tabIndex={-1} id="main-content" role="main">
                     {children}
                   </main>
                 </div>
