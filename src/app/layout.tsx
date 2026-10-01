@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import './globals.css';
 import { ToastProvider } from '@/components/toast/toast-provider';
+import { resolveSiteUrl } from '@/lib/site-url';
 
 /**
  * State invariants for the root layout module.
@@ -142,7 +143,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body>
-        <PreferencesProvider>
+        <PreferencesProvider initialPreferences={undefined}>
           <ToastProvider>
             <WalletProvider>
               <CommandPaletteProvider>
@@ -187,3 +188,14 @@ export default function RootLayout({
     </html>
   );
 }
+ 
+/**
+ * Layout invariants (concurrency hardening):
+ * - `siteUrl`/`metadataBase` are computed once at module load from a
+ *   validated, normalized origin; concurrent renders observe the same value.
+ * - Default command registration is idempotent across repeated or racing
+ *   module evaluation, preventing duplicate palette entries.
+ * - Provider nesting order is stable and deterministic; no per-render side
+ *   effects are introduced here, so retries and partial failures cannot
+ *   leave the tree in an inconsistent state.
+ */
