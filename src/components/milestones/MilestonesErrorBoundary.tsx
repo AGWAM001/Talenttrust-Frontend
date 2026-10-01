@@ -27,8 +27,7 @@ export interface MilestonesErrorBoundaryProps {
 
 interface State {
   hasError: boolean;
-  retryKey: number;
-  /** The caught error. Retained for diagnostics only — never rendered. */
+  retryKey?: number;
   error?: Error;
 }
 
@@ -97,7 +96,8 @@ export default class MilestonesErrorBoundary extends Component<
   handleRetry = (): void => {
     this.setState((current) => ({
       hasError: false,
-      retryKey: current.retryKey + 1,
+      error: undefined,
+      retryKey: (current.retryKey ?? 0) + 1,
     }));
   };
 
