@@ -896,4 +896,59 @@ describe('inline dispute form — character counter live region', () => {
     // Check with dispute form open
     await assertNoA11yViolations(container);
   });
+
+  describe('disableMutations prop', () => {
+    it('disables submit milestone, release funds, and dispute buttons when disableMutations=true', () => {
+      render(
+        <ActionPanel
+          status="Active"
+          disableMutations={true}
+          onSubmitMilestone={jest.fn()}
+          onReleaseFunds={jest.fn()}
+          onDispute={jest.fn()}
+          onViewSummary={jest.fn()}
+        />,
+      );
+
+      const submitBtn = screen.getByRole('button', { name: /submit milestone/i });
+      const releaseBtn = screen.getByRole('button', { name: /release funds/i });
+      const disputeBtn = screen.getByRole('button', { name: /dispute/i });
+
+      expect(submitBtn).toBeDisabled();
+      expect(releaseBtn).toBeDisabled();
+      expect(disputeBtn).toBeDisabled();
+
+      expect(submitBtn).toHaveAttribute('title', 'Actions disabled while offline or viewing stale data');
+      expect(releaseBtn).toHaveAttribute('title', 'Actions disabled while offline or viewing stale data');
+      expect(disputeBtn).toHaveAttribute('title', 'Actions disabled while offline or viewing stale data');
+    });
+
+    it('does not disable read-only actions like view summary when disableMutations=true', () => {
+      render(
+        <ActionPanel
+          status="Completed"
+          disableMutations={true}
+          onViewSummary={jest.fn()}
+        />,
+      );
+
+      const viewSummaryBtn = screen.getByRole('button', { name: /view contract summary details/i });
+      expect(viewSummaryBtn).not.toBeDisabled();
+    });
+
+    it('passes accessibility checks when mutations are disabled', async () => {
+      const { container } = render(
+        <ActionPanel
+          status="Active"
+          disableMutations={true}
+          onSubmitMilestone={jest.fn()}
+          onReleaseFunds={jest.fn()}
+          onDispute={jest.fn()}
+        />,
+      );
+
+      await assertNoA11yViolations(container);
+    });
+  });
 });
+

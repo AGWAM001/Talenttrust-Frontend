@@ -1,6 +1,6 @@
 'use client';
 
-import { use, useCallback, useEffect, useRef, useState } from 'react';
+import { use, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import Breadcrumbs from '@/components/Breadcrumbs';
@@ -13,16 +13,51 @@ import { ContractSummarySkeleton } from '@/components/ContractSummarySkeleton';
 import { MilestonesListSkeleton } from '@/components/MilestonesListSkeleton';
 import ContractStatusAnnouncer from '@/components/ContractStatusAnnouncer';
 import SafeBoundary from '@/components/SafeBoundary';
+import OfflineIndicator from '@/components/OfflineIndicator';
 import { resolveContractData, ContractData } from '@/lib/contractResolver';
 import { useToast } from '@/components/toast/toast-provider';
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard';
+import { useOnlineStatus } from '@/hooks/useOnlineStatus';
 import {
   listMilestonesByContract,
   updateMilestone,
 } from '@/lib/repository';
+import { cacheContractData, getCachedContractData } from '@/lib/contractCache';
 import { isValidContractId } from '@/lib/validateContractId';
-import { useOptimisticContractStatus, type BuildPersistedContract } from '@/hooks/useOptimisticContractStatus';
+import {
+  useOptimisticContractStatus,
+  type BuildPersistedContract,
+} from '@/hooks/useOptimisticContractStatus';
 import type { Milestone } from '@/types/domain';
+
+/**
+ * Monotonic token used to identify the latest in-flight load for a given
+ * contract id. Concurrent or repeated loads (e.g. rapid `id`/`isOnline`
+ * changes, StrictMode double-invocation, or overlapping retries) each capture
+ * a token; only the load holding the newest token is allowed to commit state.
+ *
+ * This guarantees that a slower, older request can never overwrite the result
+ * of a newer one, preventing stale or inconsistent renders.
+ */
+let loadSequence = 0;
+
+/**
+ * Per-contract in-flight mutation guard.
+ *
+ * Prevents duplicate concurrent status transitions for the same contract from
+ * racing each other. The first caller acquires the lock; subsequent callers
+ * while the lock is held are rejected deterministically instead of producing
+ * interleaved optimistic updates or duplicate repository writes.
+ */
+const inFlightStatusMutations = new Set<string>();
+
+/**
+ * Per-contract in-flight milestone mutation guard, keyed by `contractId`.
+ *
+ * Ensures that two concurrent milestone patches for the same contract cannot
+ * both snapshot the same baseline and then clobber each other on rollback.
+ */
+const inFlightMilestoneMutations = new Set<string>();
 
 /**
  * Merges the contract's resolved milestones with any milestones persisted in
@@ -57,10 +92,16 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isPersistingStatus, setIsPersistingStatus] = useState(false);
+  const [isUsingCachedData, setIsUsingCachedData] = useState(false);
+  const [cachedAt, setCachedAt] = useState<string | undefined>(undefined);
+  const [isDataStale, setIsDataStale] = useState(false);
   const isMountedRef = useRef(true);
+  const loadTokenRef = useRef(0);
+  const isMountedRef2 = useRef(true);
   const milestonesRef = useRef(milestones);
   milestonesRef.current = milestones;
   const { showError, showSuccess } = useToast();
+  const isOnline = useOnlineStatus();
 
   const { copied, copy } = useCopyToClipboard({
     delay: 2000,
@@ -97,6 +138,7 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
     (data, status, version) => ({
       id: data.id,
       contractName: data.name,
+      // NOTE: `parties` is copied by reference; callers must not mutate it.
       parties: data.parties,
       totalValue: data.totalValue,
       currency: data.currency,
@@ -124,6 +166,8 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
    * back and a clear, specific error message is surfaced via both the inline
    * `ActionPanel` banner and a dismissible toast.
    *
+   * When offline, mutations are disabled to prevent data inconsistency.
+   *
    * @param nextStatus - The status to persist to the repository.
    * @param successTitle - The toast title shown after a successful write.
    * @param successDescription - The toast description shown after success.
@@ -134,46 +178,127 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
       successTitle: string,
       successDescription: string,
     ) => {
-      setIsPersistingStatus(true);
-      setErrorMessage(null);
-
-      const result = persistStatus(nextStatus);
-
-      if (!result.ok) {
-        setErrorMessage(result.error);
-        showError({
-          title: 'Unable to update contract',
-          description: result.error,
-        });
+      // Reject duplicate concurrent status transitions for the same contract.
+      // This is a deterministic guard: the first caller wins, later callers
+      // receive a clear, non-destructive error instead of racing the write.
+      if (inFlightStatusMutations.has(id)) {
+        setErrorMessage('A status update is already in progress for this contract.');
         setIsPersistingStatus(false);
         return;
       }
 
+      // Disable unsafe mutations while offline
+      if (!isOnline) {
+        showError({
+          title: 'Cannot update contract while offline',
+          description: 'Please connect to the internet to make changes to this contract.',
+        });
+        return;
+      }
+
+      // Also disable if using stale cached data
+      if (isUsingCachedData && isDataStale) {
+        showError({
+          title: 'Cannot update stale data',
+          description: 'Please refresh the page to load the latest data before making changes.',
+        });
+        return;
+      }
+
+      inFlightStatusMutations.add(id);
+      setIsPersistingStatus(true);
       setErrorMessage(null);
-      showSuccess({
-        title: successTitle,
-        description: successDescription,
-      });
-      setIsPersistingStatus(false);
+
+      try {
+        const result = persistStatus(nextStatus);
+
+        if (!result.ok) {
+          setErrorMessage(result.error);
+          showError({
+            title: 'Unable to update contract',
+            description: result.error,
+          });
+          return;
+        }
+
+        setErrorMessage(null);
+        showSuccess({
+          title: successTitle,
+          description: successDescription,
+        });
+      } finally {
+        inFlightStatusMutations.delete(id);
+        setIsPersistingStatus(false);
+      }
     },
-    [persistStatus, showError, showSuccess],
+    [id, persistStatus, showError, showSuccess, isOnline, isUsingCachedData, isDataStale],
   );
 
   useEffect(() => {
     isMountedRef.current = true;
 
     const loadContract = async () => {
+      // Capture a monotonic token for this load attempt. Only the newest
+      // token may commit state, so overlapping loads cannot interleave.
+      const token = ++loadSequence;
+      loadTokenRef.current = token;
+
       try {
         setIsLoading(true);
         setErrorMessage(null);
+
+        // If offline, try to load from cache first
+        if (!isOnline) {
+          const cachedResult = getCachedContractData(id);
+          if (cachedResult.success && cachedResult.data) {
+            if (isMountedRef.current && loadTokenRef.current === token) {
+              setContractData(cachedResult.data);
+              setMilestones(mergeContractMilestones(cachedResult.data.milestones, id));
+              setIsUsingCachedData(true);
+              setIsDataStale(cachedResult.stale || false);
+              setCachedAt(cachedResult.data.updatedAt);
+              setIsLoading(false);
+            }
+            return;
+          }
+          // No cache available when offline - show error
+          if (isMountedRef.current && loadTokenRef.current === token) {
+            setErrorMessage(
+              'You are offline and this contract has not been loaded before. Please connect to the internet and try again.',
+            );
+            setIsLoading(false);
+          }
+          return;
+        }
+
+        // Online - load fresh data
         const data = await resolveContractData(id);
 
-        if (isMountedRef.current) {
+        if (isMountedRef.current && loadTokenRef.current === token) {
           setContractData(data);
           setMilestones(mergeContractMilestones(data.milestones, id));
+          setIsUsingCachedData(false);
+          setIsDataStale(false);
+          setCachedAt(undefined);
+
+          // Cache the successfully loaded data
+          cacheContractData(id, data);
         }
       } catch (error) {
-        if (isMountedRef.current) {
+        // On error, try to fall back to cache
+        const cachedResult = getCachedContractData(id);
+        if (cachedResult.success && cachedResult.data && loadTokenRef.current === token) {
+          if (isMountedRef.current) {
+            setContractData(cachedResult.data);
+            setMilestones(mergeContractMilestones(cachedResult.data.milestones, id));
+            setIsUsingCachedData(true);
+            setIsDataStale(cachedResult.stale || false);
+            setCachedAt(cachedResult.data.updatedAt);
+            setErrorMessage(
+              'Unable to load fresh data. Showing cached version which may be outdated.',
+            );
+          }
+        } else if (isMountedRef.current && loadTokenRef.current === token) {
           setErrorMessage(
             error instanceof Error
               ? error.message
@@ -181,7 +306,7 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
           );
         }
       } finally {
-        if (isMountedRef.current) {
+        if (isMountedRef.current && loadTokenRef.current === token) {
           setIsLoading(false);
         }
       }
@@ -190,9 +315,12 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
     loadContract();
 
     return () => {
+      // Invalidate any in-flight load so its late resolution cannot commit
+      // state after unmount or after a newer load has started.
+      loadTokenRef.current = -1;
       isMountedRef.current = false;
     };
-  }, [id]);
+  }, [id, isOnline]);
 
   /**
    * Placeholder for the future milestone-submission workflow.
@@ -228,28 +356,72 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
   };
 
   const handleUpdateMilestone = useCallback((id: string, patch: Partial<Milestone>) => {
-    const snapshot = milestonesRef.current;
-
-    setMilestones((current) =>
-      current.map((item) => (item.id === id ? { ...item, ...patch } : item)),
-    );
-
-    const persisted = updateMilestone(id, patch);
-
-    if (!persisted) {
-      setMilestones(snapshot);
+    // Reject duplicate concurrent milestone mutations for the same contract.
+    // Without this guard, two callers could snapshot the same baseline and
+    // then race on rollback, producing an inconsistent milestone list.
+    if (inFlightMilestoneMutations.has(id)) {
+      showError({
+        title: 'Milestone update already in progress',
+        description: 'Please wait for the current milestone update to finish before retrying.',
+      });
       return false;
     }
 
-    return true;
-  }, []);
+    // Disable unsafe mutations while offline
+    if (!isOnline) {
+      showError({
+        title: 'Cannot update milestone while offline',
+        description: 'Please connect to the internet to make changes to milestones.',
+      });
+      return false;
+    }
+
+    // Also disable if using stale cached data
+    if (isUsingCachedData && isDataStale) {
+      showError({
+        title: 'Cannot update stale data',
+        description: 'Please refresh the page to load the latest data before making changes.',
+      });
+      return false;
+    }
+
+    inFlightMilestoneMutations.add(id);
+    const snapshot = milestonesRef.current;
+
+    try {
+      setMilestones((current) =>
+        current.map((item) => (item.id === id ? { ...item, ...patch } : item)),
+      );
+
+      const persisted = updateMilestone(id, patch);
+
+      if (!persisted) {
+        setMilestones(snapshot);
+        return false;
+      }
+
+      return true;
+    } finally {
+      inFlightMilestoneMutations.delete(id);
+    }
+  }, [isOnline, isUsingCachedData, isDataStale, showError]);
 
   const status = contractData?.status || 'Active';
 
   return (
     <main className="min-h-screen bg-slate-50 px-4 py-8 sm:px-6 lg:px-8">
       {contractData ? <ContractStatusAnnouncer status={contractData.status} /> : null}
+      {/*
+        Invariants enforced on this page:
+        - Only the newest load token may commit contract/milestone state.
+        - At most one status mutation and one milestone mutation may be
+          in-flight per contract id at any time.
+        - Optimistic updates are always rolled back on persistence failure.
+      */}
       <div className="mx-auto max-w-screen-2xl space-y-6">
+        {/* Offline/stale data indicator */}
+        <OfflineIndicator isStale={isDataStale} cachedAt={cachedAt} />
+
         <div className="flex items-center justify-between gap-4 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
           <div>
             <Breadcrumbs
@@ -337,6 +509,7 @@ const ContractDetailPageContent = ({ id }: { id: string }) => {
               isLoading={isLoading || isPersistingStatus}
               errorMessage={errorMessage || undefined}
               disputeFlow="confirm"
+              disableMutations={!isOnline || (isUsingCachedData && isDataStale)}
             />
           </div>
         </div>

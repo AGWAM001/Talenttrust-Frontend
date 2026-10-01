@@ -1,72 +1,28 @@
 /**
- * loading.tsx – /milestones
+ * App Router loading state for the milestones board. Keep this route-level
+ * fallback and the client Suspense fallback on the same component so their
+ * geometry and assistive-technology announcement cannot drift apart.
  *
- * App Router Suspense boundary for the milestones list page. Mirrors the
- * layout of MilestonesPage:
- *   - Page heading
- *   - Filter bar (MilestoneFilter pill row)
- *   - MilestonesListSkeleton (scrollable list of 5 milestone card rows)
- *
- * Accessibility:
- * - `aria-busy="true"` on <main>.
- * - Visually-hidden `role="status"` announces "Loading milestones…".
- * - All decorative shimmer blocks carry `aria-hidden="true"`.
- * - Animation disabled for `prefers-reduced-motion` via globals.css rule
- *   and `motion-reduce:animate-none` belt-and-suspenders guard.
+ * Concurrency invariants:
+ * - This component is pure and stateless. Rendering it multiple times,
+ *   in parallel, or after a retry must produce identical output and must not
+ *   mutate any shared module-level state.
+ * - It must not await network I/O, timers, or any non-deterministic source,
+ *   so a suspended route transition cannot hang or race against a resolve.
+ * - It must not read client-only APIs (e.g. window, document, localStorage),
+ *   so the server render and the client hydration remain byte-for-byte
+ *   equivalent even when the fallback is streamed and then re-rendered.
+ * - Any error thrown by the skeleton must be allowed to bail to the nearest
+ *   error boundary; this file must not swallow failures or swap in a different
+ *   fallback that could hide an unrecoverable route error.
  */
 
-import { MilestonesListSkeleton } from '@/components/MilestonesListSkeleton';
+import MilestonesBoardSkeleton from '@/components/milestones/MilestonesBoardSkeleton';
 
-// ---------------------------------------------------------------------------
-// Local sub-skeletons
-// ---------------------------------------------------------------------------
-
-/** Mirrors the MilestoneFilter pill row + result count. */
-const FilterBarSkeleton = () => (
-  <div
-    aria-hidden="true"
-    className="mb-4 flex flex-wrap items-center gap-2"
-  >
-    {/* Filter pills – one "All" + four status options */}
-    {Array.from({ length: 5 }, (_, i) => (
-      <div
-        key={i}
-        className="h-8 w-20 rounded-full bg-slate-200 animate-shimmer motion-reduce:animate-none"
-      />
-    ))}
-    {/* Result count badge */}
-    <div className="ml-auto h-5 w-24 rounded-full bg-slate-200 animate-shimmer motion-reduce:animate-none" />
-  </div>
-);
-
-// ---------------------------------------------------------------------------
-// Route loading export
-// ---------------------------------------------------------------------------
-
+/**
+ * Route-level loading fallback. Deliberately a synchronous, side-effect-free
+ * function component so concurrent renders and retries are idempotent.
+ */
 export default function MilestonesLoading() {
-  return (
-    /*
-     * No <main> here — the root layout owns the single <main id="main-content">
-     * landmark. A nested <main> would duplicate the landmark and confuse
-     * screen readers (WCAG 2.4.1 / issue #682). aria-busy is moved to
-     * the wrapping <div> which is the direct child of layout's <main>.
-     */
-    <div className="min-h-screen p-8" aria-busy="true">
-      <span role="status" aria-live="polite" aria-atomic="true" className="sr-only">
-        Loading milestones…
-      </span>
-
-      {/* Page heading skeleton */}
-      <div
-        aria-hidden="true"
-        className="mb-6 h-8 w-36 rounded-lg bg-slate-200 animate-shimmer motion-reduce:animate-none"
-      />
-
-      {/* Filter bar skeleton */}
-      <FilterBarSkeleton />
-
-      {/* Milestone card list skeleton */}
-      <MilestonesListSkeleton />
-    </div>
-  );
+  return <MilestonesBoardSkeleton />;
 }

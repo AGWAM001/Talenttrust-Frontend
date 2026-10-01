@@ -302,4 +302,49 @@ describe('MilestoneCreationForm dialog focus management', () => {
 
     activeElementSpy.mockRestore();
   });
+
+  it('exposes the visible title as the dialog accessible name', () => {
+    render(<MilestoneCreationForm onSubmit={jest.fn()} onCancel={jest.fn()} />);
+
+    const dialog = screen.getByRole('dialog', { name: 'Add Milestone' });
+    expect(dialog).toHaveAttribute('aria-modal', 'true');
+    expect(dialog).toHaveAttribute('aria-labelledby', 'create-milestone-title');
+    expect(screen.getByRole('heading', { name: 'Add Milestone', level: 2 })).toHaveAttribute(
+      'id',
+      'create-milestone-title',
+    );
+  });
+
+  it('closes from the overlay but not from a click inside the panel', () => {
+    const onCancel = jest.fn();
+    render(<MilestoneCreationForm onSubmit={jest.fn()} onCancel={onCancel} />);
+
+    const dialog = screen.getByRole('dialog');
+    fireEvent.click(screen.getByRole('heading', { name: 'Add Milestone' }));
+    expect(onCancel).not.toHaveBeenCalled();
+
+    fireEvent.click(dialog);
+    expect(onCancel).toHaveBeenCalledTimes(1);
+  });
+
+  it('re-enters the dialog when focus starts outside before Tab', () => {
+    render(
+      <>
+        <button type="button">Outside trigger</button>
+        <MilestoneCreationForm onSubmit={jest.fn()} onCancel={jest.fn()} />
+      </>,
+    );
+
+    const title = screen.getByRole('textbox', { name: 'Title' });
+    const submit = screen.getByRole('button', { name: 'Add Milestone' });
+    const outside = screen.getByRole('button', { name: 'Outside trigger' });
+
+    outside.focus();
+    fireEvent.keyDown(document, { key: 'Tab' });
+    expect(title).toHaveFocus();
+
+    outside.focus();
+    fireEvent.keyDown(document, { key: 'Tab', shiftKey: true });
+    expect(submit).toHaveFocus();
+  });
 });

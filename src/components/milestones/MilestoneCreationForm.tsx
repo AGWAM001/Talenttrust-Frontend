@@ -126,7 +126,6 @@ export const MilestoneCreationForm: React.FC<MilestoneCreationFormProps> = ({
   const handleSubmit = useCallback(
     (e: FormEvent<HTMLFormElement>) => {
       e.preventDefault();
-
       const validationErrors = validateForm();
       setErrors(validationErrors);
 
@@ -155,7 +154,6 @@ export const MilestoneCreationForm: React.FC<MilestoneCreationFormProps> = ({
     [title, payout, currency, status, dueDate, contractId, validateForm, onSubmit],
   );
 
-  // Check if the form has any validation errors to disable submit button
   const getFieldError = (fieldId: string): string | undefined =>
     errors.find((e) => e.fieldId === fieldId)?.message;
 
@@ -171,11 +169,16 @@ export const MilestoneCreationForm: React.FC<MilestoneCreationFormProps> = ({
     <div
       ref={dialogRef}
       className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"
+      onClick={onCancel}
       role="dialog"
       aria-labelledby="create-milestone-title"
       aria-modal="true"
+      tabIndex={-1}
     >
-      <div className="bg-white rounded-3xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-6">
+      <div
+        className="bg-white rounded-3xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-6"
+        onClick={(event) => event.stopPropagation()}
+      >
         <h2
           id="create-milestone-title"
           className="text-2xl font-bold text-slate-900 mb-6"

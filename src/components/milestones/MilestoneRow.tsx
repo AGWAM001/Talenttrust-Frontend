@@ -64,6 +64,16 @@ export interface MilestoneRowProps {
    * announcement. Defaults to a no-op so the component works in isolation.
    */
   onAnnounce?: (message: string) => void;
+  /**
+   * Roving-tabindex slot controlled by the parent list: `0` for the list's
+   * single active row, `-1` for every other row. Applied to the row itself
+   * and its view-mode controls (checkbox, Edit button) so inactive rows are
+   * skipped in the tab order until the user roves to them with the arrow
+   * keys. Omitted for standalone use (all controls stay tabbable).
+   */
+  tabIndex?: number;
+  /** Zero-based position of this row within the list (drives roving). */
+  rowIndex?: number;
 }
 
 /**
@@ -110,6 +120,8 @@ export const MilestoneRow: React.FC<MilestoneRowProps> = ({
   onSave,
   onCancel,
   onAnnounce,
+  tabIndex,
+  rowIndex,
 }) => {
   const { formatAmount } = usePreferences();
 
@@ -256,7 +268,10 @@ export const MilestoneRow: React.FC<MilestoneRowProps> = ({
         id={`milestone-${milestone.id}`}
         aria-label={milestone.title}
         data-selected={isSelected}
-        className={`rounded-3xl border p-4 shadow-sm transition-colors ${
+        data-milestone-row=""
+        data-row-index={rowIndex}
+        tabIndex={tabIndex}
+        className={`rounded-3xl border p-4 shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 ${
           isSelected
             ? 'border-indigo-300 bg-indigo-50'
             : 'border-slate-200 bg-slate-50'
@@ -276,6 +291,7 @@ export const MilestoneRow: React.FC<MilestoneRowProps> = ({
                   }
                 }}
                 aria-label={`${isSelected ? 'Deselect' : 'Select'} ${milestone.title}`}
+                tabIndex={tabIndex}
                 className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
               />
             </div>
@@ -299,6 +315,7 @@ export const MilestoneRow: React.FC<MilestoneRowProps> = ({
               onClick={onRequestEdit}
               aria-label={`Edit milestone ${milestone.title}`}
               data-testid={`edit-milestone-${milestone.id}`}
+              tabIndex={tabIndex}
               className="inline-flex items-center gap-1 rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2"
             >
               <span aria-hidden="true">✎</span>

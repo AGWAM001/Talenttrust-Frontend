@@ -1,15 +1,30 @@
-'use client';
+"use client";
 
-import { useCallback, useRef } from 'react';
-import { upsertMilestone, getMilestoneVersion, deleteMilestones } from '@/lib/repository';
-import type { Milestone } from '@/components/MilestonesList';
+import { useCallback, useRef } from "react";
+import {
+  upsertMilestone,
+  getMilestoneVersion,
+  deleteMilestones,
+} from "@/lib/repository";
+import type { Milestone } from "@/components/MilestonesList";
 
 /**
  * Result returned by optimistic mutation operations.
  */
+export type OptimisticErrorCode =
+  | "STALE_VERSION"
+  | "PERSISTENCE_FAILED"
+  | "MILESTONE_NOT_FOUND"
+  | "DELETE_TARGET_NOT_FOUND";
+
 export type OptimisticResult =
   | { ok: true }
-  | { ok: false; stale: boolean; error: string };
+  | {
+      ok: false;
+      code: OptimisticErrorCode;
+      stale: boolean;
+      error: string;
+    };
 
 /**
  * A hook that applies milestone mutations (create, update, delete) optimistically
@@ -56,6 +71,24 @@ export function useOptimisticMilestoneMutation(
   const milestonesRef = useRef(milestones);
   milestonesRef.current = milestones;
 
+  // Keep the ref in lockstep with the queued React update. React may batch two
+  // rapid edits before rendering again; reading the ref here prevents the
+  // second edit from being built from stale props and dropping the first edit.
+  const commitMilestones = useCallback(
+    (next: Milestone[]) => {
+      milestonesRef.current = next;
+      setMilestones(() => next);
+    },
+    [setMilestones],
+  );
+  const restoreMilestones = useCallback(
+    (snapshot: Milestone[]) => {
+      milestonesRef.current = snapshot;
+      setMilestones(snapshot);
+    },
+    [setMilestones],
+  );
+
   // ---------------------------------------------------------------------------
   // Optimistic create
   // ---------------------------------------------------------------------------
@@ -63,34 +96,44 @@ export function useOptimisticMilestoneMutation(
   const optimisticCreate = useCallback(
     (milestone: Milestone): OptimisticResult => {
       rollbackRef.current = milestonesRef.current;
-      setMilestones((prev) => [...prev, milestone]);
+      commitMilestones([...milestonesRef.current, milestone]);
 
       const result = upsertMilestone(milestone);
 
       if (!result.success) {
         if (rollbackRef.current) {
-          setMilestones(rollbackRef.current);
+          restoreMilestones(rollbackRef.current);
         }
         rollbackRef.current = [];
         return result.stale
           ? {
               ok: false,
+              code: "STALE_VERSION",
               stale: true,
               error:
-                'This milestone was updated in another session. Please reload and try again.',
+                "This milestone was updated in another session. Please reload and try again.",
             }
           : {
               ok: false,
+              code: "PERSISTENCE_FAILED",
               stale: false,
-              error:
-                'The milestone could not be saved. Please try again.',
+              error: "The milestone could not be saved. Please try again.",
             };
       }
 
+      // Reconcile the optimistic object with the repository's canonical
+      // version, which is incremented by every successful upsert.
+      commitMilestones(
+        milestonesRef.current.map((item) =>
+          item.id === milestone.id
+            ? { ...milestone, version: (milestone.version ?? 0) + 1 }
+            : item,
+        ),
+      );
       rollbackRef.current = [];
       return { ok: true };
     },
-    [],
+    [commitMilestones, restoreMilestones],
   );
 
   // ---------------------------------------------------------------------------
@@ -100,52 +143,67 @@ export function useOptimisticMilestoneMutation(
   const optimisticUpdate = useCallback(
     (id: string, patch: Partial<Milestone>): OptimisticResult => {
       rollbackRef.current = milestonesRef.current;
-      setMilestones((prev) =>
-        prev.map((m) => (m.id === id ? { ...m, ...patch } : m)),
-      );
-
-      const version = getMilestoneVersion(id);
       const existing = milestonesRef.current.find((m) => m.id === id);
       if (!existing) {
         // Milestone not found in current state – roll back and warn.
         if (rollbackRef.current) {
-          setMilestones(rollbackRef.current);
+          restoreMilestones(rollbackRef.current);
         }
         rollbackRef.current = [];
         return {
           ok: false,
+          code: "MILESTONE_NOT_FOUND",
           stale: false,
-          error: 'Milestone not found in the current list. Please reload and try again.',
+          error:
+            "Milestone not found in the current list. Please reload and try again.",
         };
       }
+
+      const version = getMilestoneVersion(id);
+      const optimisticMilestone: Milestone = {
+        ...existing,
+        ...patch,
+        version: version + 1,
+      };
+      commitMilestones(
+        milestonesRef.current.map((item) =>
+          item.id === id ? optimisticMilestone : item,
+        ),
+      );
 
       const updatedMilestone: Milestone = { ...existing, ...patch, version };
       const result = upsertMilestone(updatedMilestone);
 
       if (!result.success) {
         if (rollbackRef.current) {
-          setMilestones(rollbackRef.current);
+          restoreMilestones(rollbackRef.current);
         }
         rollbackRef.current = [];
         return result.stale
           ? {
               ok: false,
+              code: "STALE_VERSION",
               stale: true,
               error:
-                'This milestone was updated in another session. Please reload and try again.',
+                "This milestone was updated in another session. Please reload and try again.",
             }
           : {
               ok: false,
+              code: "PERSISTENCE_FAILED",
               stale: false,
-              error:
-                'The milestone could not be saved. Please try again.',
+              error: "The milestone could not be saved. Please try again.",
             };
       }
 
+      commitMilestones(
+        milestonesRef.current.map((item) =>
+          item.id === id ? { ...updatedMilestone, version: version + 1 } : item,
+        ),
+      );
       rollbackRef.current = [];
       return { ok: true };
     },
-    [],
+    [commitMilestones, restoreMilestones],
   );
 
   // ---------------------------------------------------------------------------
@@ -155,27 +213,33 @@ export function useOptimisticMilestoneMutation(
   const optimisticDelete = useCallback(
     (ids: string[]): OptimisticResult => {
       rollbackRef.current = milestonesRef.current;
-      setMilestones((prev) => prev.filter((m) => !ids.includes(m.id)));
+      commitMilestones(
+        milestonesRef.current.filter(
+          (milestone) => !ids.includes(milestone.id),
+        ),
+      );
 
       const removed = deleteMilestones(ids);
 
       if (removed === 0 && ids.length > 0) {
         // Nothing was actually deleted — roll back.
         if (rollbackRef.current) {
-          setMilestones(rollbackRef.current);
+          restoreMilestones(rollbackRef.current);
         }
         rollbackRef.current = [];
         return {
           ok: false,
+          code: "DELETE_TARGET_NOT_FOUND",
           stale: false,
-          error: 'No milestones were found to delete. Please reload and try again.',
+          error:
+            "No milestones were found to delete. Please reload and try again.",
         };
       }
 
       rollbackRef.current = [];
       return { ok: true };
     },
-    [],
+    [commitMilestones, restoreMilestones],
   );
 
   return { optimisticCreate, optimisticUpdate, optimisticDelete };
