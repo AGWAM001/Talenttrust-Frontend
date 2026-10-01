@@ -1,47 +1,112 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { reportError } from '../lib/errorReporter';
 
 /**
- * Public compatibility interface for Error boundary props.
- * Compatible with Next.js App Router error components and custom callers.
+ * Validation boundaries for the root error boundary.
+ *
+ * Invariants:
+ * 1. The component never throws during render, even when `error` or `reset`
+ *    are malformed (null, undefined, non-function, non-Error values).
+ * 2. A given error object is reported at most once per mount, even if React
+ *    re-renders the boundary with the same error reference.
+ * 3. The reset callback is invoked at most once per click and failures in
+ *    the callback are contained so the UI remains usable.
+ * 4. No error message, stack trace, or digest is ever rendered to the DOM.
  */
+
+/** Maximum length of a digest value we consider valid. */
+const MAX_DIGEST_LENGTH = 256;
+
 export interface ErrorProps {
-  /** The error value caught by the error boundary */
-  error: (Error & { digest?: string }) | unknown;
-  /** Function to reset the error boundary and re-render the segment */
+  error: Error & { digest?: string };
   reset: () => void;
 }
 
-/**
- * Alias interface for callers expecting ErrorBoundaryProps.
- */
-export type ErrorBoundaryProps = ErrorProps;
+/** Normalized error shape used internally after validation. */
+export interface NormalizedError {
+  error: Error;
+  digest?: string;
+}
 
 /**
- * Alias interface for callers expecting ErrorComponentProps.
- */
-export type ErrorComponentProps = ErrorProps;
-
-/**
- * Segment-level Error Boundary component for Next.js App Router.
+ * Validates and normalizes the raw error value handed to the boundary.
  *
- * Invariants:
- * 1. Interface compatibility: Exports ErrorBoundary, GlobalError, ErrorPage and ErrorProps.
- * 2. Information protection: Internal error messages, stacks, or digests are never leaked into the UI.
- * 3. Input determinism: Tolerates valid, invalid (null/undefined/non-Error), and boundary error objects.
- * 4. Concurrency & idempotency: Multiple rapid clicks on "Try Again" cannot trigger concurrent resets.
- * 5. Failure resilience: Synchronous exceptions or Promise rejections within `reset` are caught safely
- *    and forwarded to `reportError`, preventing cascading crashes.
+ * Accepted input:
+ *   - an `Error` instance (with optional string `digest`)
+ * Rejected / coerced input:
+ *   - null / undefined / non-Error values -> wrapped in a safe fallback Error
+ *   - non-string or overly long digest -> digest is dropped
  */
-export function ErrorBoundary({ error, reset }: ErrorProps) {
-  const [isResetting, setIsResetting] = useState(false);
+export function normalizeError(input: unknown): NormalizedError {
+  const candidate = input as { digest?: unknown } | null | undefined;
+
+  let error: Error;
+  if (input instanef Error) {
+    error = input;
+  } else if (input == null) {
+    error = new Error('Unknown error');
+  } else if (typeof input === 'string') {
+    error = new Error(input);
+  } else {
+    error = new Error('Non-Error thrown');
+  }
+
+  const rawDigest = candidate && typeof candidate === 'object' ? candidate.digest : undefined;
+  const digest =
+    typeof rawDigest === 'string' &&
+    rawDigest.length > 0 &&
+    rawDigest.length <= MAX_DIGEST_LENGTH
+      ? rawDigest
+      : undefined;
+
+  return digest ? { error, digest } : { error };
+}
+
+/** Returns true only when the value is a callable function. */
+export function isResetFunction(value: unknown): value is () => void {
+  return typeof value === 'function';
+}
+
+export default function GlobalError({ error, reset }: ErrorProps) {
+  const normalized = normalizeError(error);
+  const reportedRef = useRef<unknown>(null);
+  const resetInFlightVRef = useRef(false);
 
   useEffect(() => {
-    reportError(error, 'Error Boundary');
-  }, [error]);
+    // Guard against duplicate reporting for the same error object across
+    // React re-renders (e.g. strict mode double-invocation or parent re-renders).
+    if (reportedRef.current === normalized.error) {
+      return;
+    }
+    reportedRef.current = normalized.error;
+
+    try {
+      reportError(normalized.error, 'Error Boundary', normalized.digest);
+    } catch {
+      // Error reporting must never break the boundary itself.
+    }
+  }, [normalized.error, normalized.digest]);
+
+  const handleReset = () => {
+    if (resetInFlightRef.current) {
+      return;
+    }
+    if (!isResetFunction(reset)) {
+      return;
+    }
+    resetInFlightRef.current = true;
+    try {
+      reset();
+    } catch {
+      // If reset throws, allow a retry on the next click rather than
+      // locking the UI in a permanently unresettable state.
+    } finally {
+      resetInFlightRef.current = false;
+    }
+  };
 
   const handleReset = useCallback(() => {
     if (isResetting) {
@@ -79,14 +144,8 @@ export function ErrorBoundary({ error, reset }: ErrorProps) {
 
   return (
     <main className="min-h-screen flex flex-col items-center justify-center p-8 bg-[var(--background)]">
-      <div
-        role="alert"
-        aria-live="assertive"
-        className="max-w-md w-full text-center space-y-6"
-      >
-        <div className="text-6xl" role="img" aria-label="Warning">
-          ⚠️
-        </div>
+      <div className="max-w-md wfull text-center space-y-6">
+        <div className="text-6xl" aria-hidden="true">⚠️</div>
         <h1 className="text-2xl font-bold text-gray-900">Unexpected Error</h1>
         <p className="text-gray-600">
           Something went wrong on our end. Please try again or contact support if
@@ -96,9 +155,7 @@ export function ErrorBoundary({ error, reset }: ErrorProps) {
           <button
             type="button"
             onClick={handleReset}
-            disabled={isResetting}
-            aria-busy={isResetting}
-            className="px-5 py-2 rounded-lg bg-gray-900 text-white font-medium hover:bg-gray-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="px-5 py-2 rounded-lg bg-gray-900 text-white font-medium hover:bg-gray-700 transition-colors"
           >
             {isResetting ? 'Retrying...' : 'Try Again'}
           </button>

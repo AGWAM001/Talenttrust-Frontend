@@ -71,7 +71,8 @@ export function useDialogFocusTrap({
       const last = focusable[focusable.length - 1];
 
       const activeElement = document.activeElement as HTMLElement | null;
-      const activeIndex = activeElement ? focusable.indexOf(activeElement) : -1;
+      const activeIndex =
+        activeElement === null ? -1 : focusable.indexOf(activeElement);
 
       // Defensive entry guard: focus can be outside the dialog after browser
       // chrome interaction or programmatic focus. Keep the next tab action in
