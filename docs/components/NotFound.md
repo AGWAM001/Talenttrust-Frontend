@@ -72,7 +72,7 @@ A `<nav aria-label="Quick links">` section with three links to the primary route
 
 ## Responsive Behaviour
 
-- Quick links stack vertically on mobile; the separator (`—`) is hidden below `sm` breakpoint.
+/ Quick links stack vertically on mobile; the separator (`—`) is hidden below `sm` breakpoint.
 - Footer action buttons stack vertically on mobile (`flex-col`) and sit side by side from `sm` upward (`sm:flex-row`).
 
 ## Styling
@@ -95,6 +95,11 @@ Tests live in `src/app/not-found.test.tsx` and cover:
 | Go Home link | `href="/"` |
 | Contact Support link | `href="mailto:support@talenttrust.io"` |
 | All links keyboard reachable | All 5 links are `<a>` elements |
+| Rendered links match the contract | Hrefs/order equal `getNotFoundQuickLinks()` |
+| Documented defaults render | Labels and descriptions match the frozen default list |
+| Contract home/support hrefs | Constants drive the Go Home and Contact Support links |
+| No off-site anchor | No `http(s):` or `//` href can render |
+| Axe scan | No detectable accessibility violations |
 | Snapshot | Regression guard on rendered output |
 
 ### Validation test coverage

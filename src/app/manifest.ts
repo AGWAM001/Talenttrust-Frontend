@@ -1,10 +1,20 @@
 import type { MetadataRoute } from 'next';
+import {
+  buildWebAppManifest,
+  reportWebAppManifestAnomalies,
+} from '@/lib/webAppManifest';
 
 /**
  * Web app manifest for TalentTrust.
  *
- * Provides PWA installability and consistent branding when the app is
- * added to a device home screen.
+ * Provides PWA installability and consistent branding when the app is added to
+ * a device home screen.
+ *
+ * Contract: the manifest content, validation, icon invariants, and diagnostics
+ * are owned by `src/lib/webAppManifest.ts`. Keep this route a thin consumer —
+ * behavioural changes (icon set, branding, fallbacks) belong in the contract
+ * module and must keep `src/lib/webAppManifest.test.ts` and
+ * `src/app/__tests__/manifest.test.ts` green.
  *
  * Icon assets (see public/):
  *   - icon.svg         – SVG vector icon (preferred, scales to any size)
@@ -14,31 +24,11 @@ import type { MetadataRoute } from 'next';
  *                         with a branded raster)
  */
 export default function manifest(): MetadataRoute.Manifest {
-  return {
-    name: 'TalentTrust - Safe Freelance Payments',
-    short_name: 'TalentTrust',
-    description:
-      'Safe, secure payments that protect both freelancers and clients throughout your project.',
-    start_url: '/',
-    display: 'standalone',
-    background_color: '#ffffff',
-    theme_color: '#2563eb',
-    icons: [
-      {
-        src: '/icon.svg',
-        sizes: 'any',
-        type: 'image/svg+xml',
-      },
-      {
-        src: '/icon-192x192.png',
-        sizes: '192x192',
-        type: 'image/png',
-      },
-      {
-        src: '/icon-512x512.png',
-        sizes: '512x512',
-        type: 'image/png',
-      },
-    ],
-  };
+  const { manifest: webAppManifest, report } = buildWebAppManifest();
+
+  // No-op for the canonical config; guards any future config-driven source
+  // from silently shipping a degraded manifest.
+  reportWebAppManifestAnomalies(report);
+
+  return webAppManifest;
 }
