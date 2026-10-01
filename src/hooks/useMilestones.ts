@@ -1,1 +1,170 @@
-J3VzZSBjbGllbnQnOwoKaW1wb3J0IHsgdXNlQ2FsbGJhY2ssIHVzZUVmZmVjdCwgdXNlTWVtbywgFyB1c2VSZWYsIHVzZVN0YXRlIH0gZnJvbSAncmVhY3QnOwoKaW1wb3J0IHsKICBjcmVhdGVNaWxlc3RvbmVzQXBpLAogIE1pbGVzdG9uZXNFcnJvciwKICB0eXBlIE1pbGVzdG9uZSwKICB0eXBlIE1pbGVzdG9uZXNBcGlPcHRpb25zLAogIHR5cGUgTWlsZXN0b25lc1NuYXBzaG90LAp9IGZyb20gJ0AvbGliL21pbGVzdG9uZXNBcGknOwoKZXhwb3J0IGludGVyZmFjZSBVc2VNaWxlc3RvbmVzUmVzdWx0IHsKICByZWFkb25seSBtaWxlc3RvbmVzOiByZWFkb25seSBNaWxlc3RvbmVbXTsKICByZWFkb25seSBpc0xvYWRpbmc6IGJvb2xlYW47CiAgcmVhZG9ubHkgZXJyb3I6IHN0cmluZyB8IG51bGw7CiAgcmVhZG9ubHkgcmV2aXNpb246IG51bWJlcjsKICByZWFkbHkgYWRkT WlsZXN0b25lOiAobWlsZXN0b25lOiBNaWxlc3RvbmUpID0+IFByb21pc2U8dm9pZD47CiAgcmVhZG9ubHkgdXBkYXRlTWlsZXN0b25lOiAoaWQ6IHN0cmluZywgcGF0Y2g6IFBhcnRpYWw8T21pdDxNaWxlc3RvbmUsICdpZCc+PikgPT4gUHJvbWlzZTx2b2lkPjsKICByZWFkb25seSByZW1vdmVNaWxlc3RvbmU6IChpZDogc3RyaW5nKSA9PiBQcm9taXNlPHZvaWQ+OwogIHJlYWRvbmx5IHJldHJ5OiAoKSA9PiB2b2lkOwp9CgpmdW5jdGlvbiB0b1NhZmVNZXNzYWdlKGVycm9yOiB1bmtub3duKTogc3RyaW5nIHsKICBpZiAoZXJyb3IgaW5zdGFuY2VvZiBNaWxlc3RvbmVzRXJyb3IpIHsKICAgIHN3aXRjaCAoZXJyb3IuY29kZSkgewogICAgICBjYXNlICdNSUxFU1RPTkVTX1VOQVZBSUxBQkxFJzoKICAgICAgICByZXR1cm4gJ01pbGVzdG9uZXMgYXJlIG5vdCBhdmFpbGFibGUgaW4gdGhpcyBicm93c2VyLic7CiAgICAgIGNhc2UgJ01JTEVTVE9ORVNfQ09SUlVQVCc6CiAgICAgICAgcmV0dXJuICdTdG9yZWQgbWlsZXN0b25lcyBjb3VsZCBub3QgYmUgcmVhZC4nOwogICAgICBjYXNlICdNSUxFU1RPTkVTX0lOVkFMSURfSU5QVVQnOgogICAgICAgIHJldHVybiAnVGhlIG1pbGVzdG9uZSBjaGFuZ2Ugd2FzIG5vdCB2YWxpZC4nOwogICAgICBjYXNlICdNSUxFU1RPTkVTX1dSSVRFX0ZBSUxFRCc6CiAgICAgICAgcmV0dXJuICdNaWxlc3RvbmVzIGNvdWxkIG5vdCBiZSBzYXZlZC4nOwogICAgICBkZWZhdWx0OgogICAgICAgIHJldHVybiAnTWlsZXN0b25lcyBjb3VsZCBub3QgYmUgbG9hZGVkLic7CiAgICB9CiAgfQoKICByZXR1cm4gJ01pbGVzdG9uZXMgY291bGQgbm90IGJlIGxvYWRlZC4nOwp9CgpleHBvcnQgZnVuY3Rpb24gdXNlTWlsZXN0b25lcyhvcHRpb25zOiBNaWxlc3RvbmVzQXBpT3B0aW9ucyA9IHt9KTogVXNlTWlsZXN0b25lc1Jlc3VsdCB7CiAgY29uc3QgeyBzdG9yYWdlLCBrZXksIG5vdyB9ID0gb3B0aW9uczsKCiAgY29uc3QgYXBpID0gdXNlTWVtbygKICAgICgpID0+IGNyZWF0ZU1pbGVzdG9uZXNBcGkoeyBzdG9yYWdlLCBrZXksIG5vdyB9KSwKICAgIFtzdG9yYWdlLCBrZXksIG5vd10sCiAgKTsKCiAgY29uc3QgW3NuYXBzaG90LCBzZXRTbmFwc2hvdF0gPSB1c2VTdGF0ZTxNaWxlc3RvbmVzU25hcHNob3QgfCBudWxsPihudWxsKTsKICBjb25zdCBbZXJyb3IsIHNldEVycm9yXSA9IHVzZVN0YXRlPHN0cmluZyB8IG51bGw+KG51bGwpOwogIGNvbnN0IFtyZXRyeVRva2VuLCBzZXRSZXRyeVRva2VuXSA9IHVzZVN0YXRlKDApOwogIGNvbnN0IG1vdW50ZWQgPSB1c2VSZWYodHJ1ZSk7CgogIHVzZUVmZmVjdCgoKSA9PiB7CiAgICBtb3VudGVkLmN1cnJlbnQgPSB0cnVlOwogICAgcmV0dXJuICgpID0+IHsKICAgICAgbW91bnRlZC5jdXJyZW50ID0gZmFsc2U7CiAgICB9OwogIH0sIFtdKTsKCiAgdXNlRWZmZWN0KCgpID0+IHsKICAgIGxldCBhY3RpdmUgPSB0cnVlOwoKICAgIGNvbnN0IGxvYWQgPSAoKSA9PiB7CiAgICAgIHRyeSB7CiAgICAgICAgY29uc3QgbmV4dCA9IGFwaS5yZWFkKCk7CiAgICAgICAgaWYgKGFjdGl2ZSAmJiBtb3VudGVkLmN1cnJlbnQpIHsKICAgICAgICAgIHNldFNuYXBzaG90KG5leHQpOwogICAgICAgICAgc2V0RXJyb3IobnVsbCk7CiAgICAgICAgfQogICAgICB9IGNhdGNoIChjYXVzZSkgewogICAgICAgIGlmIChhY3RpdmUgJiYgbW91bnRlZC5jdXJyZW50KSB7CiAgICAgICAgICBzZXRTbmFwc2hvdCh7IG1pbGVzdG9uZXM6IFtdLCByZXZpc2lvbjogMCB9KTsKICAgICAgICAgIHNldEVycm9yKHRvU2FmZU1lc3NhZ2UoY2F1c2UpKTsKICAgICAgICB9CiAgICAgIH0KICAgIH07CgogICAgbG9hZCgpOwoKICAgIGNvbnN0IHVuc3Vic2NyaWJlID0gYXBpLnN1YnNjcmliZSgobmV4dCkgPT4gewogICAgICBpZiAoYWN0aXZlICYmIG1vdW50ZWQuY3VycmVudCkgewogICAgICAgIHNldFNuYXBzaG90KG5leHQpOwogICAgICAgIHNldEVycm9yKG51bGwpOwogICAgICB9CiAgICB9KTsKCiAgICByZXR1cm4gKCkgPT4gewogICAgICBhY3RpdmUgPSBmYWxzZTsKICAgICAgdW5zdWJzY3JpYmUoKTsKICAgIH07CiAgfSwgW2FwaSwgcmV0cnlUb2tlbl0pOwoKICBjb25zdCBhZGRNaWxlc3RvbmUgPSB1c2VDYWxsYmFjaygKICAgIGFzeW5jIChtaWxlc3RvbmU6IE1pbGVzdG9uZSkgPT4gewogICAgICB0cnkgewogICAgICAgIGF3YWl0IGFwaS5tdXRhdGUoYGFkZDoke21pbGVzdG9uZS5pZH1gLCAoY3VycmVudCkgPT4gewogICAgICAgICAgaWYgKGN1cnJlbnQubWlsZXN0b25lcy5zb21lKChleGlzdGluZykgPT4gZXhpc3RpbmcuaWQgPT09IG1pbGVzdG9uZS5pZCkpIHsKICAgICAgICAgICAgcmV0dXJuIGN1cnJlbnQ7CiAgICAgICAgICB9CiAgICAgICAgICByZXR1cm4gewogICAgICAgICAgICByZXZpc2lvbjogY3VycmVudC5yZXZpc2lvbiwKICAgICAgICAgICAgbWlsZXN0b25lczogWy4uLmN1cnJlbnQubWlsZXN0b25lcywgbWlsZXN0b25lXSwKICAgICAgICAgIH07CiAgICAgICAgfSk7CiAgICAgICAgc2V0RXJyb3IobnVsbCk7CiAgICAgIH0gY2F0Y2ggKGNhdXNlKSB7CiAgICAgICAgc2V0RXJyb3IodG9TYWZlTWVzc2FnZShjYXVzZSkpOwogICAgICB9CiAgICB9LAogICAgW2FwaV0sCiAgKTsKCiAgY29uc3QgdXBkYXRlTWlsZXN0b25lID0gdXNlQ2FsbGJhY2soCiAgICBhc3luYyAoaWQ6IHN0cmluZywgcGF0Y2g6IFBhcnRpYWw8T21pdDxNaWxlc3RvbmUsICdpZCc+PikgPT4gewogICAgICB0cnkgewogICAgICAgIGF3YWl0IGFwaS5tdXRhdGUoYHVwZGF0ZToke2lkfToke0pTT04uc3RyaW5naWZ5KHBhdGNoKX1gLCAoY3VycmVudCkgPT4gewogICAgICAgICAgY29uc3QgaW5kZXggPSBjdXJyZW50Lm1pbGVzdG9uZXMuZmluZEluZGV4KChtaWxlc3RvbmUpID0+IG1pbGVzdG9uZS5pZCA9PT0gaWQpOwogICAgICAgICAgaWYgKGluZGV4IDwgMCkgewogICAgICAgICAgICByZXR1cm4gY3VycmVudDsKICAgICAgICAgIH0KICAgICAgICAgIGNvbnN0IG5leHQgPSBjdXJyZW50Lm1pbGVzdG9uZXMuc2xpY2UoKTsKICAgICAgICAgIG5leHRbaW5kZXhdID0geyAuLi5uZXh0W2luZGV4XSwgLi4ucGF0Y2ggfTsKICAgICAgICAgIHJldHVybiB7IHJldmlzaW9uOiBjdXJyZW50LnJldmlzaW9uLCBtaWxlc3RvbmVzOiBuZXh0IH07CiAgICAgICAgfSk7CiAgICAgICAgc2V0RXJyb3IobnVsbCk7CiAgICAgIH0gY2F0Y2ggKGNhdXNlKSB7CiAgICAgICAgc2V0RXJyb3IodG9TYWZlTWVzc2FnZShjYXVzZSkpOwogICAgICB9CiAgICB9LAogICAgW2FwaV0sCiAgKTsKCiAgY29uc3QgcmVtb3ZlTWlsZXN0b25lID0gdXNlQ2FsbGJhY2soCiAgICBhc3luYyAoaWQ6IHN0cmluZykgPT4gewogICAgICB0cnkgewogICAgICAgIGF3YWl0IGFwaS5tdXRhdGUoYHJlbW92ZToke2lkfWAsIChjdXJyZW50KSA9PiB7CiAgICAgICAgICBjb25zdCBuZXh0ID0gY3VycmVudC5taWxlc3RvbmVzLmZpbHRlcigobWlsZXN0b25lKSA9PiBtaWxlc3RvbmUuaWQgIT09IGlkKTsKICAgICAgICAgIGlmIChuZXh0Lmxlbmd0aCA9PT0gY3VycmVudC5taWxlc3RvbmVzLmxlbmd0aCkgewogICAgICAgICAgICByZXR1cm4gY3VycmVudDsKICAgICAgICAgIH0KICAgICAgICAgIHJldHVybiB7IHJldmlzaW9uOiBjdXJyZW50LnJldmlzaW9uLCBtaWxlc3RvbmVzOiBuZXh0IH07CiAgICAgICAgfSk7CiAgICAgICAgc2V0RXJyb3IobnVsbCk7CiAgICAgIH0gY2F0Y2ggKGNhdXNlKSB7CiAgICAgICAgc2V0RXJyb3IodG9TYWZlTWVzc2FnZShjYXVzZSkpOwogICAgICB9CiAgICB9LAogICAgW2FwaV0sCiAgKTsKCiAgY29uc3QgcmV0cnkgPSB1c2VDYWxsYmFjaygoKSA9PiB7CiAgICBzZXRSZXRyeVRva2VuKCh0b2tlbikgPT4gdG9rZW4gKyAxKTsKICB9LCBbXSk7CgogIHJldHVybiB7CiAgICBtaWxlc3RvbmVzOiBzbmFwc2hvdD8ubWlsZXN0b25lcyA/PyBbXSwKICAgIGlzTG9hZGluZzogc25hcHNob3QgPT09IG51bGwgJiYgZXJyb3IgPT09IG51bGwsCiAgICBlcnJvciwKICAgIHJldmlzaW9uOiBzbmFwc2hvdD8ucmV2aXNpb24gPz8gMCwKICAgIGFkZE1pbGVzdG9uZSwKICAgIHVwZGF0ZU1pbGVzdG9uZSwKICAgIHJlbW92ZU1pbGVzdG9uZSwKICAgIHJldHJ5LAogIH07Cn0K
+/**
+ * @file useMilestones.ts
+ *
+ * React hook that owns the milestones list state for a contract.
+ *
+ * The hook wraps the data source in a deterministic state machine:
+ * - every load is tagged with a request id so out-of-order responses from
+ *   concurrent loads are discarded;
+ * - failures are surfaced as a typed error state and never clear existing
+ *   data, so a transient failure does not cause silent data loss;
+ * - components unmounting mid-flight cannot update state.
+ *
+ * The hook accepts an injectable `fetcher` so tests and callers can supply
+ * their own transport without changing the public shape of the hook.
+ */
+
+'use client';
+
+import { useCallback, useEffect, useRef, useState } from 'react';
+
+import {
+  applyStatusTransition,
+  normalizeMilestones,
+  type Milestone,
+} from '@/lib/milestones';
+
+/** Fetches the raw milestone payload for a contract. */
+export type MilestonesFetcher = (contractId: string) => Promise<unknown>;
+
+/** State exposed by the hook. */
+export interface UseMilestonesResult {
+  /** The normalized, deduplicated, deterministically ordered milestones. */
+  milestones: Milestone[];
+  /** True while the initial load is in flight and no data is available. */
+  isLoading: boolean;
+  /** True while a refresh is in flight with existing data still visible. */
+  isRefreshing: boolean;
+  /** A user-safe message for the most recent failure, or null. */
+  error: string | null;
+  /** Reloads the milestones from the fetcher. */
+  refresh: () => Promise<void>;
+  /**
+   * Attempts a status transition on a loaded milestone.
+   *
+   * Returns `true` when the transition was applied. Returns `false
+   * without mutating state when the transition is not allowed.
+   */
+  updateStatus: (id: string, nextStatus: unknown) => boolean;
+}
+
+/** Error message shown when the fetcher rejects. */
+const LOAD_ERROR_MESSAGE =
+  'We could not load the milestones. Please try again.';
+
+/** Error message shown when a contract id is missing. */
+const MISSING_CONTRACT_MESSAGE = 'No contract was selected.';
+
+/**
+ * Manages milestone data for a single contract.
+
+ * @param contractId The contract whose milestones should be loaded.
+ * @param fetcher Async transport. Defaults to a fetch against the app's
+ *   milestones endpoint.
+ */
+export function useMilestones(
+  contractId: string | undefined | null,
+  fetcher?: MilestonesFetcher,
+): UseMilestonesResult {
+  const [milestones, setMilestones] = useState<Milestone[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Monotonically increasing request id. Only the latest request may
+  // commit state, which makes concurrent loads and retries safe.
+  const requestIdRef = useRef(0);
+  const mountedRef = useRef(false);
+
+  const load = useCallback(
+    async (id: string, isRefresh: boolean) => {
+      const requestId = ++requestIdRef.current;
+
+      if (isRefresh) {
+        setIsRefreshing(true);
+      } else {
+        setIsLoading(true);
+      }
+      setError(null);
+
+      try {
+        const payload = await fetcher(id);
+        if (!mountedRef.current || requestId !== requestIdRef.current) {
+          return;
+        }
+        setMilestones(normalizeMilestones(payload));
+      } catch {
+        if (!mountedRef.current || requestId !== requestIdRef.current) {
+          return;
+        }
+        // Keep any previously loaded data in place; only surface the error.
+        setError(LOAD_ERROR_MESSAGE);
+      } finally {
+        if (mountedRef.current && requestId === requestIdRef.current) {
+          setIsLoading(false);
+          setIsRefreshing(false);
+        }
+      }
+    },
+    [fetcher],
+  );
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      // Invalidate any in-flight request so it cannot commit after unmount.
+      requestIdRef.current += 1;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!contractId) {
+      // No contract selected: reset to an empty, error-free state.
+      requestIdRef.current += 1;
+      setMilestones([]);
+      setIsLoading(false);
+      setIsRefreshing(false);
+      setError(MISSING_CONTRACT_MESSAGE);
+      return;
+    }
+
+    void load(contractId, false);
+  }, [contractId, load]);
+
+  const refresh = useCallback(async () => {
+    if (!contractId) return;
+    await load(contractId, true);
+  }, [contractId, load]);
+
+  const updateStatus = useCallback(
+    (id: string, nextStatus: unknown): boolean => {
+      let applied = false;
+
+      setMilestones((current) => {
+        const index = current.findIndex((m) => m.id === id);
+        if (index === -1) return current;
+
+        const result = applyStatusTransition(current[index], nextStatus);
+        if (!result.ok) return current;
+
+        applied = true;
+        const next = [...current];
+        next[index] = result.milestone;
+        return next;
+      });
+
+      return applied;
+    },
+    [],
+  );
+
+  return {
+    milestones,
+    isLoading,
+    isRefreshing,
+    error,
+    refresh,
+    updateStatus,
+  };
+}

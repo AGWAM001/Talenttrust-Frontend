@@ -43,14 +43,19 @@ export function milestoneStatusTally(
     Paid: 0,
   };
 
-  if (Array.isArray(milestones)) {
-    for (const m of milestones) {
-      // Guard at the boundary: only count values we know about. This prevents
-      // stale or unknown status values from silently corrupting the tally.
-      if (isKnownStatus(m.status)) {
-        counts[m.status]++;
-      }
-    }
+  // Invariant: tolerate malformed/empty input without throwing. Non-array
+  // inputs and entries with unknown or missing statuses are ignored so that
+  // callers relying on the previous public contract keep working.
+  if (!Array.isArray(milestones)) {
+    return [];
+  }
+
+  for (const m of milestones) {
+    if (m == null) continue;
+    const status = m.status;
+    if (typeof status !== 'string') continue;
+    if (!Object.prototype.hasOwnProperty.call(counts, status)) continue;
+    counts[status as StatusType]++;
   }
 
   return STATUS_ORDER

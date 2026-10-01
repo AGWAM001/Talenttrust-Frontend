@@ -9,22 +9,14 @@
  * primary key (identical `createdAt` timestamps, identical values) always
  * come back in the same order regardless of the input order.
  *
- * ## Invariants owned by this module
- *
- * 1. **Purity** — neither `sortContracts` nor `compareContracts` mutates
- *    its inputs. `sortContracts` always returns a new array.
- * 2. **Total order*** — for any fixed `sortOrder`, `compareContracts` is a
- *    total ordering over the input set: reflexive, anti-symmetric, transitive,
- *    and total (any two distinct contracts compare non-zero). This is
- *    guaranteed by the final `id` tie-break, which is a complete discriminator
- *    for the domain identity.
- * 3. **Determinism** — the output depends only on the contents of the input
- *    array and the `sortOrder`, not on the incoming order.
- * 4. **Totality** — comparisons never throw. Malformed or missing data
- *    (unparsable `createdAt`, non-finite `totalValue`) is coerced to a
- *    deterministic extreme rather than propagating `NaN` into the sort.
- * 5. **Stable identity of equal elements** — contracts that tie on the
- *    primary key are ordered by `id`, so duplicate `ids cannot scatter.
+ * Compatibility contracts:
+ * - `sortContracts` always returns a new array and never mutates its input.
+ * - The default order is `'date-desc'` and is stable across releases.
+ * - Unknown sort orders coerce to the default rather than throwing.
+ * - Malformed `createdAt` values and non-finite `totalValue` values are
+ *    handled deterministically and do not produce `NaN` comparisons.
+ * - Equal contracts are always tie-broken by `id`, so the result is a
+ *    pure function of the input contents, not the input order.
  */
 
 import type { Contract } from '@/types/domain';
@@ -79,15 +71,14 @@ const parseCreatedAt = (contract: Contract): number => {
 };
 
 /**
- * Normalizes a contract's `totalValue` to a finite, comparable number.
+ * Normalizes a contract's `totalValue` to a finite number.
  *
- * `totalValue` is expected to be a finite number, but defensively coerces
- * `NaN`, `Infinity`, and non-numeric values to `NEGATIVE_INFINITY`. Without this,
- * a single `NaN` value would make every comparison return `NaN`, which `Array.sort`
- * treats as `0` and which breaks transitivity -- producing orders that depend on
- * the incoming array order. Coercing keeps the ordering total and deterministic.
+ * Contracts arriving from the network can contain `null`, `undefined`,
+ * `NaN`, or `Infinity` for `totalValue`. Treating those as the lowest value
+ * keeps the comparison totally ordered and avoids `NaN` comparisons that
+ * would otherwise leave the array order undefined.
  */
-const normalizeTotalValue = (contract: Contract): number => {
+const normalizeValue = (contract: Contract): number => {
   const value = contract.totalValue;
   return typeof value === 'number' && Number.isFinite(value)
     ? value
@@ -103,11 +94,13 @@ const compareIds = (a: Contract, b: Contract): number => {
 /**
  * Compares two contracts under the given ordering.
  *
- * Exported for reuse by callers that need to merge this ordering into a
- * larger comparison (and to keep the tie-break rule testable in isolation).
+ * Exported for reuse by callers that need to merge this ordering into
+ * a larger comparison (and to keep the tie-break rule testable in isolation).
  *
- * The return value is always a finite number in `{-1, 0, 1}` for the `id`
- * tie-break, and never `NaN`. This is what makes the ordering a total order.
+ * Invariants:
+ * - The return value is always a finite number (-1, 0, or 1), never `NaN`.
+ * - `compareContracts(a, b, order) === -compareContracts(b, a, order)`.
+ * - If a and b tie on the primary key, the result is determined by `id`.
  */
 export const compareContracts = (
   a: Contract,
@@ -115,7 +108,7 @@ export const compareContracts = (
   sortOrder: ContractSortOrder,
 ): number => {
   if (sortOrder === 'value-desc' || sortOrder === 'value-asc') {
-    const diff = normalizeTotalValue(a) - normalizeTotalValue(b);
+    const diff = normalizeValue(a) - normalizeValue(b);
     if (diff !== 0) {
       return sortOrder === 'value-desc' ? -diff : diff;
     }
@@ -137,12 +130,15 @@ export const compareContracts = (
  * ordered by `id`, so the result is fully determined by the contents of the
  * list rather than by its incoming order.
  *
- * Repeated invocations with the same input (or with the same multiset of contracts
- * in a different order) always produce the same output, so concurrent or retried
- * sorts cannot observe an intermediate or inconsistent state.
+ * Accepts any iterable of contracts (arrays, readonly arrays, or other iterables)
+ * and tolerates null/undefined input by returning an empty array, preserving the
+ * existing public contract for callers that may pass undefined during loading.
  */
 export const sortContracts = (
-  contracts: readonly Contract[],
+  contracts: readonly Contract[] | null | undefined,
   sortOrder: ContractSortOrder = DEFAULT_CONTRACT_SORT_ORDER,
-): Contract[] =>
-  [...contracts].sort((a, b) => compareContracts(a, b, sortOrder));
+): Contract[] => {
+  if (!contracts) return [];
+  const order = toContractSortOrder(sortOrder);
+  return [...contracts].sort((a, b) => compareContracts(a, b, order));
+};
