@@ -2,64 +2,46 @@
  * loading.tsx – /contracts
  *
  * App Router Suspense boundary rendered while the contracts list page streams
- * in. Mirrors the visual shape of ContractsPage: a page heading followed by
- * a column of contract-card rows (matching the `<li>` cards rendered when
- * contracts exist).
+ * in. It shows the shared `ContractsSkeleton` (heading + "Create Contract"
+ * button + contract-card rows) so the route-level fallback and the in-page
+ * skeleton can never drift apart, and wraps it in
+ * {@link ContractsLoadingBoundary} so a stalled or failed fallback always has a
+ * deterministic, observable outcome:
+ *
+ *   - the stream is slow      → an explicit "taking longer" notice plus a
+ *                               reload affordance, reported at `warn` level,
+ *                               with the skeleton left in place;
+ *   - the fallback throws     → a contained `role="alert"` state with a bounded
+ *                               number of "Try again" attempts, reported at
+ *                               `error` level;
+ *   - nothing recovers        → the retry affordance becomes a hard page
+ *                               reload, the only recovery that discards all
+ *                               in-memory React state.
+ *
+ * The boundary never touches persisted storage, so contracts, milestones,
+ * wallet items and preferences survive a failure/retry cycle intact. Its
+ * invariants are documented in ContractsLoadingBoundary.tsx.
  *
  * Accessibility:
- * - Outer wrapper carries `aria-busy="true"` and `role="status"` so assistive
- *   technologies understand the region is in a transient loading state.
- * - The visually-hidden span announces "Loading contracts…" via an
- *   `aria-live="polite"` region on mount.
- * - All shimmer blocks carry `aria-hidden="true"` — they are decorative
- *   placeholders with no semantic content.
- * - The shimmer animation is suppressed via the project-wide
- *   `prefers-reduced-motion` CSS rule in globals.css plus the
- *   `motion-reduce:animate-none` Tailwind variant belt-and-suspenders guard.
+ * - The root layout owns the single `<main id="main-content">` landmark, so
+ *   this fallback renders a `<div aria-busy="true">` rather than a second
+ *   `<main>` (duplicate-landmark regression fixed for /milestones in #682).
+ * - A visually-hidden `role="status"` announces "Loading contracts…" on mount
+ *   and re-announces the stalled message; the skeleton itself is
+ *   `aria-hidden="true"` because it is decorative.
+ * - Shimmer blocks are suppressed for `prefers-reduced-motion` by the
+ *   project-wide rule in globals.css plus `motion-reduce:animate-none`.
  */
 
-const ContractCardSkeleton = () => (
-  <div
-    aria-hidden="true"
-    className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm"
-  >
-    {/* Contract name */}
-    <div className="h-5 w-48 rounded-lg bg-slate-200 animate-shimmer motion-reduce:animate-none" />
-    {/* Status · Created */}
-    <div className="mt-2 h-3.5 w-36 rounded-lg bg-slate-200 animate-shimmer motion-reduce:animate-none" />
-  </div>
-);
+import ContractsLoadingBoundary, {
+  CONTRACTS_LOADING_SKELETON_ROWS,
+} from './ContractsLoadingBoundary';
+import { ContractsSkeleton } from '@/components/contracts/ContractsSkeleton';
 
 export default function ContractsLoading() {
   return (
-    <main className="min-h-screen p-8" aria-busy="true">
-      {/* Accessible announcement */}
-      <span role="status" aria-live="polite" aria-atomic="true" className="sr-only">
-        Loading contracts…
-      </span>
-
-      {/* Heading skeleton */}
-      <div
-        aria-hidden="true"
-        className="mb-6 h-8 w-36 rounded-lg bg-slate-200 animate-shimmer motion-reduce:animate-none"
-      />
-
-      {/* "Create Contract" button skeleton – top-right alignment */}
-      <div className="mb-4 flex justify-end">
-        <div
-          aria-hidden="true"
-          className="h-9 w-36 rounded-2xl bg-slate-200 animate-shimmer motion-reduce:animate-none"
-        />
-      </div>
-
-      {/* Contract card list */}
-      <ul className="space-y-4" aria-label="Loading contract list">
-        {Array.from({ length: 5 }, (_, i) => (
-          <li key={i}>
-            <ContractCardSkeleton />
-          </li>
-        ))}
-      </ul>
-    </main>
+    <ContractsLoadingBoundary>
+      <ContractsSkeleton count={CONTRACTS_LOADING_SKELETON_ROWS} />
+    </ContractsLoadingBoundary>
   );
 }
