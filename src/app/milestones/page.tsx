@@ -73,6 +73,8 @@ function useRepositoryMilestones(): Milestone[] {
 
 
 
+const MILESTONE_LOAD_EPOCH = Symbol('milestone-load-epoch');
+
 const MilestonesContent: React.FC = () => {
   const [milestones, setMilestones] = useState<Milestone[]>(SAMPLE_MILESTONES);
   const [isDismissed, setIsDismissed] = useState<boolean>(false);
@@ -80,7 +82,7 @@ const MilestonesContent: React.FC = () => {
   const router = useRouter();
   const headingRef = useRef<HTMLHeadingElement | null>(null);
   const startFromScratchRef = useRef<HTMLButtonElement | null>(null);
-  const mountedRef = useRef<boolean>(true);
+  const loadEpochRef = useRef<symbol>(MILESTONE_LOAD_EPOCH);
 
   const initialStatus = getValidStatus(searchParams.get('status'));
   const [statusFilter, setStatusFilter] =
@@ -92,9 +94,7 @@ const MilestonesContent: React.FC = () => {
   const { showError } = useToast();
   const repositoryMilestones = useRepositoryMilestones();
   const reconcileFromRepo = useCallback(() => {
-    // Guard against late async reconciliation after unmount so we never
-    // commit state to a torn-down tree (React 18 concurrent safety).
-    if (!mountedRef.current) return;
+    if (loadEpochRef.current !== MILESTONE_LOAD_EPOCH) return;
     setMilestones(listMilestones());
   }, []);
   const offline = useOfflineMilestones(reconcileFromRepo);
@@ -154,6 +154,7 @@ const MilestonesContent: React.FC = () => {
   }, [statusFilter, sortOrder, router, searchParams]);
 
   useEffect(() => {
+    const epoch = loadEpochRef.current;
     const persisted = listMilestones();
     if (persisted.length > 0) {
       setMilestones(persisted);
@@ -169,6 +170,11 @@ const MilestonesContent: React.FC = () => {
       setMilestones(SAMPLE_MILESTONES);
       lastReconciledRef.current = SAMPLE_MILESTONES;
     }
+    return () => {
+      if (loadEpochRef.current === epoch) {
+        loadEpochRef.current = Symbol('milestone-load-epoch-closed');
+      }
+    };
   }, []);
 
   const handleDismissSampleBanner = useCallback(() => {
@@ -177,6 +183,7 @@ const MilestonesContent: React.FC = () => {
     } catch {
       // safeStorage resilience
     }
+    loadEpochRef.current = Symbol('milestone-load-epoch-dismissed');
     setIsDismissed(true);
     setMilestones([]);
     lastReconciledRef.current = [];
@@ -229,21 +236,7 @@ const MilestonesContent: React.FC = () => {
   }, []);
 
   const handleSubmitMilestone = useCallback((milestone: Milestone) => {
-    if (!milestone || typeof milestone.id !== 'string' || milestone.id.length === 0) {
-      showError({
-        title: 'Unable to create milestone',
-        description: 'Milestone is missing a valid identifier.',
-      });
-      return;
-    }
-    if (!acquireMutationLock(milestone.id)) {
-      showError({
-        title: 'Unable to create milestone',
-        description: 'A change for this milestone is already in progress.',
-      });
-      return;
-    }
-    try {
+    loadEpochRef.current = Symbol('milestone-load-epoch-mutated');
     const result = optimisticCreate(milestone);
     if (!result.ok) {
       showError({
@@ -264,21 +257,7 @@ const MilestonesContent: React.FC = () => {
 
   const handleUpdateMilestone = useCallback(
     (id: string, patch: Partial<Milestone>): boolean => {
-      if (!id || typeof id !== 'string') {
-        showError({
-          title: 'Unable to update milestone',
-          description: 'Milestone is missing a valid identifier.',
-        });
-        return false;
-      }
-      if (!acquireMutationLock(id)) {
-        showError({
-          title: 'Unable to update milestone',
-          description: 'A change for this milestone is already in progress.',
-        });
-        return false;
-      }
-      try {
+      loadEpochRef.current = Symbol('milestone-load-epoch-mutated');
       const result = optimisticUpdate(id, patch);
       if (result.ok) return true;
       showError({

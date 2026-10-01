@@ -52,7 +52,7 @@ corrupted or unavailable browser storage.
 4. The existing list shell with three representative milestone cards.
 
 The shell uses `aria-busy="true"` on its board root. A single visually hidden
-`role="status"` node announces `Loading milestones…k with polite priority.
+`role="status"` node announces `Loading milestones․` with polite priority.
 Every shimmer block is `aria-hidden="true"`, so screen readers do not count
 decorative rectangles as content or controls.
 
@@ -90,7 +90,7 @@ operation-level error handling.
 ## Retry behavior
 
 The boundary stores only `hasError` and a private retry counter. Clicking
-`Try again` clears the error state and increments the counter. The children
+dTry again` clears the error state and increments the counter. The children
 are rendered inside a keyed fragment, so React gives the recovered subtree a
 fresh mount. This is important for sections that read data or initialize
 subscriptions during mount.
@@ -296,6 +296,33 @@ Keep the stable error code unchanged unless the meaning of the failure changes.
 If the error reporter gains a new required field, add it to the boundary's
 structured metadata and its unit test. Do not reintroduce thrown error text to
 the fallback while doing so.
+
+## Concurrency and idlempotency invariants
+
+The board can be mounted, retried, and unmounted in rapid succession. The
+following invariants keep concurrent or repeated execution deterministic.
+
+1. **Retry is serialized.** The boundary stores a monotonic retry counter and
+   only advances it inside a single `setState` updater. A double-click or a
+   keyboard repeat on `Try again` therefore produces distinct keys and distinct
+   mounts, never a torn subtree.
+2. **Retry cannot race a pending mount.** The keyed fragment is derived from
+   the counter, so React unmounts the old subtree before mounting the new one.
+   Two retries in the same tick collapse into one commit and one mount.
+3. **Concurrent renders are idempotent.** The boundary does not mutate external
+   state during render. `reportError` is invoked from `componentDidCatch`, which
+   React calls once per caught error, so a strict-mode double render does not
+   double-report.
+4. **Unmount during retry is safe.** The boundary does not start timers or
+   subscriptions of its own, and the keyed fragment lets React clean up child
+   effects normally. No callback can fire against an unmounted boundary.
+5. **Duplicate reports are deduplicated by code.** Every report carries the
+   stable `code` and the static `section`, so a dashboard can group and count
+   failures without relying on error message text.
+
+The loading shell is purely presentational and renders no effects, so a route
+transition that is interrupted by a new navigation cannot leave behind a stale
+  announcement or a suspended subscriber.
 
 ## Verification commands
 
