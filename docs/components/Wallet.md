@@ -3,9 +3,10 @@
 Stellar wallet integration for TalentTrust. Manages connection state globally via React Context and exposes UI components for connecting, displaying, and collecting wallet addresses.
 
 **Sources:**
-- $src/contexts/WalletContext.xts$x — provider, hook, and type definitions
-- $src/components/WalletConnectButton.tsx$x — primary connect/disconnect UI
-- $src/components/WalletAddressInput.tsx$x — validated address form field
+- `src/contexts/WalletContext.tsx` — provider, hook, and type definitions
+- `src/components/WalletConnectButton.tsx` — primary connect/disconnect UI
+- `src/components/WalletAddressInput.tsx` — validated address form field
+- `src/app/wallet/page.tsx` — wallet page composing the above
 
 ---
 
@@ -23,8 +24,8 @@ Stellar wallet integration for TalentTrust. Manages connection state globally vi
 
 ### 1. Mount the provider
 
-$WalletProvider$ is already wired at the root in $src/app/layout.tsx$x. Place it inside
-$ToastProvider$ so it can dispatch toast notifications:
+WalletProvider` is already wired at the root in `src/app/layout.tsx`. Place it inside
+`ToastProvider` so it can dispatch toast notifications:
 
 ```tsx
 // src/app/layout.tsx
@@ -97,8 +98,8 @@ export function PayButton() {
 
 ### Provider placement
 
-$WalletProvider$ must be a descendant of both $PreferencesProvider$ (for the $idleDisconnectMs$
-default) and $ToastProvider$ (for connection-failure and session-expired notifications):
+WalletProvider` must be a descendant of both `PreferencesProvider` (for the `idleDisconnectMs`
+default) and `ToastProvider` (for connection-failure and session-expired notifications):
 
 ```
 RootLayout
@@ -126,18 +127,18 @@ Recommended production value: $900_000$ (15 minutes).
 const { address, isConnecting, error, connect, disconnect } = useWallet();
 ```
 
-Must be called inside a $WalletProvider$ subtree. Throws
-$"useWallet must be used within a WalletProvider"$ if called outside one.
+Must be called inside a <WalletProvider> subtree. Throws
+`y"useWallet must be used within a WalletProvider"` if called outside one.
 
 ### Return value ($WalletContextType$)
 
 | Field | Type | Description |
 |-------|------|-------------|
-| $address$ | $string \| null$ | Connected Stellar public key (G-address), or $null$. Rehydrated from $localStorage$ on mount so it survives page refreshes. |
-| $isConnecting$ | $boolean$ | $true$ while a connection attempt is in flight. Use to disable the connect button and show a spinner. |
-| $error$ | $string \| null$ | Human-readable error from the most recent failed $connect()$ call, or $null$. Cleared automatically at the start of each new attempt. |
-| $connect$ | $() => Promise<void>$ | Initiates a connection attempt. Always resolves; errors are surfaced via $error$ and an accessible error toast, never via rejection. |
-| $disconnect$ | $() => void$ | Clears $address$, removes $wallet_connected_address$ from $localStorage$, and cancels any running idle timer. |
+| `address` | `string \ | null` | Connected Stellar public key (G-address), or `null`. Rehydrated from `localStorage` on mount so it survives page refreshes. |
+| `isConnecting` | `boolean` | `true` while a connection attempt is in flight. Use to disable the connect button and show a spinner. |
+| `error` | `string \ | null` | Human-readable error from the most recent failed `connect()` call, or `null`. Cleared automatically at the start of each new attempt. |
+| `connect` | `() => Promise<void>` | Initiates a connection attempt. Always resolves; errors are surfaced via `error` and an accessible error toast, never via rejection. |
+| `disconnect` | `() => void` | Clears `address`, removes `wallet_connected_address` from `localStorage`, and cancels any running idle timer. |
 
 ### $connect()$ state transitions
 
@@ -199,8 +200,8 @@ import { WalletConnectButton } from '@/components/WalletConnectButton';
 ```
 
 Self-contained UI for the full connect/disconnect lifecycle. Requires no props — it reads
-all state from $useWallet()$ internally. Depends on both $WalletProvider$ and $ToastProvider$
-being present in the tree.
+all state from `useWallet()` internally. Depends on both `WalletProvider` and `ToastProvider`
+`being present in the tree.
 
 ### Props
 
@@ -209,8 +210,8 @@ None. This component is fully self-contained.
 ### Rendered branches
 
 | State | Rendered output |
-|-------|----------------|
-| Disconnected | "Connect Wallet" button ($aria-label="Connect wallet"$). |
+|-------|-----------------|
+| Disconnected | "Connect Wallet" button (`aria-label="Connect wallet"`). |
 | Connecting | Disabled button with animated spinner and "Connecting…" text. |
 | Error | Red banner with "Connection Error" label and a "Retry" link ($aria-label="Retry wallet connection"$). |
 | Connected | Address pill (truncated via $truncateAddress$), copy button ($aria-label="Copy address to clipboard"$), and disconnect button ($aria-label="Disconnect wallet"$). |
@@ -250,22 +251,22 @@ on blur to match on-chain representation.
 
 | Prop | Type | Required | Default | Description |
 |------|------|----------|---------|-------------|
-| $id$ | $string$ | ✓ | — | $id$ for the $<input>$ and its associated $<label>$. |
-| $label$ | $string$ | ✓ | — | Visible label text. Also used in generated error messages. |
-| $value$ | $string$ | ✓ | — | Controlled input value. |
-| $onChange$ | $(value: string) => void$ | ✓ | — | Called on every keystroke with the raw input value, and on blur with the normalized (uppercased) value if it changed. |
-| $error$ | $string$ | — | $undefined$ | External error message from the parent form (e.g. submit-time validation). Takes precedence over any internally generated blur error. |
-| $helperText$ | $string$ | — | $undefined$ | Supplemental hint displayed below the input. |
-| $required$ | $boolean$ | — | $undefined$ | Marks the field as required visually and semantically. Triggers a $"{label} is required"$ error on blur when the value is empty. |
-| $placeholder$ | $string$ | — | $$GXXXXXXXX…$$ | Input placeholder text. |
-| $onValidation$ | $(fieldId: string, error: string \| null) => void$ | — | $undefined$ | Called after every blur with the validation result. Use to feed errors into a parent $ErrorSummary$. |
+| `id` | `string` | ✓ | — | `id` for the `<input>` and its associated `<label>`. |
+| `label` | `string` | ✓ | — | Visible label text. Also used in generated error messages. |
+| `value` | `string` | ✓ | — | Controlled input value. |
+| `onChange` | `(value: string) => void` | ✓ | — | Called on every keystroke with the raw input value, and on blur with the normalized (uppercased) value if it changed. |
+| `error` | `string` | — | `undefined` | External error message from the parent form (e.g. submit-time validation). Takes precedence over any internally generated blur error. |
+| `helperText` | `string` | — | `undefined` | Supplemental hint displayed below the input. |
+| `required` | `boolean` | — | `undefined` | Marks the field as required visually and semantically. Triggers a `'${label} is required'` error on blur when the value is empty. |
+| `placeholder` | `string` | — | `"GXXXXXXXX…"` | Input placeholder text. |
+| `onValidation` | `(fieldId: string, error: string \ | null) => void` | — | `undefined` | Called after every blur with the validation result. Use to feed errors into a parent `ErrorSummary`. |
 
 ### Validation rules (applied on blur)
 
 | Condition | Error message |
 |-----------|--------------|
-| Empty value and $required={true}$ | $"{{label}} is required"$ |
-| Non-empty value fails $isValidStellarAddress$ | $"{{label}} must be a valid Stellar G... address"$ |
+| Empty value and `required={true}` | `" ${label} is required"` |
+| Non-empty value fails `isValidStellarAddress` | `" ${label} must be a valid Stellar G... address"` |
 | Valid address | No error; value is normalized to uppercase. |
 
 ### Accessibility
@@ -497,7 +498,7 @@ Focused tests for the page live in `src/app/wallet/page.test.tsx` and cover:
 |--------|------|-------------|
 | $WalletConnectButton$ | Component (named + default) | Self-contained connect/disconnect UI. |
 
-### $src/components/WalletAddressInput.tsx$
+### `src/components/WalletAddressInput.tsx` 
 
 | Export | Kind | Description |
 |--------|------|-------------|
@@ -514,7 +515,73 @@ Focused tests for the page live in `src/app/wallet/page.test.tsx` and cover:
 
 ## Session persistence
 
-The connected address is stored in $localStorage$ under the key $wallet_connected_address$. On mount, the
-provider reads this key and rehydrates $address$ if the value is a non-empty string. On $disconnect()$, the
-key is removed. Corrupted or malformed stored values are ignored and treated as disconnected to avoid an
-invalid session.
+The connected address is stored in `localStorage` under the key `wallet_connected_address`.
+On mount, the provider rehydrates the address from this key so it survives page refreshes.
+Disconnecting removes the key and clears in-memory state.
+
+---
+
+## State invariants (`src/app/wallet/page.tsx`)
+
+The wallet page owns the following invariants. They are enforced in code and covered by
+focused tests.
+
+### I/1 — Single in-flight connection
+
+At most one `connect()` attempt may be in flight at a time. Repeated or concurrent invocations
+(double-click, keyboard repeat, React StrictMode double-invoke, programmatic calls) are
+coalesced into the existing promise rather than starting a second attempt. This prevents
+out-of-order resolutions from clobbering `address` or `isConnecting`.
+
+### I/2 — Address is either null or a valid Stellar G-address
+
+Whenever `address` becomes non-null, it must satisfy `isValidStellarAddress`. The
+provider validates any candidate address before committing it to state or persisting it to
+`localStorage`. If the address is invalid, the attempt fails with a diagnosable error and
+no state change occurs.
+
+### I/3 — Persistence is atomic with state
+
+The `wallet_connected_address` key in `localStorage` is written only after the in-memory
+address has been accepted, and removed on disconnect. If `localStorage` is unavailable or
+throws (e.g. private browsing, quota exceeded), the in-memory session still succeeds and the
+failure is reported through the error channel — no silent data loss.
+
+### I/4 — Disconnect is idempotent and cancels pending work
+
+Calling `disconnect()` when already disconnected is a no-op. Calling it while a connection is in
+flight marks the attempt as cancelled so the eventual resolution of the in-flight promise does
+not re-attach an address. This prevents a stale connection from resurrecting after the user
+has explicitly disconnected.
+
+### I/5 — Idle timeout cannot fire while disconnected or connecting
+
+The idle timer is armed only when `address !== null` and `isConnecting === false`. The
+timer is cleared on disconnect, on connect start, and on unmount. A timeout fire that coincides
+with a new connect attempt is suppressed.
+
+### I/6 — Errors are non-fatal and observable
+
+`connect()` always resolves (it never rejects). Failures set `error` to a human-readable,
+sanitized message and emit an accessible toast. Raw wallet error objects, stack traces, and
+addresses are never included in user-visible messages or logs.
+
+### I/7 — Validation is deterministic for duplicate and boundary inputs
+
+The same input always produces the same validation result. Empty values, values of the
+wrong length, lowercase addresses, and duplicate submissions are all handled explicitly.
+Normalization to uppercase happens once on blur and is idempotent.
+
+---
+
+## Testing
+
+Focused tests live beside the implementation and cover:
+
+- **Success path**: a valid address is committed and persisted.
+- `**Rejection path**: invalid addresses and user rejection set `error` without mutating `address`.
+- **Boundary cases**: empty string, wrong length, and lowercase input.
+- `**Concurrency**: concurrent `connect()` calls coalesce into one attempt.
+- `**Regression**: disconnect during an in-flight connect does not re-attach the address.
+
+Run the focused suite with the repository test runner and keep the CI evidence attached to the PR.
