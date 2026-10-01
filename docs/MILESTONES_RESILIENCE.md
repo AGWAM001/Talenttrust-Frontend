@@ -46,7 +46,7 @@ drifting apart over time.
 4. The existing list shell with three representative milestone cards.
 
 The shell uses `aria-busy="true"` on its board root. A single visually hidden
-`role="status"` node announces `Loading milestones․` with polite priority.
+`role="status"` node announces `Loading milestones…w with polite priority.
 Every shimmer block is `aria-hidden="true"`, so screen readers do not count
 decorative rectangles as content or controls.
 

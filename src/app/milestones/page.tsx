@@ -1,7 +1,7 @@
 'use client';
 
 import React, {
-  createContext,
+  useReducer,
   useCallback,
   useEffect,
   useMemo,
@@ -42,6 +42,8 @@ const VALID_STATUSES: MilestoneStatusFilter[] = [
   'Cancelled',
 ];
 
+const MAX_STATUS_PARAM_LENGTH = 32;
+
 function getValidStatus(param: string | null): MilestoneStatusFilter {
   return param && (VALID_STATUSES as string[]).includes(param)
     ? (param as MilestoneStatusFilter)
@@ -60,6 +62,8 @@ const CANONICAL_STATUS_PARAM = 'status';
 type MilestoneSortOption = 'newest' | 'oldest';
 const VALID_SORT_OPTIONS: MilestoneSortOption[] = ['newest', 'oldest'];
 
+const MAX_SORT_PARAM_LENGTH = 16;
+
 function getValidSortOption(param: string | null): MilestoneSortOption {
   return param && (VALID_SORT_OPTIONS as string[]).includes(param)
     ? (param as MilestoneSortOption)
@@ -74,9 +78,92 @@ function getValidSortOption(param: string | null): MilestoneSortOption {
 const CANONICAL_SORT_PARAM = 'sort';
 
 
+type UrlSyncState = {
+  status: MilestoneStatusFilter;
+  sort: MilestoneSortOption;
+};
+
+type UrlSyncAction =
+  | { type: 'status'; value: MilestoneStatusFilter }
+  | { type: 'sort'; value: MilestoneSortOption }
+  | { type: 'sync'; value: UrlSyncState };
+
+const INITIAL_URL_SYNC_STATE: UrlSyncState = {
+  status: 'All',
+  sort: 'newest',
+};
+
+/**
+ * Invariant: the URL sync state is the single source of truth for the
+ * `status` and `sort` query parameters. Transitions are pure and
+ * deterministic so concurrent updates (user interaction + navigation)
+ * cannot produce an inconsistent URL.
+ */
+function urlSyncReducer(
+  state: UrlSyncState,
+  action: UrlSyncAction,
+): UrlSyncState {
+  switch (action.type) {
+    case 'status':
+      return state.status === action.value
+        ? state
+        : { ...state, status: action.value };
+    case 'sort':
+      return state.sort === action.value
+        ? state
+        : { ...state, sort: action.value };
+    case 'sync':
+      return state.status === action.value.status &&
+        state.sort === action.value.sort
+        ? state
+        : action.value;
+    default:
+      return state;
+  }
+}
+
+/**
+ * Normalizes a raw query parameter into a bounded, validated value.
+ * Rejects oversized, empty, or unknown inputs by returning `null`.
+ */
+function normalizeParam(
+  raw: string | null,
+  maxLength: number,
+): string | null {
+  if (raw === null) return null;
+  const trimmed = raw.trim();
+  if (trimmed.length === 0 || trimmed.length > maxLength) return null;
+  return trimmed;
+}
+
+function parseUrlSyncState(params: URLSearchParams): UrlSyncState {
+  const statusParam = normalizeParam(
+    params.get('status'),
+    MAX_STATUS_PARAM_LENGTH,
+  );
+  const sortParam = normalizeParam(params.get('sort'), MAX_SORT_PARAM_LENGTH);
+  return {
+    status: getValidStatus(statusParam),
+    sort: getValidSortOption(sortParam),
+  };
+}
+
+function buildUrlSyncQuery(state: UrlSyncState): string {
+  const params = new URLSearchParams();
+  if (state.status !== 'All') {
+    params.set('status', state.status);
+  }
+  if (state.sort !== 'newest') {
+    params.set('sort', state.sort);
+  }
+  return params.toString();
+}
+
+function urlSyncStatesEqual(a: UrlSyncState, b: UrlSyncState): boolean {
+  return a.status === b.status && a.sort === b.sort;
+}
 
 
-const MILESTONE_LOAD_EPOCH = Symbol('milestone-load-epoch');
 
 const MilestonesContent: React.FC = () => {
   const [milestones, setMilestones] = useState<Milestone[]>(SAMPLE_MILESTONES);
@@ -90,12 +177,11 @@ const MilestonesContent: React.FC = () => {
   // cannot interleave and produce a non-deterministic final state.
   const recoveryInFlightRef = useRef<boolean>(false);
 
-  const initialStatus = getValidStatus(searchParams.get(CANONICAL_STATUS_PARAM));
-  const [statusFilter, setStatusFilter] =
-    useState<MilestoneStatusFilter>(initialStatus);
-  const [sortOrder, setSortOrder] = useState<MilestoneSortOption>(
-    getValidSortOption(searchParams.get(CANONICAL_SORT_PARAM)),
+  const [urlSyncState, dispatchUrlSync] = useReducer(
+    urlSyncReducer,
+    INITIAL_URL_SYNC_STATE,
   );
+  const { status: statusFilter, sort: sortOrder } = urlSyncState;
   const [showForm, setShowForm] = useState(false);
   const { showError } = useToast();
   const repositoryMilestones = useRepositoryMilestones();
@@ -148,52 +234,43 @@ const MilestonesContent: React.FC = () => {
   // Track the last reconciled snapshot so we can detect silent data loss.
   const lastReconciledRef = useRef<Milestone[] | null>(null);
 
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-    };
+  const setStatusFilter = useCallback(
+    (value: MilestoneStatusFilter) => {
+      dispatchUrlSync({ type: 'status', value });
+    },
+    [],
+  );
+
+  const setSortOrder = useCallback((value: MilestoneSortOption) => {
+    dispatchUrlSync({ type: 'sort', value });
   }, []);
 
-  // Keep local state in sync with the repository snapshot. Because the
-  // snapshot is derived from the same source of truth used by optimistic
-  // mutations, racing writes converge to the last committed value.
   useEffect(() => {
-    setMilestones(repositoryMilestones);
-  }, [repositoryMilestones]);
-
-  useEffect(() => {
-    setStatusFilter(getValidStatus(searchParams.get(CANONICAL_STATUS_PARAM)));
-    setSortOrder(getValidSortOption(searchParams.get(CANONICAL_SORT_PARAM)));
+    const next = parseUrlSyncState(searchParams);
+    dispatchUrlSync({ type: 'sync', value: next });
   }, [searchParams]);
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
-      const params = new URLSearchParams(searchParams.toString());
-      if (statusFilter !== 'All') {
-        params.set(CANONICAL_STATUS_PARAM, statusFilter);
-      } else {
-        params.delete(CANONICAL_STATUS_PARAM);
+      const current = parseUrlSyncState(searchParams);
+      if (urlSyncStatesEqual(current, urlSyncState)) {
+        return;
       }
 
-      if (sortOrder !== 'newest') {
-        params.set(CANONICAL_SORT_PARAM, sortOrder);
-      } else {
-        params.delete(CANONICAL_SORT_PARAM);
+      const query = buildUrlSyncQuery(urlSyncState);
+      const nextHref = query ? `?${query}` : '?';
+      const currentHref = searchParams.toString()
+        ? `?${searchParams.toString()}`
+        : '?';
+      if (nextHref === currentHref) {
+        return;
       }
 
-      const query = params.toString();
-      // Use scroll:false and guard against redundant replaces so rapid
-      // filter/sort toggles cannot enqueue overlapping navigations that
-      // race each other and leave the URL out of sync with state.
-      const nextUrl = query ? `?${query}` : '?';
-      if (nextUrl !== window.location.search) {
-        router.replace(nextUrl, { scroll: false });
-      }
+      router.replace(nextHref);
     }, 150);
 
     return () => window.clearTimeout(timeoutId);
-  }, [statusFilter, sortOrder, router, searchParams]);
+  }, [urlSyncState, router, searchParams]);
 
   useEffect(() => {
     const epoch = loadEpochRef.current;
@@ -282,6 +359,13 @@ const MilestonesContent: React.FC = () => {
   const handleAddMilestone = useCallback(() => {
     setShowForm(true);
   }, []);
+
+  const handleStatusFilterChange = useCallback(
+    (value: MilestoneStatusFilter) => {
+      setStatusFilter(value);
+    },
+    [setStatusFilter],
+  );
 
   const handleSubmitMilestone = useCallback((milestone: Milestone) => {
     const result = optimisticCreate({ ...milestone, status: normalizeMilestoneStatus(milestone.status) });
@@ -435,7 +519,7 @@ const MilestonesContent: React.FC = () => {
             <MilestonesErrorBoundary sectionName="filters">
               <MilestoneFilter
                 selected={statusFilter}
-                onChange={setStatusFilter}
+                onChange={handleStatusFilterChange}
                 resultCount={sortedMilestones.length}
               />
             </MilestonesErrorBoundary>
@@ -450,7 +534,9 @@ const MilestonesContent: React.FC = () => {
                     id="milestone-sort"
                     aria-label="Sort milestones"
                     value={sortOrder}
-                    onChange={(event) => setSortOrder(event.target.value as MilestoneSortOption)}
+                    onChange={(event) =>
+                      setSortOrder(getValidSortOption(event.target.value))
+                    }
                     className="rounded-xl border border-slate-200 bg-transparent px-2 py-1 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                   >
                     <option value="newest">Newest first</option>
