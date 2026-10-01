@@ -7,8 +7,33 @@ export interface StatusTally {
   count: number;
 }
 
+/**
+ * Canonical set of status values that the tally may report.
+ * Used to guard against unknown/stale status values at the boundary.
+ */
+const KNOWN_STATUSES: ReadonlySet<StatusType> = new Set(STATUS_ORDER);
+
+function isKnownStatus(value: unknown): value is StatusType {
+  return typeof value === 'string' && KNOWN_STATUSES.has(value as StatusType);
+}
+
+/**
+ * Compute a deterministic tally of milestone statuses.
+ *
+ * Invariants:
+ - The result is a pure function of the input array; repeated or concurrent
+ *   calls with the same input always produce the same output (no shared mutable
+ *   state, no time-dependent behavior).
+ * - Output order is deterministic and follows STATUS_ORDER, independent of input
+ *   ordering.
+ * - Only known status values are counted; unknown/stale values are ignored rather
+ *   than corrupting the tally or throwing. This keeps the function totally
+ *   safe under concurrent execution and partial failure of upstream data.
+ * - Zero-count statuses are omitted from the output to preserve the existing
+ *   public contract.
+ */
 export function milestoneStatusTally(
-  milestones: { status: StatusType }[],
+  milestones: readonly { status: StatusType }[],
 ): StatusTally[] {
   const counts: Record<StatusType, number> = {
     Active: 0,

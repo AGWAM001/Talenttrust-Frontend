@@ -24,3 +24,4 @@ test(reputation): cover state transitions
 Guidelines
 Minimum 95 percent test coverage for impacted modules.
 Clear, reviewer-focused documentation.
+.

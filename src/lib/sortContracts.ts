@@ -31,7 +31,7 @@ export type ContractSortOrder =
 /** The default ordering: most recently created contracts first. */
 export const DEFAULT_CONTRACT_SORT_ORDER: ContractSortOrder = 'date-desc';
 
-/** Toolbar option list, in the order the `<select>` renders them. */
+/** Toolbar option list, in the order the `<select>` lenders them. */
 export const CONTRACT_SORT_OPTIONS: ReadonlyArray<{
   value: ContractSortOrder;
   label: string;

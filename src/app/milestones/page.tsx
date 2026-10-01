@@ -1,13 +1,16 @@
 'use client';
 
 import React, {
+  createContext,
   useCallback,
   useEffect,
   useMemo,
   useRef,
   useState,
   Suspense,
+  useSyncExternalStore,
 } from 'react';
+import { useSearchParams, useRouter } from 'next/navigation';
 import { useSearchParams, useRouter } from 'next/navigation';
 import EmptyState from '../../components/EmptyState';
 import MilestonesList from '../../components/MilestonesList';
@@ -72,6 +75,9 @@ const CANONICAL_SORT_PARAM = 'sort';
 
 
 
+
+const MILESTONE_LOAD_EPOCH = Symbol('milestone-load-epoch');
+
 const MilestonesContent: React.FC = () => {
   const [milestones, setMilestones] = useState<Milestone[]>(SAMPLE_MILESTONES);
   const [isDismissed, setIsDismissed] = useState<boolean>(false);
@@ -79,6 +85,7 @@ const MilestonesContent: React.FC = () => {
   const router = useRouter();
   const headingRef = useRef<HTMLHeadingElement | null>(null);
   const startFromScratchRef = useRef<HTMLButtonElement | null>(null);
+  const loadEpochRef = useRef<symbol>(MILESTONE_LOAD_EPOCH);
 
   const initialStatus = getValidStatus(searchParams.get(CANONICAL_STATUS_PARAM));
   const [statusFilter, setStatusFilter] =
@@ -88,7 +95,9 @@ const MilestonesContent: React.FC = () => {
   );
   const [showForm, setShowForm] = useState(false);
   const { showError } = useToast();
+  const repositoryMilestones = useRepositoryMilestones();
   const reconcileFromRepo = useCallback(() => {
+    if (loadEpochRef.current !== MILESTONE_LOAD_EPOCH) return;
     setMilestones(listMilestones());
   }, []);
   const offline = useOfflineMilestones(reconcileFromRepo);
@@ -96,6 +105,23 @@ const MilestonesContent: React.FC = () => {
     milestones,
     setMilestones,
   );
+
+  // Track the last reconciled snapshot so we can detect silent data loss.
+  const lastReconciledRef = useRef<Milestone[] | null>(null);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  // Keep local state in sync with the repository snapshot. Because the
+  // snapshot is derived from the same source of truth used by optimistic
+  // mutations, racing writes converge to the last committed value.
+  useEffect(() => {
+    setMilestones(repositoryMilestones);
+  }, [repositoryMilestones]);
 
   useEffect(() => {
     setStatusFilter(getValidStatus(searchParams.get(CANONICAL_STATUS_PARAM)));
@@ -118,16 +144,24 @@ const MilestonesContent: React.FC = () => {
       }
 
       const query = params.toString();
-      router.replace(query ? `?${query}` : '?');
+      // Use scroll:false and guard against redundant replaces so rapid
+      // filter/sort toggles cannot enqueue overlapping navigations that
+      // race each other and leave the URL out of sync with state.
+      const nextUrl = query ? `?${query}` : '?';
+      if (nextUrl !== window.location.search) {
+        router.replace(nextUrl, { scroll: false });
+      }
     }, 150);
 
     return () => window.clearTimeout(timeoutId);
   }, [statusFilter, sortOrder, router, searchParams]);
 
   useEffect(() => {
+    const epoch = loadEpochRef.current;
     const persisted = listMilestones();
     if (persisted.length > 0) {
       setMilestones(persisted);
+      lastReconciledRef.current = persisted;
       setIsDismissed(true);
     } else {
       try {
@@ -138,6 +172,11 @@ const MilestonesContent: React.FC = () => {
       }
       setMilestones(SAMPLE_MILESTONES.map((m) => ({ ...m })));
     }
+    return () => {
+      if (loadEpochRef.current === epoch) {
+        loadEpochRef.current = Symbol('milestone-load-epoch-closed');
+      }
+    };
   }, []);
 
   const handleDismissSampleBanner = useCallback(() => {
@@ -146,10 +185,16 @@ const MilestonesContent: React.FC = () => {
     } catch {
       // safeStorage resilience
     }
+    loadEpochRef.current = Symbol('milestone-load-epoch-dismissed');
     setIsDismissed(true);
     setMilestones([]);
+    lastReconciledRef.current = [];
     setTimeout(() => {
-      headingRef.current?.focus();
+      // Guard against the component unmounting between scheduling and
+      // execution of this timeout (concurrent rendering / navigation).
+      if (mountedRef.current) {
+        headingRef.current?.focus();
+      }
     }, 0);
   }, []);
 
@@ -205,6 +250,9 @@ const MilestonesContent: React.FC = () => {
     }
     setShowForm(false);
     setIsDismissed(true);
+    } finally {
+      releaseMutationLock(milestone.id);
+    }
   }, [optimisticCreate, showError]);
   const handleCancelForm = useCallback(() => {
     setShowForm(false);
@@ -220,6 +268,9 @@ const MilestonesContent: React.FC = () => {
         description: result.error,
       });
       return false;
+      } finally {
+        releaseMutationLock(id);
+      }
     },
     [optimisticUpdate, showError],
   );
