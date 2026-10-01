@@ -155,7 +155,10 @@ const MilestonesContent: React.FC = () => {
   const [showForm, setShowForm] = useState(false);
   const { showError } = useToast();
   const reconcileFromRepo = useCallback(() => {
-    setMilestones(listMilestones());
+    setMilestones((prev) => {
+      const next = listMilestones();
+      return isSameMilestoneList(prev, next) ? prev : next;
+    });
   }, []);
   const offline = useOfflineMilestones(reconcileFromRepo);
   const { optimisticCreate, optimisticUpdate } = useOptimisticMilestoneMutation(
@@ -167,8 +170,10 @@ const MilestonesContent: React.FC = () => {
   const lastReconciledRef = useRef<Milestone[] | null>(null);
 
   useEffect(() => {
-    setStatusFilter(getValidStatus(searchParams.get('status')));
-    setSortOrder(getValidSortOption(searchParams.get('sort')));
+    const nextStatus = getValidStatus(searchParams.get('status'));
+    const nextSort = getValidSortOption(searchParams.get('sort'));
+    setStatusFilter((prev) => (prev === nextStatus ? prev : nextStatus));
+    setSortOrder((prev) => (prev === nextSort ? prev : nextSort));
   }, [searchParams]);
 
   useEffect(() => {
@@ -187,7 +192,12 @@ const MilestonesContent: React.FC = () => {
       }
 
       const query = params.toString();
-      router.replace(query ? `?${query}` : '?');
+      const nextUrl = query ? `?${query}` : '?';
+      const currentUrl = searchParams.toString();
+      const currentUrlWithPrefix = currentUrl ? `?${currentUrl}` : '?';
+      if (nextUrl !== currentUrlWithPrefix) {
+        router.replace(nextUrl);
+      }
     }, 150);
 
     return () => window.clearTimeout(timeoutId);

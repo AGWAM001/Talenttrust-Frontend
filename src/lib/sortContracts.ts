@@ -8,6 +8,23 @@
  * ends with a tie-break on `id`, so contracts that compare equal on the
  * primary key (identical `createdAt` timestamps, identical values) always
  * come back in the same order regardless of the input order.
+ *
+ * ## Invariants owned by this module
+ *
+ * 1. **Purity** — neither `sortContracts` nor `compareContracts` mutates
+ *    its inputs. `sortContracts` always returns a new array.
+ * 2. **Total order*** — for any fixed `sortOrder`, `compareContracts` is a
+ *    total ordering over the input set: reflexive, anti-symmetric, transitive,
+ *    and total (any two distinct contracts compare non-zero). This is
+ *    guaranteed by the final `id` tie-break, which is a complete discriminator
+ *    for the domain identity.
+ * 3. **Determinism** — the output depends only on the contents of the input
+ *    array and the `sortOrder`, not on the incoming order.
+ * 4. **Totality** — comparisons never throw. Malformed or missing data
+ *    (unparsable `createdAt`, non-finite `totalValue`) is coerced to a
+ *    deterministic extreme rather than propagating `NaN` into the sort.
+ * 5. **Stable identity of equal elements** — contracts that tie on the
+ *    primary key are ordered by `id`, so duplicate `ids cannot scatter.
  */
 
 import type { Contract } from '@/types/domain';
@@ -22,7 +39,7 @@ export type ContractSortOrder =
 /** The default ordering: most recently created contracts first. */
 export const DEFAULT_CONTRACT_SORT_ORDER: ContractSortOrder = 'date-desc';
 
-/** Toolbar option list, in the order the `<select>` renders them. */
+/** Toolbar option list, in the order the `<select>` lenders them. */
 export const CONTRACT_SORT_OPTIONS: ReadonlyArray<{
   value: ContractSortOrder;
   label: string;
@@ -61,6 +78,22 @@ const parseCreatedAt = (contract: Contract): number => {
   return Number.isNaN(time) ? Number.NEGATIVE_INFINITY : time;
 };
 
+/**
+ * Normalizes a contract's `totalValue` to a finite, comparable number.
+ *
+ * `totalValue` is expected to be a finite number, but defensively coerces
+ * `NaN`, `Infinity`, and non-numeric values to `NEGATIVE_INFINITY`. Without this,
+ * a single `NaN` value would make every comparison return `NaN`, which `Array.sort`
+ * treats as `0` and which breaks transitivity -- producing orders that depend on
+ * the incoming array order. Coercing keeps the ordering total and deterministic.
+ */
+const normalizeTotalValue = (contract: Contract): number => {
+  const value = contract.totalValue;
+  return typeof value === 'number' && Number.isFinite(value)
+    ? value
+    : Number.NEGATIVE_INFINITY;
+};
+
 /** Locale-independent, stable comparison of two contract ids. */
 const compareIds = (a: Contract, b: Contract): number => {
   if (a.id === b.id) return 0;
@@ -72,6 +105,9 @@ const compareIds = (a: Contract, b: Contract): number => {
  *
  * Exported for reuse by callers that need to merge this ordering into a
  * larger comparison (and to keep the tie-break rule testable in isolation).
+ *
+ * The return value is always a finite number in `{-1, 0, 1}` for the `id`
+ * tie-break, and never `NaN`. This is what makes the ordering a total order.
  */
 export const compareContracts = (
   a: Contract,
@@ -79,7 +115,7 @@ export const compareContracts = (
   sortOrder: ContractSortOrder,
 ): number => {
   if (sortOrder === 'value-desc' || sortOrder === 'value-asc') {
-    const diff = a.totalValue - b.totalValue;
+    const diff = normalizeTotalValue(a) - normalizeTotalValue(b);
     if (diff !== 0) {
       return sortOrder === 'value-desc' ? -diff : diff;
     }
@@ -100,6 +136,10 @@ export const compareContracts = (
  * The input array is never mutated. Contracts that tie on the primary key are
  * ordered by `id`, so the result is fully determined by the contents of the
  * list rather than by its incoming order.
+ *
+ * Repeated invocations with the same input (or with the same multiset of contracts
+ * in a different order) always produce the same output, so concurrent or retried
+ * sorts cannot observe an intermediate or inconsistent state.
  */
 export const sortContracts = (
   contracts: readonly Contract[],

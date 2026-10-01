@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from 'react';
 import Link from 'next/link';
-import { reportError } from '@/lib/errorReporter';
+import { useMilestonesRouteError } from '@/hooks/useMilestonesRouteError';
 
 type MilestonesErrorProps = {
   error: Error & { digest?: string };
@@ -93,7 +93,7 @@ export default function MilestonesError({ error, reset }: MilestonesErrorProps) 
             onClick={handleReset}
             className="rounded-xl bg-blue-600 px-4 py-2 font-semibold text-white hover:bg-blue-700 focus-visible:outline focus-visible:outline-4 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
           >
-            Try again
+            {isPending ? 'Trying...' : 'Try again'}
           </button>
           <Link
             href="/"
@@ -102,6 +102,15 @@ export default function MilestonesError({ error, reset }: MilestonesErrorProps) 
             Go home
           </Link>
         </div>
+        {recoveryNotice && (
+          <p
+            id="milestones-error-recovery-notice"
+            role="status"
+            className="mt-4 text-sm text-red-700"
+          >
+            {recoveryNotice}
+          </p>
+        )}
       </section>
     </main>
   );
