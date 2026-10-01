@@ -42,7 +42,11 @@ const VALID_STATUSES: MilestoneStatusFilter[] = [
   'Cancelled',
 ];
 
-const MAX_STATUS_PARAM_LENGTH = 32;
+function getUniqueQueryParam(query: string, key: string): string | null {
+  const values = new URLSearchParams(query).getAll(key);
+  // Repeated keys are ambiguous, so treat them like any other invalid value.
+  return values.length === 1 ? values[0] : null;
+}
 
 function getValidStatus(param: string | null): MilestoneStatusFilter {
   return param && (VALID_STATUSES as string[]).includes(param)
@@ -167,6 +171,7 @@ function urlSyncStatesEqual(a: UrlSyncState, b: UrlSyncState): boolean {
 
 const MilestonesContent: React.FC = () => {
   const [milestones, setMilestones] = useState<Milestone[]>(SAMPLE_MILESTONES);
+  const milestoneIdsRef = useRef(new Set(milestones.map(({ id }) => id)));
   const [isDismissed, setIsDismissed] = useState<boolean>(false);
   const [recoveryKey, setRecoveryKey] = useState(0);
   const searchParams = useSearchParams();
@@ -177,9 +182,12 @@ const MilestonesContent: React.FC = () => {
   // cannot interleave and produce a non-deterministic final state.
   const recoveryInFlightRef = useRef<boolean>(false);
 
-  const [urlSyncState, dispatchUrlSync] = useReducer(
-    urlSyncReducer,
-    INITIAL_URL_SYNC_STATE,
+  const initialQuery = searchParams.toString();
+  const initialStatus = getValidStatus(getUniqueQueryParam(initialQuery, 'status'));
+  const [statusFilter, setStatusFilter] =
+    useState<MilestoneStatusFilter>(initialStatus);
+  const [sortOrder, setSortOrder] = useState<MilestoneSortOption>(
+    getValidSortOption(getUniqueQueryParam(initialQuery, 'sort')),
   );
   const { status: statusFilter, sort: sortOrder } = urlSyncState;
   const [showForm, setShowForm] = useState(false);
@@ -246,8 +254,13 @@ const MilestonesContent: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    const next = parseUrlSyncState(searchParams);
-    dispatchUrlSync({ type: 'sync', value: next });
+    milestoneIdsRef.current = new Set(milestones.map(({ id }) => id));
+  }, [milestones]);
+
+  useEffect(() => {
+    const query = searchParams.toString();
+    setStatusFilter(getValidStatus(getUniqueQueryParam(query, 'status')));
+    setSortOrder(getValidSortOption(getUniqueQueryParam(query, 'sort')));
   }, [searchParams]);
 
   useEffect(() => {
@@ -368,9 +381,18 @@ const MilestonesContent: React.FC = () => {
   );
 
   const handleSubmitMilestone = useCallback((milestone: Milestone) => {
-    const result = optimisticCreate({ ...milestone, status: normalizeMilestoneStatus(milestone.status) });
+    if (milestoneIdsRef.current.has(milestone.id)) {
+      showError({
+        title: 'Unable to create milestone',
+        description: 'A milestone with this identifier already exists.',
+      });
+      return;
+    }
+
+    milestoneIdsRef.current.add(milestone.id);
+    const result = optimisticCreate(milestone);
     if (!result.ok) {
-      recovery.recordFailure('create', result.error);
+      milestoneIdsRef.current.delete(milestone.id);
       showError({
         title: 'Unable to create milestone',
         description: result.error,
