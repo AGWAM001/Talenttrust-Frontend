@@ -85,6 +85,11 @@ Tests live in `src/app/not-found.test.tsx` and cover:
 | Go Home link | `href="/"` |
 | Contact Support link | `href="mailto:support@talenttrust.io"` |
 | All links keyboard reachable | All 5 links are `<a>` elements |
+| Rendered links match the contract | Hrefs/order equal `getNotFoundQuickLinks()` |
+| Documented defaults render | Labels and descriptions match the frozen default list |
+| Contract home/support hrefs | Constants drive the Go Home and Contact Support links |
+| No off-site anchor | No `http(s):` or `//` href can render |
+| Axe scan | No detectable accessibility violations |
 | Snapshot | Regression guard on rendered output |
 
 ### Invariant and adverse-case coverage
